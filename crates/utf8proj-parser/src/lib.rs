@@ -8,7 +8,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
+//! ```rust
 //! use utf8proj_parser::parse_project;
 //!
 //! let input = r#"
@@ -21,7 +21,8 @@
 //! }
 //! "#;
 //!
-//! let project = parse_project(input)?;
+//! let project = parse_project(input).unwrap();
+//! assert_eq!(project.name, "My Project");
 //! ```
 
 pub mod native;
@@ -46,7 +47,12 @@ pub enum ParseError {
 }
 
 /// Parse a project from the native DSL format
-pub fn parse_project(_input: &str) -> Result<utf8proj_core::Project, ParseError> {
-    // TODO: Implement full parser
-    Ok(utf8proj_core::Project::new("Placeholder"))
+pub fn parse_project(input: &str) -> Result<utf8proj_core::Project, ParseError> {
+    native::parse(input)
+}
+
+/// Parse a project file from a path
+pub fn parse_file(path: &std::path::Path) -> Result<utf8proj_core::Project, ParseError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ParseError::InvalidValue(e.to_string()))?;
+    parse_project(&content)
 }

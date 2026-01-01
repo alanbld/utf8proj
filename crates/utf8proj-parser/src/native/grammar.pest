@@ -9,10 +9,10 @@
 // Top-Level Structure
 // ============================================================================
 
-project_file = { 
-    SOI ~ 
-    (project_decl | calendar_decl | resource_decl | task_decl | report_decl | comment)* ~ 
-    EOI 
+project_file = {
+    SOI ~
+    (project_decl | calendar_decl | resource_decl | task_decl | report_decl)* ~
+    EOI
 }
 
 // ============================================================================
@@ -25,7 +25,7 @@ project_decl = {
     "}" 
 }
 
-project_body = { (project_attr | comment)* }
+project_body = { project_attr* }
 
 project_attr = { 
     project_start | 
@@ -49,7 +49,7 @@ calendar_decl = {
     "}" 
 }
 
-calendar_body = { (calendar_attr | comment)* }
+calendar_body = { calendar_attr* }
 
 calendar_attr = { 
     working_hours | 
@@ -78,7 +78,7 @@ resource_decl = {
     "}" 
 }
 
-resource_body = { (resource_attr | comment)* }
+resource_body = { resource_attr* }
 
 resource_attr = { 
     resource_rate | 
@@ -104,7 +104,7 @@ task_decl = {
     "}" 
 }
 
-task_body = { (task_attr | task_decl | comment)* }
+task_body = { (task_attr | task_decl)* }
 
 task_attr = { 
     task_effort | 
@@ -168,7 +168,7 @@ report_decl = {
 
 report_type = { "gantt" | "table" | "calendar" | "costs" | "resources" }
 
-report_body = { (report_attr | comment)* }
+report_body = { report_attr* }
 
 report_attr = { 
     report_tasks |
@@ -225,7 +225,7 @@ identifier_list = { identifier ~ ("," ~ identifier)* }
 // Comments and Whitespace
 // ============================================================================
 
-comment = _{ "#" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
 WHITESPACE = _{ " " | "\t" | NEWLINE }
 NEWLINE = _{ "\r\n" | "\n" | "\r" }
 
