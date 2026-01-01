@@ -1,0 +1,299 @@
+// utf8proj Native DSL Grammar
+// File extension: .proj
+// 
+// This grammar defines the syntax for utf8proj project files.
+// It is designed to be readable, writable by humans, and 
+// compatible with version control systems.
+
+// ============================================================================
+// Top-Level Structure
+// ============================================================================
+
+project_file = { 
+    SOI ~ 
+    (project_decl | calendar_decl | resource_decl | task_decl | report_decl | comment)* ~ 
+    EOI 
+}
+
+// ============================================================================
+// Project Declaration
+// ============================================================================
+
+project_decl = { 
+    "project" ~ string ~ "{" ~ 
+    project_body ~ 
+    "}" 
+}
+
+project_body = { (project_attr | comment)* }
+
+project_attr = { 
+    project_start | 
+    project_end | 
+    project_currency |
+    project_calendar
+}
+
+project_start = { "start" ~ ":" ~ date }
+project_end = { "end" ~ ":" ~ date }
+project_currency = { "currency" ~ ":" ~ identifier }
+project_calendar = { "calendar" ~ ":" ~ identifier }
+
+// ============================================================================
+// Calendar Declaration
+// ============================================================================
+
+calendar_decl = { 
+    "calendar" ~ string ~ "{" ~ 
+    calendar_body ~ 
+    "}" 
+}
+
+calendar_body = { (calendar_attr | comment)* }
+
+calendar_attr = { 
+    working_hours | 
+    working_days | 
+    holiday 
+}
+
+working_hours = { "working_hours" ~ ":" ~ time_range_list }
+working_days = { "working_days" ~ ":" ~ day_list }
+holiday = { "holiday" ~ string ~ date_range }
+
+time_range_list = { time_range ~ ("," ~ time_range)* }
+time_range = { time ~ "-" ~ time }
+time = @{ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} }
+
+day_list = { day ~ ("-" ~ day | ("," ~ day)*) }
+day = { "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" }
+
+// ============================================================================
+// Resource Declaration
+// ============================================================================
+
+resource_decl = { 
+    "resource" ~ identifier ~ string ~ "{" ~ 
+    resource_body ~ 
+    "}" 
+}
+
+resource_body = { (resource_attr | comment)* }
+
+resource_attr = { 
+    resource_rate | 
+    resource_capacity | 
+    resource_calendar |
+    resource_efficiency
+}
+
+resource_rate = { "rate" ~ ":" ~ money }
+resource_capacity = { "capacity" ~ ":" ~ number }
+resource_calendar = { "calendar" ~ ":" ~ identifier }
+resource_efficiency = { "efficiency" ~ ":" ~ number }
+
+money = { number ~ "/" ~ time_unit }
+
+// ============================================================================
+// Task Declaration
+// ============================================================================
+
+task_decl = { 
+    "task" ~ identifier ~ string ~ "{" ~ 
+    task_body ~ 
+    "}" 
+}
+
+task_body = { (task_attr | task_decl | comment)* }
+
+task_attr = { 
+    task_effort | 
+    task_duration | 
+    task_depends | 
+    task_assign | 
+    task_priority |
+    task_constraint |
+    task_milestone |
+    task_complete
+}
+
+task_effort = { "effort" ~ ":" ~ duration }
+task_duration = { "duration" ~ ":" ~ duration }
+task_depends = { "depends" ~ ":" ~ dependency_list }
+task_assign = { "assign" ~ ":" ~ resource_ref_list }
+task_priority = { "priority" ~ ":" ~ integer }
+task_milestone = { "milestone" ~ ":" ~ boolean }
+task_complete = { "complete" ~ ":" ~ percentage }
+
+// Dependencies
+dependency_list = { dependency ~ ("," ~ dependency)* }
+dependency = { task_ref ~ dep_modifier? }
+task_ref = { identifier ~ ("." ~ identifier)* }
+
+dep_modifier = { 
+    dep_lag | 
+    dep_type | 
+    dep_percentage 
+}
+
+dep_lag = { ("+" | "-") ~ duration }
+dep_type = { dep_type_keyword }
+dep_type_keyword = { "FS" | "SS" | "FF" | "SF" }
+dep_percentage = { "." ~ percentage }
+
+// Resource references
+resource_ref_list = { resource_ref ~ ("," ~ resource_ref)* }
+resource_ref = { identifier ~ ("@" ~ percentage)? }
+
+// Constraints
+task_constraint = { constraint_type ~ ":" ~ date }
+constraint_type = { 
+    "must_start_on" | 
+    "must_finish_on" | 
+    "start_no_earlier_than" | 
+    "start_no_later_than" |
+    "finish_no_earlier_than" |
+    "finish_no_later_than"
+}
+
+// ============================================================================
+// Report Declaration
+// ============================================================================
+
+report_decl = { 
+    "report" ~ report_type ~ string ~ "{" ~ 
+    report_body ~ 
+    "}" 
+}
+
+report_type = { "gantt" | "table" | "calendar" | "costs" | "resources" }
+
+report_body = { (report_attr | comment)* }
+
+report_attr = { 
+    report_tasks |
+    report_resources |
+    report_columns |
+    report_critical_path |
+    report_timeframe |
+    report_format
+}
+
+report_tasks = { "tasks" ~ ":" ~ task_filter }
+report_resources = { "resources" ~ ":" ~ resource_filter }
+report_columns = { "columns" ~ ":" ~ column_list }
+report_critical_path = { "critical_path" ~ ":" ~ ("highlight" | "show" | "hide") }
+report_timeframe = { "timeframe" ~ ":" ~ date_range }
+report_format = { "format" ~ ":" ~ identifier }
+
+task_filter = { "all" | identifier_list }
+resource_filter = { "all" | "show" | "hide" | identifier_list }
+column_list = { identifier ~ ("," ~ identifier)* }
+
+// ============================================================================
+// Primitives
+// ============================================================================
+
+// Duration: 5d, 2w, 8h, 3m
+duration = @{ number ~ duration_unit }
+duration_unit = { "h" | "d" | "w" | "m" }
+
+// Date: 2025-02-01
+date = @{ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
+date_range = { date ~ ".." ~ date }
+
+// Time unit for rates
+time_unit = { "hour" | "day" | "week" | "month" }
+
+// Numbers
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+integer = @{ "-"? ~ ASCII_DIGIT+ }
+percentage = @{ ASCII_DIGIT+ ~ "%" }
+
+// Boolean
+boolean = { "true" | "false" }
+
+// String: "quoted text"
+string = @{ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ (!"\"" ~ ANY)* }
+
+// Identifier: alphanumeric with underscores
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
+identifier_list = { identifier ~ ("," ~ identifier)* }
+
+// ============================================================================
+// Comments and Whitespace
+// ============================================================================
+
+comment = _{ "#" ~ (!NEWLINE ~ ANY)* ~ NEWLINE? }
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+NEWLINE = _{ "\r\n" | "\n" | "\r" }
+
+// ============================================================================
+// Examples (for documentation)
+// ============================================================================
+// 
+// # Simple project
+// project "Hello World" {
+//     start: 2025-01-01
+// }
+// 
+// resource dev "Developer" {
+//     rate: 850/day
+//     capacity: 1.0
+// }
+// 
+// task hello "Hello" { 
+//     duration: 1d 
+// }
+// 
+// task world "World" { 
+//     duration: 1d
+//     depends: hello
+// }
+// 
+// # Complex project with hierarchy
+// project "API Gateway Migration" {
+//     start: 2025-02-01
+//     end: 2025-06-30
+//     currency: EUR
+// }
+// 
+// calendar "standard" {
+//     working_hours: 09:00-12:00, 13:00-17:00
+//     working_days: mon-fri
+//     holiday "Easter" 2025-04-18..2025-04-21
+// }
+// 
+// resource backend "Backend Team" {
+//     rate: 800/day
+//     capacity: 2
+// }
+// 
+// task design "Design Phase" {
+//     task requirements "Requirements Analysis" {
+//         effort: 3d
+//         assign: backend
+//     }
+//     
+//     task architecture "Architecture Design" {
+//         effort: 5d
+//         assign: backend
+//         depends: requirements
+//     }
+// }
+// 
+// task implementation "Implementation" {
+//     depends: design.architecture
+//     
+//     task sprint1 "Sprint 1" {
+//         effort: 10d
+//         assign: backend
+//     }
+// }
+// 
+// report gantt "timeline.svg" {
+//     tasks: all
+//     resources: show
+//     critical_path: highlight
+// }

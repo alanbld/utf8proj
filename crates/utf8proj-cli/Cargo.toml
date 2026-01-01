@@ -1,0 +1,26 @@
+[package]
+name = "utf8proj-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line interface for utf8proj scheduling engine"
+keywords = ["cli", "scheduling", "project-management"]
+
+[[bin]]
+name = "utf8proj"
+path = "src/main.rs"
+
+[dependencies]
+utf8proj-core.workspace = true
+utf8proj-parser.workspace = true
+utf8proj-solver.workspace = true
+utf8proj-render.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

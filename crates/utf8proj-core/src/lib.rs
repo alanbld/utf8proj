@@ -1,0 +1,811 @@
+//! # utf8proj-core
+//!
+//! Core domain model and traits for the utf8proj scheduling engine.
+//!
+//! This crate provides:
+//! - Domain types: `Project`, `Task`, `Resource`, `Calendar`, `Schedule`
+//! - Core traits: `Scheduler`, `WhatIfAnalysis`, `Renderer`
+//! - Error types and result aliases
+//!
+//! ## Example
+//!
+//! ```rust
+//! use utf8proj_core::{Project, Task, Resource, Duration};
+//!
+//! let mut project = Project::new("My Project");
+//! project.tasks.push(
+//!     Task::new("design")
+//!         .effort(Duration::days(5))
+//!         .assign("dev")
+//! );
+//! project.tasks.push(
+//!     Task::new("implement")
+//!         .effort(Duration::days(10))
+//!         .depends_on("design")
+//!         .assign("dev")
+//! );
+//! project.resources.push(Resource::new("dev").capacity(1.0));
+//! ```
+
+use chrono::{Datelike, NaiveDate};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use thiserror::Error;
+
+// ============================================================================
+// Type Aliases
+// ============================================================================
+
+/// Unique identifier for a task
+pub type TaskId = String;
+
+/// Unique identifier for a resource
+pub type ResourceId = String;
+
+/// Unique identifier for a calendar
+pub type CalendarId = String;
+
+/// Duration in working time
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Duration {
+    /// Number of minutes
+    pub minutes: i64,
+}
+
+impl Duration {
+    pub const fn zero() -> Self {
+        Self { minutes: 0 }
+    }
+
+    pub const fn minutes(m: i64) -> Self {
+        Self { minutes: m }
+    }
+
+    pub const fn hours(h: i64) -> Self {
+        Self { minutes: h * 60 }
+    }
+
+    pub const fn days(d: i64) -> Self {
+        Self { minutes: d * 8 * 60 } // 8-hour workday
+    }
+
+    pub const fn weeks(w: i64) -> Self {
+        Self { minutes: w * 5 * 8 * 60 } // 5-day workweek
+    }
+
+    pub fn as_days(&self) -> f64 {
+        self.minutes as f64 / (8.0 * 60.0)
+    }
+
+    pub fn as_hours(&self) -> f64 {
+        self.minutes as f64 / 60.0
+    }
+}
+
+impl std::ops::Add for Duration {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self { minutes: self.minutes + rhs.minutes }
+    }
+}
+
+impl std::ops::Sub for Duration {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self { minutes: self.minutes - rhs.minutes }
+    }
+}
+
+/// Monetary amount with currency
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Money {
+    pub amount: Decimal,
+    pub currency: String,
+}
+
+impl Money {
+    pub fn new(amount: impl Into<Decimal>, currency: impl Into<String>) -> Self {
+        Self {
+            amount: amount.into(),
+            currency: currency.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Project
+// ============================================================================
+
+/// A complete project definition
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Project {
+    /// Unique identifier
+    pub id: String,
+    /// Human-readable name
+    pub name: String,
+    /// Project start date
+    pub start: NaiveDate,
+    /// Project end date (optional, can be computed)
+    pub end: Option<NaiveDate>,
+    /// Default calendar for the project
+    pub calendar: CalendarId,
+    /// Currency for cost calculations
+    pub currency: String,
+    /// All tasks in the project (may be hierarchical)
+    pub tasks: Vec<Task>,
+    /// All resources available to the project
+    pub resources: Vec<Resource>,
+    /// Calendar definitions
+    pub calendars: Vec<Calendar>,
+    /// Scenario definitions (for what-if analysis)
+    pub scenarios: Vec<Scenario>,
+}
+
+impl Project {
+    /// Create a new project with the given name
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: String::new(),
+            name: name.into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: None,
+            calendar: "default".into(),
+            currency: "USD".into(),
+            tasks: Vec::new(),
+            resources: Vec::new(),
+            calendars: vec![Calendar::default()],
+            scenarios: Vec::new(),
+        }
+    }
+
+    /// Get a task by ID (searches recursively)
+    pub fn get_task(&self, id: &str) -> Option<&Task> {
+        fn find_task<'a>(tasks: &'a [Task], id: &str) -> Option<&'a Task> {
+            for task in tasks {
+                if task.id == id {
+                    return Some(task);
+                }
+                if let Some(found) = find_task(&task.children, id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        find_task(&self.tasks, id)
+    }
+
+    /// Get a resource by ID
+    pub fn get_resource(&self, id: &str) -> Option<&Resource> {
+        self.resources.iter().find(|r| r.id == id)
+    }
+
+    /// Get all leaf tasks (tasks without children)
+    pub fn leaf_tasks(&self) -> Vec<&Task> {
+        fn collect_leaves<'a>(tasks: &'a [Task], result: &mut Vec<&'a Task>) {
+            for task in tasks {
+                if task.children.is_empty() {
+                    result.push(task);
+                } else {
+                    collect_leaves(&task.children, result);
+                }
+            }
+        }
+        let mut leaves = Vec::new();
+        collect_leaves(&self.tasks, &mut leaves);
+        leaves
+    }
+}
+
+// ============================================================================
+// Task
+// ============================================================================
+
+/// A schedulable unit of work
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Task {
+    /// Unique identifier
+    pub id: TaskId,
+    /// Human-readable name
+    pub name: String,
+    /// Work effort required (person-time)
+    pub effort: Option<Duration>,
+    /// Calendar duration (overrides effort-based calculation)
+    pub duration: Option<Duration>,
+    /// Task dependencies
+    pub depends: Vec<Dependency>,
+    /// Resource assignments
+    pub assigned: Vec<ResourceRef>,
+    /// Scheduling priority (higher = scheduled first)
+    pub priority: u32,
+    /// Scheduling constraints
+    pub constraints: Vec<TaskConstraint>,
+    /// Is this a milestone (zero duration)?
+    pub milestone: bool,
+    /// Child tasks (WBS hierarchy)
+    pub children: Vec<Task>,
+    /// Completion percentage (for tracking)
+    pub complete: Option<f32>,
+    /// Custom attributes
+    pub attributes: HashMap<String, String>,
+}
+
+impl Task {
+    /// Create a new task with the given ID
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            name: id.clone(),
+            id,
+            effort: None,
+            duration: None,
+            depends: Vec::new(),
+            assigned: Vec::new(),
+            priority: 500,
+            constraints: Vec::new(),
+            milestone: false,
+            children: Vec::new(),
+            complete: None,
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Set the task name
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the effort
+    pub fn effort(mut self, effort: Duration) -> Self {
+        self.effort = Some(effort);
+        self
+    }
+
+    /// Set the duration
+    pub fn duration(mut self, duration: Duration) -> Self {
+        self.duration = Some(duration);
+        self
+    }
+
+    /// Add a dependency
+    pub fn depends_on(mut self, predecessor: impl Into<String>) -> Self {
+        self.depends.push(Dependency {
+            predecessor: predecessor.into(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        });
+        self
+    }
+
+    /// Assign a resource
+    pub fn assign(mut self, resource: impl Into<String>) -> Self {
+        self.assigned.push(ResourceRef {
+            resource_id: resource.into(),
+            units: 1.0,
+        });
+        self
+    }
+
+    /// Set priority
+    pub fn priority(mut self, priority: u32) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    /// Mark as milestone
+    pub fn milestone(mut self) -> Self {
+        self.milestone = true;
+        self.duration = Some(Duration::zero());
+        self
+    }
+
+    /// Add a child task
+    pub fn child(mut self, child: Task) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    /// Check if this is a summary task (has children)
+    pub fn is_summary(&self) -> bool {
+        !self.children.is_empty()
+    }
+}
+
+/// Task dependency with type and lag
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Dependency {
+    /// ID of the predecessor task
+    pub predecessor: TaskId,
+    /// Type of dependency
+    pub dep_type: DependencyType,
+    /// Lag time (positive) or lead time (negative)
+    pub lag: Option<Duration>,
+}
+
+/// Types of task dependencies
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DependencyType {
+    /// Finish-to-Start: successor starts after predecessor finishes
+    #[default]
+    FinishToStart,
+    /// Start-to-Start: successor starts when predecessor starts
+    StartToStart,
+    /// Finish-to-Finish: successor finishes when predecessor finishes
+    FinishToFinish,
+    /// Start-to-Finish: successor finishes when predecessor starts
+    StartToFinish,
+}
+
+/// Reference to a resource with allocation units
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceRef {
+    /// ID of the resource
+    pub resource_id: ResourceId,
+    /// Allocation units (1.0 = 100%)
+    pub units: f32,
+}
+
+/// Constraint on task scheduling
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TaskConstraint {
+    /// Task must start on this date
+    MustStartOn(NaiveDate),
+    /// Task must finish on this date
+    MustFinishOn(NaiveDate),
+    /// Task cannot start before this date
+    StartNoEarlierThan(NaiveDate),
+    /// Task must start by this date
+    StartNoLaterThan(NaiveDate),
+    /// Task cannot finish before this date
+    FinishNoEarlierThan(NaiveDate),
+    /// Task must finish by this date
+    FinishNoLaterThan(NaiveDate),
+}
+
+// ============================================================================
+// Resource
+// ============================================================================
+
+/// A person or equipment that can be assigned to tasks
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Resource {
+    /// Unique identifier
+    pub id: ResourceId,
+    /// Human-readable name
+    pub name: String,
+    /// Cost rate (per time unit)
+    pub rate: Option<Money>,
+    /// Capacity (1.0 = full time, 0.5 = half time)
+    pub capacity: f32,
+    /// Custom calendar (overrides project default)
+    pub calendar: Option<CalendarId>,
+    /// Efficiency factor (default 1.0)
+    pub efficiency: f32,
+    /// Custom attributes
+    pub attributes: HashMap<String, String>,
+}
+
+impl Resource {
+    /// Create a new resource with the given ID
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            name: id.clone(),
+            id,
+            rate: None,
+            capacity: 1.0,
+            calendar: None,
+            efficiency: 1.0,
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Set the resource name
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the capacity
+    pub fn capacity(mut self, capacity: f32) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    /// Set the cost rate
+    pub fn rate(mut self, rate: Money) -> Self {
+        self.rate = Some(rate);
+        self
+    }
+
+    /// Set the efficiency factor
+    pub fn efficiency(mut self, efficiency: f32) -> Self {
+        self.efficiency = efficiency;
+        self
+    }
+}
+
+// ============================================================================
+// Calendar
+// ============================================================================
+
+/// Working time definitions
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Calendar {
+    /// Unique identifier
+    pub id: CalendarId,
+    /// Human-readable name
+    pub name: String,
+    /// Working hours per day
+    pub working_hours: Vec<TimeRange>,
+    /// Working days (0 = Sunday, 6 = Saturday)
+    pub working_days: Vec<u8>,
+    /// Holiday dates
+    pub holidays: Vec<Holiday>,
+    /// Exceptions (override working hours for specific dates)
+    pub exceptions: Vec<CalendarException>,
+}
+
+impl Default for Calendar {
+    fn default() -> Self {
+        Self {
+            id: "default".into(),
+            name: "Standard".into(),
+            working_hours: vec![
+                TimeRange { start: 9 * 60, end: 12 * 60 },
+                TimeRange { start: 13 * 60, end: 17 * 60 },
+            ],
+            working_days: vec![1, 2, 3, 4, 5], // Mon-Fri
+            holidays: Vec::new(),
+            exceptions: Vec::new(),
+        }
+    }
+}
+
+impl Calendar {
+    /// Calculate working hours per day
+    pub fn hours_per_day(&self) -> f64 {
+        self.working_hours.iter().map(|r| r.duration_hours()).sum()
+    }
+
+    /// Check if a date is a working day
+    pub fn is_working_day(&self, date: NaiveDate) -> bool {
+        let weekday = date.weekday().num_days_from_sunday() as u8;
+        if !self.working_days.contains(&weekday) {
+            return false;
+        }
+        if self.holidays.iter().any(|h| h.contains(date)) {
+            return false;
+        }
+        true
+    }
+}
+
+/// Time range within a day (in minutes from midnight)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimeRange {
+    pub start: u16, // Minutes from midnight
+    pub end: u16,
+}
+
+impl TimeRange {
+    pub fn duration_hours(&self) -> f64 {
+        (self.end - self.start) as f64 / 60.0
+    }
+}
+
+/// Holiday definition
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Holiday {
+    pub name: String,
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+}
+
+impl Holiday {
+    pub fn contains(&self, date: NaiveDate) -> bool {
+        date >= self.start && date <= self.end
+    }
+}
+
+/// Calendar exception (override for specific dates)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CalendarException {
+    pub date: NaiveDate,
+    pub working_hours: Option<Vec<TimeRange>>, // None = non-working
+}
+
+// ============================================================================
+// Scenario
+// ============================================================================
+
+/// Alternative scenario for what-if analysis
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Scenario {
+    pub id: String,
+    pub name: String,
+    pub parent: Option<String>,
+    pub overrides: Vec<ScenarioOverride>,
+}
+
+/// Override for a scenario
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ScenarioOverride {
+    TaskEffort { task_id: TaskId, effort: Duration },
+    TaskDuration { task_id: TaskId, duration: Duration },
+    ResourceCapacity { resource_id: ResourceId, capacity: f32 },
+}
+
+// ============================================================================
+// Schedule (Result)
+// ============================================================================
+
+/// The result of scheduling a project
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Schedule {
+    /// Scheduled tasks indexed by ID
+    pub tasks: HashMap<TaskId, ScheduledTask>,
+    /// Tasks on the critical path
+    pub critical_path: Vec<TaskId>,
+    /// Total project duration
+    pub project_duration: Duration,
+    /// Project end date
+    pub project_end: NaiveDate,
+    /// Total project cost
+    pub total_cost: Option<Money>,
+}
+
+/// A task with computed schedule information
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScheduledTask {
+    /// Task ID
+    pub task_id: TaskId,
+    /// Scheduled start date
+    pub start: NaiveDate,
+    /// Scheduled finish date
+    pub finish: NaiveDate,
+    /// Actual duration
+    pub duration: Duration,
+    /// Resource assignments with time periods
+    pub assignments: Vec<Assignment>,
+    /// Slack/float time
+    pub slack: Duration,
+    /// Is this task on the critical path?
+    pub is_critical: bool,
+    /// Early start date
+    pub early_start: NaiveDate,
+    /// Early finish date
+    pub early_finish: NaiveDate,
+    /// Late start date
+    pub late_start: NaiveDate,
+    /// Late finish date
+    pub late_finish: NaiveDate,
+}
+
+/// Resource assignment for a specific period
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Assignment {
+    pub resource_id: ResourceId,
+    pub start: NaiveDate,
+    pub finish: NaiveDate,
+    pub units: f32,
+    pub cost: Option<Money>,
+}
+
+// ============================================================================
+// Traits
+// ============================================================================
+
+/// Core scheduling abstraction
+pub trait Scheduler: Send + Sync {
+    /// Compute a schedule for the given project
+    fn schedule(&self, project: &Project) -> Result<Schedule, ScheduleError>;
+
+    /// Check if a schedule is feasible without computing it
+    fn is_feasible(&self, project: &Project) -> FeasibilityResult;
+
+    /// Explain why a particular scheduling decision was made
+    fn explain(&self, project: &Project, task: &TaskId) -> Explanation;
+}
+
+/// What-if analysis capabilities (typically BDD-powered)
+pub trait WhatIfAnalysis {
+    /// Analyze impact of a constraint change
+    fn what_if(&self, project: &Project, change: &Constraint) -> WhatIfReport;
+
+    /// Count valid schedules under current constraints
+    fn count_solutions(&self, project: &Project) -> num_bigint::BigUint;
+
+    /// Find all critical constraints
+    fn critical_constraints(&self, project: &Project) -> Vec<Constraint>;
+}
+
+/// Output rendering
+pub trait Renderer {
+    type Output;
+
+    /// Render a schedule to the output format
+    fn render(&self, project: &Project, schedule: &Schedule) -> Result<Self::Output, RenderError>;
+}
+
+// ============================================================================
+// Result Types
+// ============================================================================
+
+/// Result of feasibility check
+#[derive(Clone, Debug)]
+pub struct FeasibilityResult {
+    pub feasible: bool,
+    pub conflicts: Vec<Conflict>,
+    pub suggestions: Vec<Suggestion>,
+}
+
+/// Scheduling conflict
+#[derive(Clone, Debug)]
+pub struct Conflict {
+    pub conflict_type: ConflictType,
+    pub description: String,
+    pub involved_tasks: Vec<TaskId>,
+    pub involved_resources: Vec<ResourceId>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ConflictType {
+    CircularDependency,
+    ResourceOverallocation,
+    ImpossibleConstraint,
+    DeadlineMissed,
+}
+
+/// Suggestion for resolving issues
+#[derive(Clone, Debug)]
+pub struct Suggestion {
+    pub description: String,
+    pub impact: String,
+}
+
+/// Explanation of a scheduling decision
+#[derive(Clone, Debug)]
+pub struct Explanation {
+    pub task_id: TaskId,
+    pub reason: String,
+    pub constraints_applied: Vec<String>,
+    pub alternatives_considered: Vec<String>,
+}
+
+/// Constraint for what-if analysis
+#[derive(Clone, Debug)]
+pub enum Constraint {
+    TaskEffort { task_id: TaskId, effort: Duration },
+    TaskDuration { task_id: TaskId, duration: Duration },
+    ResourceCapacity { resource_id: ResourceId, capacity: f32 },
+    Deadline { date: NaiveDate },
+}
+
+/// Result of what-if analysis
+#[derive(Clone, Debug)]
+pub struct WhatIfReport {
+    pub still_feasible: bool,
+    pub solutions_before: num_bigint::BigUint,
+    pub solutions_after: num_bigint::BigUint,
+    pub newly_critical: Vec<TaskId>,
+    pub schedule_delta: Option<Duration>,
+    pub cost_delta: Option<Money>,
+}
+
+// ============================================================================
+// Errors
+// ============================================================================
+
+/// Scheduling error
+#[derive(Debug, Error)]
+pub enum ScheduleError {
+    #[error("Circular dependency detected: {0}")]
+    CircularDependency(String),
+
+    #[error("Resource not found: {0}")]
+    ResourceNotFound(ResourceId),
+
+    #[error("Task not found: {0}")]
+    TaskNotFound(TaskId),
+
+    #[error("Calendar not found: {0}")]
+    CalendarNotFound(CalendarId),
+
+    #[error("Infeasible schedule: {0}")]
+    Infeasible(String),
+
+    #[error("Constraint violation: {0}")]
+    ConstraintViolation(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
+
+/// Rendering error
+#[derive(Debug, Error)]
+pub enum RenderError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Format error: {0}")]
+    Format(String),
+
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duration_arithmetic() {
+        let d1 = Duration::days(5);
+        let d2 = Duration::days(3);
+        assert_eq!((d1 + d2).as_days(), 8.0);
+        assert_eq!((d1 - d2).as_days(), 2.0);
+    }
+
+    #[test]
+    fn task_builder() {
+        let task = Task::new("impl")
+            .name("Implementation")
+            .effort(Duration::days(10))
+            .depends_on("design")
+            .assign("dev")
+            .priority(700);
+
+        assert_eq!(task.id, "impl");
+        assert_eq!(task.name, "Implementation");
+        assert_eq!(task.effort, Some(Duration::days(10)));
+        assert_eq!(task.depends.len(), 1);
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.priority, 700);
+    }
+
+    #[test]
+    fn calendar_working_day() {
+        let cal = Calendar::default();
+        
+        // Monday
+        let monday = NaiveDate::from_ymd_opt(2025, 2, 3).unwrap();
+        assert!(cal.is_working_day(monday));
+        
+        // Saturday
+        let saturday = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
+        assert!(!cal.is_working_day(saturday));
+    }
+
+    #[test]
+    fn project_leaf_tasks() {
+        let project = Project {
+            id: "test".into(),
+            name: "Test".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: None,
+            calendar: "default".into(),
+            currency: "USD".into(),
+            tasks: vec![
+                Task::new("parent")
+                    .child(Task::new("child1"))
+                    .child(Task::new("child2")),
+                Task::new("standalone"),
+            ],
+            resources: Vec::new(),
+            calendars: vec![Calendar::default()],
+            scenarios: Vec::new(),
+        };
+
+        let leaves = project.leaf_tasks();
+        assert_eq!(leaves.len(), 3);
+        assert!(leaves.iter().any(|t| t.id == "child1"));
+        assert!(leaves.iter().any(|t| t.id == "child2"));
+        assert!(leaves.iter().any(|t| t.id == "standalone"));
+    }
+}

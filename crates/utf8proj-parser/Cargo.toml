@@ -1,0 +1,23 @@
+[package]
+name = "utf8proj-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Parser for utf8proj native DSL (.proj files)"
+keywords = ["parsing", "dsl", "pest"]
+
+[dependencies]
+utf8proj-core.workspace = true
+pest.workspace = true
+pest_derive.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+insta.workspace = true

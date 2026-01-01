@@ -1,0 +1,20 @@
+[package]
+name = "utf8proj-solver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Scheduling solver for utf8proj (CPM, resource leveling)"
+keywords = ["scheduling", "cpm", "solver"]
+
+[dependencies]
+utf8proj-core.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

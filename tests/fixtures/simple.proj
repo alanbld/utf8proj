@@ -1,0 +1,35 @@
+# Simple test project fixture
+# This file tests basic parser functionality
+
+project "Hello World" {
+    start: 2025-01-01
+    currency: USD
+}
+
+resource dev "Developer" {
+    rate: 800/day
+    capacity: 1.0
+}
+
+task design "Design" {
+    effort: 3d
+    assign: dev
+}
+
+task implement "Implementation" {
+    effort: 5d
+    assign: dev
+    depends: design
+}
+
+task test "Testing" {
+    effort: 2d
+    assign: dev
+    depends: implement
+}
+
+task deploy "Deployment" {
+    duration: 1d
+    depends: test
+    milestone: true
+}

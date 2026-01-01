@@ -1,0 +1,21 @@
+[package]
+name = "utf8proj-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rendering backends for utf8proj (SVG, text, etc.)"
+keywords = ["rendering", "svg", "gantt"]
+
+[dependencies]
+utf8proj-core.workspace = true
+chrono.workspace = true
+svg.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

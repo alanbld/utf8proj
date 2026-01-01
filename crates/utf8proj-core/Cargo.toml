@@ -1,0 +1,22 @@
+[package]
+name = "utf8proj-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core domain model and traits for utf8proj scheduling engine"
+keywords = ["scheduling", "project-management", "domain-model"]
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+rust_decimal.workspace = true
+num-bigint.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
