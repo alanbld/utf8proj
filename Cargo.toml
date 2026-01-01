@@ -1,5 +1,5 @@
 # utf8proj - Project Scheduling Engine for Rust
-# https://github.com/utf8dok/utf8proj
+# https://github.com/alanbld/utf8proj
 
 [workspace]
 resolver = "2"
@@ -16,7 +16,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/utf8dok/utf8proj"
+repository = "https://github.com/alanbld/utf8proj"
 keywords = ["scheduling", "project-management", "gantt", "cpm", "taskjuggler"]
 categories = ["command-line-utilities", "development-tools"]
 
