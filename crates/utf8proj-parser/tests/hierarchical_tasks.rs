@@ -90,10 +90,10 @@ task phase1 "Phase 1" {
     }
 }
 "#;
-    let project = parse(input).expect("Should parse milestone in container");
+    let _project = parse(input).expect("Should parse milestone in container");
 
     // Milestone should be parsed as a subtask
-    // assert!(project.tasks[0].subtasks[1].is_milestone);
+    // TODO: Add assertion when subtask access is implemented
 }
 
 // =============================================================================
@@ -115,11 +115,10 @@ task phase1 "Phase 1" {
     }
 }
 "#;
-    let project = parse(input).expect("Should parse sibling dependency");
+    let _project = parse(input).expect("Should parse sibling dependency");
 
     // Dependency should resolve to sibling within same container
-    // let dep = &project.tasks[0].subtasks[1].dependencies[0];
-    // assert_eq!(dep.resolved_target, "phase1.act1");
+    // TODO: Add assertion when dependency resolution is exposed
 }
 
 #[test]
@@ -138,11 +137,10 @@ task phase2 "Phase 2" {
     task act2 "Activity 2" { length 5d }
 }
 "#;
-    let project = parse(input).expect("Should parse absolute path dependency");
+    let _project = parse(input).expect("Should parse absolute path dependency");
 
     // Container dependency should reference task in another container
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert_eq!(dep.target_path, vec!["phase1", "act1"]);
+    // TODO: Add assertion when dependency path access is exposed
 }
 
 #[test]
@@ -163,9 +161,10 @@ task phase2 "Phase 2" {
     }
 }
 "#;
-    let project = parse(input).expect("Should parse cross-container dependency");
+    let _project = parse(input).expect("Should parse cross-container dependency");
 
     // Nested task references task in different container
+    // TODO: Add assertion when dependency resolution is exposed
 }
 
 // =============================================================================
@@ -173,17 +172,77 @@ task phase2 "Phase 2" {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 3: Requires scheduling integration"]
 fn container_start_is_min_of_children() {
     // Container start = earliest child start
     // This requires scheduler integration
+    use utf8proj_core::Scheduler;
+    use utf8proj_solver::CpmSolver;
+
+    let input = r#"
+project test "Test" 2025-02-03 - 2025-12-31 {
+    timezone "UTC"
+}
+
+task phase1 "Phase 1" {
+    task act1 "Activity 1" {
+        start 2025-02-10
+        length 5d
+    }
+    task act2 "Activity 2" {
+        start 2025-02-03
+        length 5d
+    }
+}
+"#;
+
+    let project = parse(input).expect("Should parse");
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should schedule");
+
+    // Container start should be min of children (Feb 03 from act2)
+    let phase1 = &schedule.tasks["phase1"];
+    let act2 = &schedule.tasks["phase1.act2"];
+
+    assert_eq!(
+        phase1.start, act2.start,
+        "Container start should equal earliest child start"
+    );
 }
 
 #[test]
-#[ignore = "Phase 3: Requires scheduling integration"]
 fn container_finish_is_max_of_children() {
     // Container finish = latest child finish
     // This requires scheduler integration
+    use utf8proj_core::Scheduler;
+    use utf8proj_solver::CpmSolver;
+
+    let input = r#"
+project test "Test" 2025-02-03 - 2025-12-31 {
+    timezone "UTC"
+}
+
+task phase1 "Phase 1" {
+    task act1 "Activity 1" {
+        length 10d
+    }
+    task act2 "Activity 2" {
+        length 5d
+    }
+}
+"#;
+
+    let project = parse(input).expect("Should parse");
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should schedule");
+
+    // Container finish should be max of children (act1 with 10d)
+    let phase1 = &schedule.tasks["phase1"];
+    let act1 = &schedule.tasks["phase1.act1"];
+
+    assert_eq!(
+        phase1.finish, act1.finish,
+        "Container finish should equal latest child finish"
+    );
 }
 
 // =============================================================================
