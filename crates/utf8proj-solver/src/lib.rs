@@ -29,7 +29,7 @@ use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
     Assignment, Calendar, Duration, Explanation, FeasibilityResult, Project, Schedule,
-    ScheduleError, ScheduledTask, Scheduler, Task, TaskId,
+    ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
 };
 
 /// CPM-based scheduler
@@ -124,6 +124,25 @@ fn add_working_days(start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDa
 /// Convert days from project start to an actual date
 fn days_to_date(project_start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDate {
     add_working_days(project_start, days, calendar)
+}
+
+/// Convert a date to working days from project start
+fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &Calendar) -> i64 {
+    if target <= project_start {
+        return 0;
+    }
+
+    let mut current = project_start;
+    let mut working_days = 0i64;
+
+    while current < target {
+        current = current + TimeDelta::days(1);
+        if calendar.is_working_day(current) {
+            working_days += 1;
+        }
+    }
+
+    working_days
 }
 
 /// Perform topological sort using Kahn's algorithm
@@ -260,6 +279,15 @@ impl Scheduler for CpmSolver {
                 }
             }
 
+            // Also consider MustStartOn constraints
+            for constraint in &task.constraints {
+                if let TaskConstraint::MustStartOn(date) = constraint {
+                    // Convert date to working days from project start
+                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                    es = es.max(constraint_days);
+                }
+            }
+
             // EF = ES + duration
             let ef = es + duration;
 
@@ -323,8 +351,11 @@ impl Scheduler for CpmSolver {
 
         for (id, node) in &nodes {
             let start_date = days_to_date(project.start, node.early_start, &calendar);
+            // Finish date is the last day of work, not the day after
+            // So for a 20-day task starting Feb 03, finish is Feb 28 (day 20), not Mar 03
             let finish_date = if node.duration_days > 0 {
-                days_to_date(project.start, node.early_finish, &calendar)
+                // early_finish - 1 because finish is inclusive (last day of work)
+                days_to_date(project.start, node.early_finish - 1, &calendar)
             } else {
                 start_date // Milestone
             };
@@ -354,15 +385,28 @@ impl Scheduler for CpmSolver {
                     slack: Duration::days(node.slack),
                     is_critical: node.slack == 0 && node.duration_days > 0,
                     early_start: days_to_date(project.start, node.early_start, &calendar),
-                    early_finish: days_to_date(project.start, node.early_finish, &calendar),
+                    early_finish: if node.duration_days > 0 {
+                        days_to_date(project.start, node.early_finish - 1, &calendar)
+                    } else {
+                        days_to_date(project.start, node.early_finish, &calendar)
+                    },
                     late_start: days_to_date(project.start, node.late_start, &calendar),
-                    late_finish: days_to_date(project.start, node.late_finish, &calendar),
+                    late_finish: if node.duration_days > 0 {
+                        days_to_date(project.start, node.late_finish - 1, &calendar)
+                    } else {
+                        days_to_date(project.start, node.late_finish, &calendar)
+                    },
                 },
             );
         }
 
         // Step 10: Build final schedule
-        let project_end_date = days_to_date(project.start, project_end_days, &calendar);
+        // project_end is the last working day of the project
+        let project_end_date = if project_end_days > 0 {
+            days_to_date(project.start, project_end_days - 1, &calendar)
+        } else {
+            project.start
+        };
 
         Ok(Schedule {
             tasks: scheduled_tasks,

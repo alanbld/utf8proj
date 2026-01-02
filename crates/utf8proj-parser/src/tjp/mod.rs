@@ -173,6 +173,13 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                         task.duration = Some(parse_duration(dur.as_str())?);
                     }
                 }
+                Rule::length_attr => {
+                    // length = working days (same as MS Project duration)
+                    let mut inner = actual_attr.into_inner();
+                    if let Some(dur) = inner.next() {
+                        task.duration = Some(parse_duration(dur.as_str())?);
+                    }
+                }
                 Rule::effort_attr => {
                     let mut inner = actual_attr.into_inner();
                     if let Some(dur) = inner.next() {

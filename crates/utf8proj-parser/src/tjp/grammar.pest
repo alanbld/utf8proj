@@ -82,6 +82,7 @@ task_body = { task_attr* }
 task_attr = {
     scheduling_attr |
     duration_attr |
+    length_attr |
     effort_attr |
     milestone_attr |
     depends_attr |
@@ -95,6 +96,7 @@ task_attr = {
 
 scheduling_attr = { "scheduling" ~ ("asap" | "alap") }
 duration_attr = { "duration" ~ duration }
+length_attr = { "length" ~ duration }
 effort_attr = { "effort" ~ duration }
 milestone_attr = { "milestone" }
 depends_attr = { "depends" ~ dependency_list }
