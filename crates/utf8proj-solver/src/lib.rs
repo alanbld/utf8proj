@@ -447,7 +447,13 @@ impl Scheduler for CpmSolver {
                             let constraint_es = match dep.dep_type {
                                 DependencyType::FinishToStart => {
                                     // B.start >= A.finish + lag
-                                    pred_node.early_finish + lag
+                                    // For positive lag: count from first free day (early_finish)
+                                    // For negative lag: count from last working day (early_finish - 1)
+                                    if lag >= 0 {
+                                        pred_node.early_finish + lag
+                                    } else {
+                                        (pred_node.early_finish - 1 + lag).max(0)
+                                    }
                                 }
                                 DependencyType::StartToStart => {
                                     // B.start >= A.start + lag

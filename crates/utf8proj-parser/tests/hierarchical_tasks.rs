@@ -285,7 +285,6 @@ task act2 "Activity 2" {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 5: Not yet implemented"]
 fn parse_negative_lag() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -302,8 +301,9 @@ task act2 "Activity 2" {
     // but we should support it for MS Project compatibility
     let project = parse(input).expect("Should parse negative lag");
 
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert_eq!(dep.lag_days, -5);
+    let dep = &project.tasks[1].depends[0];
+    assert!(dep.lag.is_some());
+    assert_eq!(dep.lag.unwrap().as_days() as i64, -5);
 }
 
 // =============================================================================

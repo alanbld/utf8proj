@@ -282,28 +282,90 @@ fn sf_dependency_finish_after_start() {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 5: Not yet implemented"]
 fn negative_lag_allows_overlap() {
     // Given: Task B depends on Task A with FS-5d (5 day lead)
     // When: Schedule is computed
     // Then: B.start >= A.finish - 5d (overlap allowed)
 
-    // task act1 { start 2025-02-03 length 20d }  // finishes 2025-02-28
-    // task act2 { depends act1 { gaplength -5d } length 10d }
-    // Expected: act2.start = 2025-02-21 (5 days before act1 finishes)
+    let mut project = Project::new("Negative Lag Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    // act1: 20 days starting Feb 03, finishes Feb 28
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    // act2 depends on act1 with -5d lag (5 day lead)
+    // B.start >= A.finish - 5d = Feb 28 - 5d = Feb 21
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::FinishToStart,
+        lag: Some(Duration::days(-5)),
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act1 finishes Feb 28 (20 working days from Feb 03)
+    // act2 should start Feb 21 (5 working days before Feb 28)
+    // Feb 28 - 5 working days = Feb 21
+    assert_eq!(
+        schedule.tasks["act2"].start,
+        date(2025, 2, 21),
+        "FS-5d: act2 should start 5 days before act1 finishes"
+    );
+
+    // Verify overlap: act2 starts before act1 finishes
+    assert!(
+        schedule.tasks["act2"].start < schedule.tasks["act1"].finish,
+        "FS-5d: act2 should overlap with act1"
+    );
 }
 
 #[test]
-#[ignore = "Phase 5: Not yet implemented"]
 fn ss_negative_lag_acts_as_lead() {
     // Given: Task B depends on Task A with SS-3d
     // When: Schedule is computed
     // Then: B.start >= A.start - 3d
 
-    // task act1 { start 2025-02-10 length 20d }
-    // task act2 { depends !act1 { gaplength -3d } length 10d }
-    // Expected: act2.start = 2025-02-05 (3 days before act1 starts)
-    // Note: This is unusual but valid in MS Project
+    let mut project = Project::new("SS Negative Lag Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    // act1 starts Feb 10
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+
+    // act2 depends on act1 with SS-3d
+    // B.start >= A.start - 3d = Feb 10 - 3d = Feb 05
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: Some(Duration::days(-3)),
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act1 starts Feb 10
+    // SS-3d means act2.start >= act1.start - 3d = Feb 10 - 3d = Feb 05
+    // But project starts Feb 03, so constraint is Feb 05 (if it's positive)
+    // Actually: Feb 10 - 3 working days = Feb 05
+    assert_eq!(
+        schedule.tasks["act2"].start,
+        date(2025, 2, 5),
+        "SS-3d: act2 should start 3 days before act1 starts"
+    );
+
+    // Verify: act2 starts before act1
+    assert!(
+        schedule.tasks["act2"].start < schedule.tasks["act1"].start,
+        "SS-3d: act2 should start before act1"
+    );
 }
 
 // =============================================================================
