@@ -613,9 +613,203 @@ fn nested_empty_containers() {
 }
 
 #[test]
-#[ignore = "Edge case: Not yet implemented"]
 fn deep_nesting_performance() {
     // Given: 5+ levels of nesting with 100+ tasks
     // When: Schedule is computed
     // Then: Completes in reasonable time (<1s)
+
+    use std::time::Instant;
+
+    let mut project = Project::new("Deep Nesting Performance Test");
+    project.start = date(2025, 2, 3);
+
+    // Create a deeply nested structure:
+    // 5 top-level phases, each with 4 sub-phases, each with 5 tasks = 100+ tasks
+    // Plus dependencies between tasks
+    let mut top_tasks = Vec::new();
+
+    for phase_num in 1..=5 {
+        let phase_id = format!("phase{}", phase_num);
+        let mut phase = Task::new(&phase_id);
+
+        for sub_num in 1..=4 {
+            let sub_id = format!("sub{}", sub_num);
+            let mut sub_phase = Task::new(&sub_id);
+
+            for task_num in 1..=5 {
+                let task_id = format!("task{}", task_num);
+                let mut task = Task::new(&task_id).effort(Duration::days(2));
+
+                // Add dependency on previous task in same sub-phase
+                if task_num > 1 {
+                    task = task.depends_on(&format!("task{}", task_num - 1));
+                }
+
+                sub_phase = sub_phase.child(task);
+            }
+
+            // Add dependency on previous sub-phase's last task
+            if sub_num > 1 {
+                // The sub-phase itself depends on the previous sub-phase
+                sub_phase = sub_phase.depends_on(&format!("sub{}.task5", sub_num - 1));
+            }
+
+            phase = phase.child(sub_phase);
+        }
+
+        // Add dependency on previous phase
+        if phase_num > 1 {
+            phase = phase.depends_on(&format!("phase{}", phase_num - 1));
+        }
+
+        top_tasks.push(phase);
+    }
+
+    project.tasks = top_tasks;
+
+    // Count total tasks
+    fn count_tasks(tasks: &[Task]) -> usize {
+        tasks.iter().map(|t| 1 + count_tasks(&t.children)).sum()
+    }
+    let total_tasks = count_tasks(&project.tasks);
+    assert!(total_tasks >= 100, "Should have 100+ tasks, got {}", total_tasks);
+
+    // Measure scheduling time
+    let start_time = Instant::now();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let elapsed = start_time.elapsed();
+
+    // Should complete in under 1 second
+    assert!(
+        elapsed.as_secs_f64() < 1.0,
+        "Scheduling {} tasks took {:.2}s, should be < 1s",
+        total_tasks,
+        elapsed.as_secs_f64()
+    );
+
+    // Verify schedule is valid
+    assert_eq!(schedule.tasks.len(), total_tasks);
+
+    // Print performance info (visible with --nocapture)
+    println!(
+        "Deep nesting performance: {} tasks scheduled in {:.3}ms",
+        total_tasks,
+        elapsed.as_secs_f64() * 1000.0
+    );
+}
+
+#[test]
+fn very_wide_hierarchy_performance() {
+    // Given: Wide hierarchy (many siblings at each level)
+    // When: Schedule is computed
+    // Then: Completes in reasonable time
+
+    use std::time::Instant;
+
+    let mut project = Project::new("Wide Hierarchy Performance Test");
+    project.start = date(2025, 2, 3);
+
+    // Create wide structure: 10 phases with 20 tasks each = 200+ tasks
+    let mut top_tasks = Vec::new();
+    let mut prev_phase: Option<String> = None;
+
+    for phase_num in 1..=10 {
+        let phase_id = format!("phase{}", phase_num);
+        let mut phase = Task::new(&phase_id);
+
+        // Add dependency on previous phase
+        if let Some(ref prev) = prev_phase {
+            phase = phase.depends_on(prev);
+        }
+
+        for task_num in 1..=20 {
+            let task_id = format!("task{}", task_num);
+            let task = Task::new(&task_id).effort(Duration::days(1));
+            phase = phase.child(task);
+        }
+
+        prev_phase = Some(phase_id.clone());
+        top_tasks.push(phase);
+    }
+
+    project.tasks = top_tasks;
+
+    fn count_tasks(tasks: &[Task]) -> usize {
+        tasks.iter().map(|t| 1 + count_tasks(&t.children)).sum()
+    }
+    let total_tasks = count_tasks(&project.tasks);
+
+    let start_time = Instant::now();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let elapsed = start_time.elapsed();
+
+    assert!(
+        elapsed.as_secs_f64() < 1.0,
+        "Scheduling {} tasks took {:.2}s, should be < 1s",
+        total_tasks,
+        elapsed.as_secs_f64()
+    );
+
+    assert_eq!(schedule.tasks.len(), total_tasks);
+
+    println!(
+        "Wide hierarchy performance: {} tasks scheduled in {:.3}ms",
+        total_tasks,
+        elapsed.as_secs_f64() * 1000.0
+    );
+}
+
+#[test]
+fn complex_dependency_graph_performance() {
+    // Given: Complex dependency graph with cross-container dependencies
+    // When: Schedule is computed
+    // Then: Completes in reasonable time
+
+    use std::time::Instant;
+
+    let mut project = Project::new("Complex Dependency Performance Test");
+    project.start = date(2025, 2, 3);
+
+    // Create tasks with complex cross-dependencies
+    let mut tasks = Vec::new();
+
+    // Create 50 flat tasks with varying dependencies
+    for i in 1..=50 {
+        let mut task = Task::new(&format!("task{}", i)).effort(Duration::days(1));
+
+        // Each task depends on up to 3 previous tasks
+        if i > 1 {
+            task = task.depends_on(&format!("task{}", i - 1));
+        }
+        if i > 5 {
+            task = task.depends_on(&format!("task{}", i - 5));
+        }
+        if i > 10 {
+            task = task.depends_on(&format!("task{}", i - 10));
+        }
+
+        tasks.push(task);
+    }
+
+    project.tasks = tasks;
+
+    let start_time = Instant::now();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let elapsed = start_time.elapsed();
+
+    assert!(
+        elapsed.as_secs_f64() < 1.0,
+        "Scheduling 50 tasks with complex deps took {:.2}s, should be < 1s",
+        elapsed.as_secs_f64()
+    );
+
+    assert_eq!(schedule.tasks.len(), 50);
+
+    println!(
+        "Complex dependency performance: 50 tasks scheduled in {:.3}ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
 }
