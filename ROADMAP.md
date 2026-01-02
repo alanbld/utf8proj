@@ -273,7 +273,7 @@ monaco.languages.setMonarchTokensProvider('utf8proj', {
 |---------|------------|--------|--------|
 | Resource Leveling | High | High | **Done** |
 | Gantt Chart | Medium | High | **Done** |
-| WASM Playground | Medium | Medium | Next |
+| WASM Playground | Medium | Medium | **Done** |
 
 ## Dependencies
 

@@ -9,6 +9,7 @@ members = [
     "crates/utf8proj-solver",
     "crates/utf8proj-render",
     "crates/utf8proj-cli",
+    "crates/utf8proj-wasm",
 ]
 
 [workspace.package]
@@ -70,6 +71,14 @@ num-bigint = "0.4"
 pretty_assertions = "1.4"
 insta = { version = "1.34", features = ["yaml"] }
 tempfile = "3.10"
+
+# WASM
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+web-sys = "0.3"
+js-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

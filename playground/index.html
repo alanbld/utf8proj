@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>utf8proj Playground - Project Scheduling in the Browser</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <!-- Monaco Editor -->
+    <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>utf8proj <span class="badge">Playground</span></h1>
+            </div>
+            <div class="header-center">
+                <select id="format-select" title="Input format">
+                    <option value="native">Native DSL</option>
+                    <option value="tjp">TaskJuggler</option>
+                </select>
+                <button id="run-btn" class="btn btn-primary" title="Schedule (Ctrl+Enter)">
+                    <span class="icon">▶</span> Run
+                </button>
+                <label class="checkbox-label" title="Enable resource leveling">
+                    <input type="checkbox" id="leveling-checkbox">
+                    Resource Leveling
+                </label>
+            </div>
+            <div class="header-right">
+                <select id="example-select" title="Load example">
+                    <option value="">Load Example...</option>
+                    <option value="native">Software Project (Native)</option>
+                    <option value="tjp">Software Project (TJP)</option>
+                </select>
+                <button id="share-btn" class="btn" title="Share project">Share</button>
+                <button id="theme-btn" class="btn" title="Toggle dark mode">🌙</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Editor Panel -->
+            <div class="panel editor-panel">
+                <div class="panel-header">
+                    <span>Editor</span>
+                    <div class="panel-actions">
+                        <button id="download-proj-btn" class="btn-small" title="Download project file">Download</button>
+                    </div>
+                </div>
+                <div id="editor" class="editor-container"></div>
+            </div>
+
+            <!-- Resize Handle -->
+            <div class="resize-handle" id="resize-handle"></div>
+
+            <!-- Preview Panel -->
+            <div class="panel preview-panel">
+                <div class="panel-header">
+                    <span>Preview</span>
+                    <div class="panel-tabs">
+                        <button class="tab active" data-tab="gantt">Gantt</button>
+                        <button class="tab" data-tab="json">JSON</button>
+                    </div>
+                    <div class="panel-actions">
+                        <button id="download-html-btn" class="btn-small" title="Download as HTML">Export HTML</button>
+                    </div>
+                </div>
+                <div id="preview-gantt" class="preview-container active">
+                    <div id="gantt-output" class="gantt-wrapper">
+                        <div class="placeholder">
+                            <p>Click <strong>Run</strong> to schedule your project</p>
+                            <p class="hint">or press <kbd>Ctrl</kbd>+<kbd>Enter</kbd></p>
+                        </div>
+                    </div>
+                </div>
+                <div id="preview-json" class="preview-container">
+                    <pre id="json-output" class="json-output"></pre>
+                </div>
+            </div>
+        </main>
+
+        <!-- Status Bar -->
+        <footer class="status-bar">
+            <div class="status-left">
+                <span id="status-message">Ready</span>
+            </div>
+            <div class="status-right">
+                <span id="schedule-info"></span>
+            </div>
+        </footer>
+
+        <!-- Share Modal -->
+        <div id="share-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Share Project</h2>
+                    <button class="modal-close" id="share-modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Copy this URL to share your project:</p>
+                    <div class="share-url-container">
+                        <input type="text" id="share-url" readonly>
+                        <button id="copy-url-btn" class="btn">Copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+
+    <!-- WASM Module -->
+    <script type="module" src="src/main.js"></script>
+</body>
+</html>

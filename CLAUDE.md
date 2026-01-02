@@ -14,7 +14,15 @@ crates/
 │   └── src/leveling.rs # Resource over-allocation detection and resolution
 ├── utf8proj-render/    # Output rendering (HTML Gantt, SVG)
 │   └── src/gantt.rs    # Interactive HTML Gantt chart renderer
-└── utf8proj-cli/       # Command-line interface (untested)
+├── utf8proj-cli/       # Command-line interface (untested)
+└── utf8proj-wasm/      # WebAssembly bindings for browser playground
+
+playground/             # Browser-based playground
+├── index.html          # Main HTML with Monaco editor
+├── src/main.js         # JavaScript module (WASM integration)
+├── styles/main.css     # Styling (light/dark themes)
+├── build.sh            # Build script (wasm-pack)
+└── pkg/                # WASM output (gitignored)
 ```
 
 ## Key Features Implemented
@@ -27,6 +35,7 @@ crates/
 - **Critical path**: Calculation with all dependency types
 - **Resource leveling**: Automatic over-allocation detection and task shifting
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
+- **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
 ## Test Coverage (as of 2026-01-02)
 
@@ -122,14 +131,24 @@ let renderer = HtmlGanttRenderer::new().hide_dependencies();
 
 ## Recent Work Completed
 
-1. **Interactive Gantt Chart** (`crates/utf8proj-render/src/gantt.rs`)
+1. **WASM Playground** (`crates/utf8proj-wasm/`, `playground/`)
+   - `Playground` struct with WASM bindings for schedule/render/validate
+   - Monaco editor with custom syntax highlighting for TJP and native DSL
+   - Real-time validation with error markers
+   - Live Gantt chart preview (HTML/SVG)
+   - Share functionality (URL-encoded projects)
+   - Light/dark theme toggle
+   - Example templates for both formats
+   - 8 WASM crate tests
+
+2. **Interactive Gantt Chart** (`crates/utf8proj-render/src/gantt.rs`)
    - `HtmlGanttRenderer` - Generates standalone HTML with embedded SVG
    - Dependency arrows with curved paths
    - Tooltips and zoom controls
    - Light and dark themes
    - 14 tests (unit + integration)
 
-2. **Resource Leveling** (`crates/utf8proj-solver/src/leveling.rs`)
+3. **Resource Leveling** (`crates/utf8proj-solver/src/leveling.rs`)
    - `ResourceTimeline` - tracks resource usage by day
    - `detect_overallocations` - finds over-allocation periods
    - `level_resources` - resolves conflicts by shifting tasks
@@ -167,6 +186,11 @@ cargo tarpaulin --workspace --out Stdout --skip-clean
 
 # Build release
 cargo build --release
+
+# Build WASM and run playground
+cd playground && ./build.sh
+python3 -m http.server 8080
+# Open http://localhost:8080
 ```
 
 ## Remaining Work
