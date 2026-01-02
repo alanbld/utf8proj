@@ -77,7 +77,7 @@ task_decl = {
     "}"
 }
 
-task_body = { task_attr* }
+task_body = { (task_attr | task_decl)* }
 
 task_attr = {
     scheduling_attr |
@@ -109,8 +109,11 @@ complete_attr = { "complete" ~ integer }
 
 // Dependencies
 dependency_list = { dependency ~ ("," ~ dependency)* }
-dependency = { identifier ~ dep_modifier? }
+dependency = { task_path ~ dep_modifier? }
 dep_modifier = { "{" ~ dep_attr* ~ "}" }
+
+// Task path: supports dotted references like "phase1.act1_1"
+task_path = @{ identifier ~ ("." ~ identifier)* }
 dep_attr = {
     gaplength_attr |
     gapduration_attr |

@@ -17,7 +17,6 @@ use utf8proj_parser::tjp::parse;
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 1: Not yet implemented"]
 fn parse_single_nested_task() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -38,7 +37,6 @@ task phase1 "Phase 1" {
 }
 
 #[test]
-#[ignore = "Phase 1: Not yet implemented"]
 fn parse_multiple_nested_tasks() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -58,7 +56,6 @@ task phase1 "Phase 1" {
 }
 
 #[test]
-#[ignore = "Phase 1: Not yet implemented"]
 fn parse_3_level_nesting() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -79,7 +76,6 @@ task phase1 "Phase 1" {
 }
 
 #[test]
-#[ignore = "Phase 1: Not yet implemented"]
 fn parse_milestone_in_container() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -337,7 +333,6 @@ fn parse_ttg_02_deps() {
 }
 
 #[test]
-#[ignore = "Requires nested task support"]
 fn parse_ttg_03_hierarchy() {
     let content = std::fs::read_to_string(
         "../../msproject-to-taskjuggler/examples/ttg_03_hierarchy.tjp"
@@ -350,7 +345,6 @@ fn parse_ttg_03_hierarchy() {
 }
 
 #[test]
-#[ignore = "Requires nested task support"]
 fn parse_ttg_04_milestones() {
     let content = std::fs::read_to_string(
         "../../msproject-to-taskjuggler/examples/ttg_04_milestones.tjp"
@@ -363,7 +357,6 @@ fn parse_ttg_04_milestones() {
 }
 
 #[test]
-#[ignore = "Requires nested task support"]
 fn parse_ttg_05_detailed() {
     let content = std::fs::read_to_string(
         "../../msproject-to-taskjuggler/examples/ttg_05_detailed.tjp"

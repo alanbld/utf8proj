@@ -152,18 +152,26 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
     // Parse task body - iterate through remaining pairs
     for body_or_attr in inner {
         // Could be task_body or directly task_attr depending on grammar
-        let attrs = if body_or_attr.as_rule() == Rule::task_body {
+        let items = if body_or_attr.as_rule() == Rule::task_body {
             body_or_attr.into_inner().collect::<Vec<_>>()
         } else {
             vec![body_or_attr]
         };
 
-        for attr in attrs {
+        for item in items {
+            // Handle nested task declarations
+            if item.as_rule() == Rule::task_decl {
+                if let Some(child_task) = parse_task_decl(item)? {
+                    task.children.push(child_task);
+                }
+                continue;
+            }
+
             // task_attr is a wrapper rule, get the actual attribute inside
-            let actual_attr = if attr.as_rule() == Rule::task_attr {
-                attr.into_inner().next().unwrap()
+            let actual_attr = if item.as_rule() == Rule::task_attr {
+                item.into_inner().next().unwrap()
             } else {
-                attr
+                item
             };
 
             match actual_attr.as_rule() {
@@ -195,9 +203,10 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                         if dep.as_rule() == Rule::dependency_list {
                             for dep_item in dep.into_inner() {
                                 if dep_item.as_rule() == Rule::dependency {
-                                    let dep_id = dep_item.into_inner().next().unwrap().as_str();
+                                    // First child is task_path (dotted identifier)
+                                    let task_path = dep_item.into_inner().next().unwrap().as_str();
                                     task.depends.push(Dependency {
-                                        predecessor: dep_id.to_string(),
+                                        predecessor: task_path.to_string(),
                                         dep_type: DependencyType::FinishToStart,
                                         lag: None,
                                     });
