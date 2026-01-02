@@ -401,14 +401,104 @@ fn schedule_matches_tj3_output() {
 // =============================================================================
 
 #[test]
-#[ignore = "Edge case: Not yet implemented"]
 fn circular_dependency_detection() {
     // Given: A depends on B, B depends on A
     // When: Schedule is attempted
     // Then: Error is returned indicating circular dependency
 
-    // task act1 { depends act2 length 5d }
-    // task act2 { depends act1 length 5d }
+    let mut project = Project::new("Circular Dependency Test");
+    project.start = date(2025, 2, 3);
+
+    // Simple circular: act1 -> act2 -> act1
+    project.tasks = vec![
+        Task::new("act1")
+            .effort(Duration::days(5))
+            .depends_on("act2"),
+        Task::new("act2")
+            .effort(Duration::days(5))
+            .depends_on("act1"),
+    ];
+
+    let solver = CpmSolver::new();
+    let result = solver.schedule(&project);
+
+    assert!(result.is_err(), "Should detect circular dependency");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, utf8proj_core::ScheduleError::CircularDependency(_)),
+        "Error should be CircularDependency, got: {:?}",
+        err
+    );
+}
+
+#[test]
+fn circular_dependency_in_nested_tasks() {
+    // Given: Nested tasks with circular dependencies
+    // When: Schedule is attempted
+    // Then: Error is returned
+
+    let mut project = Project::new("Nested Circular Test");
+    project.start = date(2025, 2, 3);
+
+    // Circular within a container: phase1.act1 -> phase1.act2 -> phase1.act1
+    project.tasks = vec![Task::new("phase1")
+        .child(Task::new("act1").effort(Duration::days(5)).depends_on("act2"))
+        .child(Task::new("act2").effort(Duration::days(5)).depends_on("act1"))];
+
+    let solver = CpmSolver::new();
+    let result = solver.schedule(&project);
+
+    assert!(result.is_err(), "Should detect circular dependency in nested tasks");
+}
+
+#[test]
+fn circular_dependency_across_containers() {
+    // Given: Circular dependency across container boundaries
+    // When: Schedule is attempted
+    // Then: Error is returned
+
+    let mut project = Project::new("Cross-Container Circular Test");
+    project.start = date(2025, 2, 3);
+
+    // Cross-container circular: phase1.act1 -> phase2.act1 -> phase1.act1
+    project.tasks = vec![
+        Task::new("phase1").child(
+            Task::new("act1")
+                .effort(Duration::days(5))
+                .depends_on("phase2.act1"),
+        ),
+        Task::new("phase2").child(
+            Task::new("act1")
+                .effort(Duration::days(5))
+                .depends_on("phase1.act1"),
+        ),
+    ];
+
+    let solver = CpmSolver::new();
+    let result = solver.schedule(&project);
+
+    assert!(result.is_err(), "Should detect circular dependency across containers");
+}
+
+#[test]
+fn three_task_cycle_detection() {
+    // Given: A -> B -> C -> A (3-task cycle)
+    // When: Schedule is attempted
+    // Then: Error is returned
+
+    let mut project = Project::new("Three Task Cycle Test");
+    project.start = date(2025, 2, 3);
+
+    project.tasks = vec![
+        Task::new("a").effort(Duration::days(2)).depends_on("c"),
+        Task::new("b").effort(Duration::days(2)).depends_on("a"),
+        Task::new("c").effort(Duration::days(2)).depends_on("b"),
+    ];
+
+    let solver = CpmSolver::new();
+    let result = solver.schedule(&project);
+
+    assert!(result.is_err(), "Should detect 3-task circular dependency");
 }
 
 #[test]
