@@ -78,14 +78,91 @@ struct TaskNode<'a> {
 // Helper Functions
 // =============================================================================
 
-/// Flatten the hierarchical task tree into a HashMap
-fn flatten_tasks<'a>(tasks: &'a [Task], map: &mut HashMap<String, &'a Task>) {
+/// Flatten the hierarchical task tree into a HashMap with qualified IDs
+///
+/// For nested tasks like:
+///   phase1 { act1 { sub1 } }
+///
+/// This produces:
+///   "phase1" -> phase1
+///   "phase1.act1" -> act1
+///   "phase1.act1.sub1" -> sub1
+///
+/// Also builds a context map for resolving relative dependencies:
+///   "phase1.act1" -> "phase1" (parent context for resolving siblings)
+fn flatten_tasks_with_prefix<'a>(
+    tasks: &'a [Task],
+    prefix: &str,
+    map: &mut HashMap<String, &'a Task>,
+    context_map: &mut HashMap<String, String>,
+) {
     for task in tasks {
-        map.insert(task.id.clone(), task);
+        let qualified_id = if prefix.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", prefix, task.id)
+        };
+
+        map.insert(qualified_id.clone(), task);
+        context_map.insert(qualified_id.clone(), prefix.to_string());
+
         if !task.children.is_empty() {
-            flatten_tasks(&task.children, map);
+            flatten_tasks_with_prefix(&task.children, &qualified_id, map, context_map);
         }
     }
+}
+
+/// Flatten the hierarchical task tree into a HashMap (convenience wrapper)
+fn flatten_tasks<'a>(tasks: &'a [Task], map: &mut HashMap<String, &'a Task>) {
+    let mut context_map = HashMap::new();
+    flatten_tasks_with_prefix(tasks, "", map, &mut context_map);
+}
+
+/// Flatten tasks and return both the task map and context map for dependency resolution
+fn flatten_tasks_with_context<'a>(
+    tasks: &'a [Task],
+) -> (HashMap<String, &'a Task>, HashMap<String, String>) {
+    let mut task_map = HashMap::new();
+    let mut context_map = HashMap::new();
+    flatten_tasks_with_prefix(tasks, "", &mut task_map, &mut context_map);
+    (task_map, context_map)
+}
+
+/// Resolve a dependency path to a qualified task ID
+///
+/// Handles:
+/// - Absolute paths: "phase1.act1" -> "phase1.act1"
+/// - Relative paths: "act1" (from phase1.act2) -> "phase1.act1"
+fn resolve_dependency_path(
+    dep_path: &str,
+    from_qualified_id: &str,
+    context_map: &HashMap<String, String>,
+    task_map: &HashMap<String, &Task>,
+) -> Option<String> {
+    // First, try as absolute path
+    if task_map.contains_key(dep_path) {
+        return Some(dep_path.to_string());
+    }
+
+    // If path contains a dot, it's meant to be absolute - don't try relative resolution
+    if dep_path.contains('.') {
+        return None;
+    }
+
+    // Try relative resolution: look in the same container
+    if let Some(container) = context_map.get(from_qualified_id) {
+        let qualified = if container.is_empty() {
+            dep_path.to_string()
+        } else {
+            format!("{}.{}", container, dep_path)
+        };
+
+        if task_map.contains_key(&qualified) {
+            return Some(qualified);
+        }
+    }
+
+    None
 }
 
 /// Get the duration of a task in working days
@@ -149,6 +226,7 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
 /// Returns sorted task IDs or error if cycle detected
 fn topological_sort(
     tasks: &HashMap<String, &Task>,
+    context_map: &HashMap<String, String>,
 ) -> Result<Vec<String>, ScheduleError> {
     // Build adjacency list and in-degree count
     let mut in_degree: HashMap<String, usize> = HashMap::new();
@@ -160,16 +238,27 @@ fn topological_sort(
         adjacency.insert(id.clone(), Vec::new());
     }
 
-    // Build the graph
-    for (id, task) in tasks {
+    // Build the graph with resolved dependency paths
+    for (qualified_id, task) in tasks {
         for dep in &task.depends {
-            // dep.predecessor -> id (predecessor must come before this task)
-            if let Some(adj) = adjacency.get_mut(&dep.predecessor) {
-                adj.push(id.clone());
+            // Resolve the dependency path (handles both absolute and relative)
+            let resolved = resolve_dependency_path(
+                &dep.predecessor,
+                qualified_id,
+                context_map,
+                tasks,
+            );
+
+            if let Some(pred_id) = resolved {
+                // pred_id -> qualified_id (predecessor must come before this task)
+                if let Some(adj) = adjacency.get_mut(&pred_id) {
+                    adj.push(qualified_id.clone());
+                }
+                if let Some(deg) = in_degree.get_mut(qualified_id) {
+                    *deg += 1;
+                }
             }
-            if let Some(deg) = in_degree.get_mut(id) {
-                *deg += 1;
-            }
+            // If dependency can't be resolved, we skip it (might be external or error)
         }
     }
 
@@ -221,9 +310,8 @@ fn topological_sort(
 
 impl Scheduler for CpmSolver {
     fn schedule(&self, project: &Project) -> Result<Schedule, ScheduleError> {
-        // Step 1: Flatten tasks
-        let mut task_map: HashMap<String, &Task> = HashMap::new();
-        flatten_tasks(&project.tasks, &mut task_map);
+        // Step 1: Flatten tasks with context for dependency resolution
+        let (task_map, context_map) = flatten_tasks_with_context(&project.tasks);
 
         if task_map.is_empty() {
             // Empty project - return empty schedule
@@ -236,8 +324,8 @@ impl Scheduler for CpmSolver {
             });
         }
 
-        // Step 2: Topological sort
-        let sorted_ids = topological_sort(&task_map)?;
+        // Step 2: Topological sort (with dependency path resolution)
+        let sorted_ids = topological_sort(&task_map, &context_map)?;
 
         // Step 3: Get calendar (use first calendar or default)
         let calendar = project
@@ -274,8 +362,17 @@ impl Scheduler for CpmSolver {
             // ES = max(EF of all predecessors), or 0 if no predecessors
             let mut es = 0i64;
             for dep in &task.depends {
-                if let Some(pred_node) = nodes.get(&dep.predecessor) {
-                    es = es.max(pred_node.early_finish);
+                // Resolve the dependency path to get the qualified ID
+                let resolved = resolve_dependency_path(
+                    &dep.predecessor,
+                    id,
+                    &context_map,
+                    &task_map,
+                );
+                if let Some(pred_id) = resolved {
+                    if let Some(pred_node) = nodes.get(&pred_id) {
+                        es = es.max(pred_node.early_finish);
+                    }
                 }
             }
 
@@ -305,10 +402,21 @@ impl Scheduler for CpmSolver {
         for id in sorted_ids.iter().rev() {
             let duration = nodes[id].duration_days;
 
-            // Find all successors of this task
+            // Find all successors of this task (tasks that depend on this one)
             let successors: Vec<String> = task_map
                 .iter()
-                .filter(|(_, t)| t.depends.iter().any(|d| d.predecessor == *id))
+                .filter(|(succ_id, t)| {
+                    t.depends.iter().any(|d| {
+                        // Resolve the dependency path from the successor's context
+                        let resolved = resolve_dependency_path(
+                            &d.predecessor,
+                            succ_id,
+                            &context_map,
+                            &task_map,
+                        );
+                        resolved.as_ref() == Some(id)
+                    })
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
 
@@ -419,10 +527,9 @@ impl Scheduler for CpmSolver {
 
     fn is_feasible(&self, project: &Project) -> FeasibilityResult {
         // Try to schedule and check for errors
-        let mut task_map: HashMap<String, &Task> = HashMap::new();
-        flatten_tasks(&project.tasks, &mut task_map);
+        let (task_map, context_map) = flatten_tasks_with_context(&project.tasks);
 
-        match topological_sort(&task_map) {
+        match topological_sort(&task_map, &context_map) {
             Ok(_) => FeasibilityResult {
                 feasible: true,
                 conflicts: vec![],
@@ -679,20 +786,35 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         // Parent task with children
+        // Note: "implement" depends on "design" (relative sibling reference)
         project.tasks = vec![Task::new("phase1")
             .child(Task::new("design").effort(Duration::days(3)))
             .child(
                 Task::new("implement")
                     .effort(Duration::days(5))
-                    .depends_on("design"),
+                    .depends_on("design"), // Relative reference to sibling
             )];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
 
-        // Should include all tasks (parent + children)
+        // Tasks are stored with qualified IDs (parent.child)
         assert!(schedule.tasks.contains_key("phase1"));
-        assert!(schedule.tasks.contains_key("design"));
-        assert!(schedule.tasks.contains_key("implement"));
+        assert!(schedule.tasks.contains_key("phase1.design"));
+        assert!(schedule.tasks.contains_key("phase1.implement"));
+
+        // Verify dependency was resolved: implement starts after design
+        let design_task = &schedule.tasks["phase1.design"];
+        let implement_task = &schedule.tasks["phase1.implement"];
+
+        println!("design: start={}, finish={}", design_task.start, design_task.finish);
+        println!("implement: start={}, finish={}", implement_task.start, implement_task.finish);
+
+        // implement should start on or after design finishes
+        // Note: finish is inclusive (last day of work), so implement can start on next working day
+        assert!(
+            implement_task.start > design_task.finish,
+            "implement should start after design finishes"
+        );
     }
 }

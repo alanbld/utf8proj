@@ -101,7 +101,6 @@ task phase1 "Phase 1" {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 2: Not yet implemented"]
 fn resolve_sibling_dependency() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -124,7 +123,6 @@ task phase1 "Phase 1" {
 }
 
 #[test]
-#[ignore = "Phase 2: Not yet implemented"]
 fn resolve_absolute_path_dependency() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
@@ -148,7 +146,6 @@ task phase2 "Phase 2" {
 }
 
 #[test]
-#[ignore = "Phase 2: Not yet implemented"]
 fn resolve_cross_container_dependency() {
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
