@@ -32,6 +32,12 @@ use utf8proj_core::{
     Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
 };
 
+pub mod leveling;
+pub use leveling::{
+    detect_overallocations, level_resources, LevelingResult, OverallocationPeriod,
+    ResourceTimeline, ShiftedTask, UnresolvedConflict,
+};
+
 /// CPM-based scheduler
 pub struct CpmSolver {
     /// Whether to perform resource leveling
@@ -41,7 +47,14 @@ pub struct CpmSolver {
 impl CpmSolver {
     pub fn new() -> Self {
         Self {
-            resource_leveling: false, // Not implemented yet
+            resource_leveling: false,
+        }
+    }
+
+    /// Create a solver with resource leveling enabled
+    pub fn with_leveling() -> Self {
+        Self {
+            resource_leveling: true,
         }
     }
 }
@@ -652,13 +665,21 @@ impl Scheduler for CpmSolver {
             project.start
         };
 
-        Ok(Schedule {
+        let schedule = Schedule {
             tasks: scheduled_tasks,
             critical_path,
             project_duration: Duration::days(project_end_days),
             project_end: project_end_date,
             total_cost: None, // Cost calculation would go here
-        })
+        };
+
+        // Step 11: Apply resource leveling if enabled
+        if self.resource_leveling {
+            let result = level_resources(project, &schedule, &calendar);
+            Ok(result.schedule)
+        } else {
+            Ok(schedule)
+        }
     }
 
     fn is_feasible(&self, project: &Project) -> FeasibilityResult {

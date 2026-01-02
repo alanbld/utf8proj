@@ -713,6 +713,182 @@ project "Test" {
     }
 
     #[test]
+    fn parse_calendar() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+calendar "Work Week" {
+    working_days: mon-fri
+    working_hours: 09:00-12:00, 13:00-17:00
+    holiday "Christmas" 2025-12-25..2025-12-26
+}
+"#;
+        let project = parse(input).expect("Failed to parse calendar");
+
+        assert_eq!(project.calendars.len(), 1);
+        let cal = &project.calendars[0];
+        assert_eq!(cal.name, "Work Week");
+        assert_eq!(cal.working_days, vec![1, 2, 3, 4, 5]); // Mon-Fri
+        assert_eq!(cal.working_hours.len(), 2);
+        assert_eq!(cal.holidays.len(), 1);
+        assert_eq!(cal.holidays[0].name, "Christmas");
+    }
+
+    #[test]
+    fn parse_project_end_and_calendar() {
+        let input = r#"
+project "Test" {
+    start: 2025-01-01
+    end: 2025-12-31
+    calendar: work_week
+}
+"#;
+        let project = parse(input).expect("Failed to parse project");
+        assert_eq!(project.end, Some(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()));
+        assert_eq!(project.calendar, "work_week");
+    }
+
+    #[test]
+    fn parse_resource_with_all_attributes() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource dev "Developer" {
+    rate: 100/hour
+    capacity: 0.8
+    calendar: dev_calendar
+    efficiency: 1.2
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource");
+        let res = &project.resources[0];
+        assert_eq!(res.id, "dev");
+        assert!(res.rate.is_some());
+        assert_eq!(res.capacity, 0.8);
+        assert_eq!(res.calendar, Some("dev_calendar".to_string()));
+        assert_eq!(res.efficiency, 1.2);
+    }
+
+    #[test]
+    fn parse_task_with_priority_and_complete() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task high_priority "High Priority Task" {
+    effort: 5d
+    priority: 100
+    complete: 75%
+}
+"#;
+        let project = parse(input).expect("Failed to parse task");
+        let task = &project.tasks[0];
+        assert_eq!(task.priority, 100);
+        assert_eq!(task.complete, Some(75.0));
+    }
+
+    #[test]
+    fn parse_task_constraints() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task constrained "Constrained Task" {
+    effort: 3d
+    must_start_on: 2025-02-01
+}
+"#;
+        let project = parse(input).expect("Failed to parse constraint");
+        let task = &project.tasks[0];
+        assert_eq!(task.constraints.len(), 1);
+        match &task.constraints[0] {
+            TaskConstraint::MustStartOn(date) => {
+                assert_eq!(*date, NaiveDate::from_ymd_opt(2025, 2, 1).unwrap());
+            }
+            _ => panic!("Expected MustStartOn constraint"),
+        }
+    }
+
+    #[test]
+    fn parse_dependency_with_lag() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task a "Task A" { effort: 5d }
+task b "Task B" {
+    effort: 3d
+    depends: a +2d
+}
+"#;
+        let project = parse(input).expect("Failed to parse dependency with lag");
+        let task_b = &project.tasks[1];
+        assert_eq!(task_b.depends.len(), 1);
+        assert!(task_b.depends[0].lag.is_some());
+        assert_eq!(task_b.depends[0].lag.unwrap().as_days(), 2.0);
+    }
+
+    #[test]
+    fn parse_dependency_with_type() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task a "Task A" { effort: 5d }
+task b "Task B" {
+    effort: 3d
+    depends: a SS
+}
+task c "Task C" {
+    effort: 2d
+    depends: a FF
+}
+"#;
+        let project = parse(input).expect("Failed to parse dependency types");
+        assert_eq!(project.tasks[1].depends[0].dep_type, DependencyType::StartToStart);
+        assert_eq!(project.tasks[2].depends[0].dep_type, DependencyType::FinishToFinish);
+    }
+
+    #[test]
+    fn parse_resource_ref_with_percentage() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource dev "Developer" {}
+task work "Work" {
+    effort: 5d
+    assign: dev@50%
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource ref");
+        let task = &project.tasks[0];
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "dev");
+        assert!((task.assigned[0].units - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_hours_duration() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+task quick "Quick Task" {
+    effort: 4h
+}
+"#;
+        let project = parse(input).expect("Failed to parse hours");
+        let task = &project.tasks[0];
+        assert_eq!(task.effort.unwrap().as_hours(), 4.0);
+    }
+
+    #[test]
+    fn parse_syntax_error() {
+        let input = r#"project "Test" { invalid syntax here }"#;
+        let result = parse(input);
+        assert!(result.is_err());
+        if let Err(ParseError::Syntax { line, column, .. }) = result {
+            assert!(line > 0);
+            assert!(column > 0);
+        } else {
+            panic!("Expected Syntax error");
+        }
+    }
+
+    #[test]
     fn parse_simple_proj_fixture() {
         // Test with inline content that matches the fixture (without leading comments for now)
         let fixture = r#"project "Hello World" {
