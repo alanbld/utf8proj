@@ -3,7 +3,8 @@
 //! Parser for utf8proj project files (.proj) and other input formats.
 //!
 //! This crate provides:
-//! - Native DSL parser using pest grammar
+//! - Native DSL parser using pest grammar (.proj files)
+//! - TaskJuggler parser (.tjp files)
 //! - AST to domain model conversion
 //!
 //! ## Example
@@ -26,6 +27,7 @@
 //! ```
 
 pub mod native;
+pub mod tjp;
 
 use thiserror::Error;
 
@@ -46,13 +48,39 @@ pub enum ParseError {
     UnknownIdentifier(String),
 }
 
+/// Supported file formats
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileFormat {
+    /// Native utf8proj DSL (.proj)
+    Native,
+    /// TaskJuggler format (.tjp)
+    TaskJuggler,
+}
+
+/// Detect file format from extension
+pub fn detect_format(path: &std::path::Path) -> FileFormat {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("tjp") => FileFormat::TaskJuggler,
+        _ => FileFormat::Native,
+    }
+}
+
 /// Parse a project from the native DSL format
 pub fn parse_project(input: &str) -> Result<utf8proj_core::Project, ParseError> {
     native::parse(input)
 }
 
-/// Parse a project file from a path
+/// Parse a project from TaskJuggler format
+pub fn parse_tjp(input: &str) -> Result<utf8proj_core::Project, ParseError> {
+    tjp::parse(input)
+}
+
+/// Parse a project file from a path (auto-detects format)
 pub fn parse_file(path: &std::path::Path) -> Result<utf8proj_core::Project, ParseError> {
     let content = std::fs::read_to_string(path).map_err(|e| ParseError::InvalidValue(e.to_string()))?;
-    parse_project(&content)
+
+    match detect_format(path) {
+        FileFormat::TaskJuggler => parse_tjp(&content),
+        FileFormat::Native => parse_project(&content),
+    }
 }

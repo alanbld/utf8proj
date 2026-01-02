@@ -1,0 +1,183 @@
+// TaskJuggler (.tjp) Grammar
+// Simplified grammar for parsing TaskJuggler project files
+
+// ============================================================================
+// Top-Level Structure
+// ============================================================================
+
+tjp_file = {
+    SOI ~
+    (project_decl | vacation_decl | report_decl | resource_decl | task_decl)* ~
+    EOI
+}
+
+// ============================================================================
+// Project Declaration
+// ============================================================================
+
+project_decl = {
+    "project" ~ identifier ~ string ~ date ~ "-" ~ date ~ "{" ~
+    project_body ~
+    "}"
+}
+
+project_body = { project_attr* }
+
+project_attr = {
+    timezone_attr |
+    timeformat_attr |
+    now_attr |
+    currency_attr |
+    workinghours_attr
+}
+
+timezone_attr = { "timezone" ~ string }
+timeformat_attr = { "timeformat" ~ string }
+now_attr = { "now" ~ date }
+currency_attr = { "currency" ~ string }
+workinghours_attr = { "workinghours" ~ day_spec ~ time_range? }
+
+day_spec = { day ~ ("-" ~ day | ("," ~ day)*) }
+day = { "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" }
+time_range = { time ~ "-" ~ time | "off" }
+time = @{ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} }
+
+// ============================================================================
+// Vacation Declaration
+// ============================================================================
+
+vacation_decl = { "vacation" ~ date }
+
+// ============================================================================
+// Resource Declaration
+// ============================================================================
+
+resource_decl = {
+    "resource" ~ identifier ~ string ~ resource_body?
+}
+
+resource_body = { "{" ~ resource_attr* ~ "}" }
+
+resource_attr = {
+    efficiency_attr |
+    limits_attr
+}
+
+efficiency_attr = { "efficiency" ~ number }
+limits_attr = { "limits" ~ "{" ~ limit_item* ~ "}" }
+limit_item = { "dailymax" ~ duration }
+
+// ============================================================================
+// Task Declaration
+// ============================================================================
+
+task_decl = {
+    "task" ~ identifier ~ string ~ "{" ~
+    task_body ~
+    "}"
+}
+
+task_body = { task_attr* }
+
+task_attr = {
+    scheduling_attr |
+    duration_attr |
+    effort_attr |
+    milestone_attr |
+    depends_attr |
+    start_attr |
+    end_attr |
+    allocate_attr |
+    priority_attr |
+    note_attr |
+    complete_attr
+}
+
+scheduling_attr = { "scheduling" ~ ("asap" | "alap") }
+duration_attr = { "duration" ~ duration }
+effort_attr = { "effort" ~ duration }
+milestone_attr = { "milestone" }
+depends_attr = { "depends" ~ dependency_list }
+start_attr = { "start" ~ date }
+end_attr = { "end" ~ date }
+allocate_attr = { "allocate" ~ identifier_list }
+priority_attr = { "priority" ~ integer }
+note_attr = { "note" ~ string }
+complete_attr = { "complete" ~ integer }
+
+// Dependencies
+dependency_list = { dependency ~ ("," ~ dependency)* }
+dependency = { identifier ~ dep_modifier? }
+dep_modifier = { "{" ~ dep_attr* ~ "}" }
+dep_attr = {
+    gaplength_attr |
+    gapduration_attr |
+    onstart_attr |
+    onend_attr
+}
+gaplength_attr = { "gaplength" ~ duration }
+gapduration_attr = { "gapduration" ~ duration }
+onstart_attr = { "onstart" }
+onend_attr = { "onend" }
+
+// ============================================================================
+// Report Declaration (simplified - we mainly ignore these)
+// ============================================================================
+
+report_decl = {
+    ("taskreport" | "resourcereport" | "textreport") ~ string ~ "{" ~
+    report_body ~
+    "}"
+}
+
+report_body = { report_attr* }
+
+report_attr = {
+    formats_attr |
+    columns_attr |
+    loadunit_attr |
+    hideresource_attr |
+    hidetask_attr
+}
+
+formats_attr = { "formats" ~ identifier }
+columns_attr = { "columns" ~ identifier_list }
+loadunit_attr = { "loadunit" ~ identifier }
+hideresource_attr = { "hideresource" ~ integer }
+hidetask_attr = { "hidetask" ~ integer }
+
+// ============================================================================
+// Primitives
+// ============================================================================
+
+// Duration: 5d, 2w, 8h, 3m, 1y
+duration = @{ number ~ duration_unit }
+duration_unit = { "min" | "h" | "d" | "w" | "m" | "y" }
+
+// Date: 2025-02-01
+date = @{ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
+
+// Numbers
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+integer = @{ "-"? ~ ASCII_DIGIT+ }
+
+// String: "quoted text" with escaped quotes
+string = @{ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ (escape_seq | !("\"" | "\\") ~ ANY)* }
+escape_seq = @{ "\\" ~ ANY }
+
+// Identifier: alphanumeric with underscores
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+identifier_list = { identifier ~ ("," ~ identifier)* }
+
+// ============================================================================
+// Comments and Whitespace
+// ============================================================================
+
+COMMENT = _{
+    ("//" ~ (!NEWLINE ~ ANY)*) |
+    ("/*" ~ (!"*/" ~ ANY)* ~ "*/") |
+    ("#" ~ (!NEWLINE ~ ANY)*)
+}
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+NEWLINE = _{ "\r\n" | "\n" | "\r" }
