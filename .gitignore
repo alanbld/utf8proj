@@ -16,3 +16,6 @@ Thumbs.db
 
 # Test outputs
 *.snap.new
+
+# Personal projects
+/personal/
