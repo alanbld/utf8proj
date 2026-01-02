@@ -19,3 +19,4 @@ workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+utf8proj-solver.workspace = true

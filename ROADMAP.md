@@ -269,11 +269,11 @@ monaco.languages.setMonarchTokensProvider('utf8proj', {
 
 ## Implementation Priority
 
-| Feature | Complexity | Impact | Priority |
-|---------|------------|--------|----------|
-| Resource Leveling | High | High | **Now** |
-| Gantt Chart | Medium | High | Next |
-| WASM Playground | Medium | Medium | Future |
+| Feature | Complexity | Impact | Status |
+|---------|------------|--------|--------|
+| Resource Leveling | High | High | **Done** |
+| Gantt Chart | Medium | High | **Done** |
+| WASM Playground | Medium | Medium | Next |
 
 ## Dependencies
 

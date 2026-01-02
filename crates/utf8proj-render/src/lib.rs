@@ -3,6 +3,7 @@
 //! Rendering backends for utf8proj schedules.
 //!
 //! This crate provides:
+//! - Interactive HTML Gantt chart rendering
 //! - SVG Gantt chart rendering
 //! - Text-based output
 //! - Custom renderer trait
@@ -11,11 +12,19 @@
 //!
 //! ```rust,ignore
 //! use utf8proj_core::{Project, Schedule, Renderer};
-//! use utf8proj_render::SvgRenderer;
+//! use utf8proj_render::{HtmlGanttRenderer, SvgRenderer};
 //!
-//! let renderer = SvgRenderer::default();
-//! let svg = renderer.render(&project, &schedule)?;
+//! // Interactive HTML Gantt chart
+//! let renderer = HtmlGanttRenderer::new();
+//! let html = renderer.render(&project, &schedule)?;
+//!
+//! // Pure SVG output
+//! let svg_renderer = SvgRenderer::default();
+//! let svg = svg_renderer.render(&project, &schedule)?;
 //! ```
+
+pub mod gantt;
+pub use gantt::{HtmlGanttRenderer, GanttTheme};
 
 use chrono::NaiveDate;
 use svg::node::element::{Group, Line, Rectangle, Text};
