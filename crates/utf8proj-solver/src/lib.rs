@@ -128,6 +128,24 @@ fn flatten_tasks_with_context<'a>(
     (task_map, context_map)
 }
 
+/// Build a map from parent qualified ID to list of direct children qualified IDs
+fn build_children_map(task_map: &HashMap<String, &Task>) -> HashMap<String, Vec<String>> {
+    let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for qualified_id in task_map.keys() {
+        // Find the parent by removing the last component
+        if let Some(dot_pos) = qualified_id.rfind('.') {
+            let parent_id = &qualified_id[..dot_pos];
+            children_map
+                .entry(parent_id.to_string())
+                .or_default()
+                .push(qualified_id.clone());
+        }
+    }
+
+    children_map
+}
+
 /// Resolve a dependency path to a qualified task ID
 ///
 /// Handles:
@@ -224,10 +242,17 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
 
 /// Perform topological sort using Kahn's algorithm
 /// Returns sorted task IDs or error if cycle detected
+///
+/// This ensures:
+/// 1. Tasks come after their dependencies (explicit edges)
+/// 2. Container tasks come after their children (implicit edges)
 fn topological_sort(
     tasks: &HashMap<String, &Task>,
     context_map: &HashMap<String, String>,
 ) -> Result<Vec<String>, ScheduleError> {
+    // Build children map for container handling
+    let children_map = build_children_map(tasks);
+
     // Build adjacency list and in-degree count
     let mut in_degree: HashMap<String, usize> = HashMap::new();
     let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
@@ -236,6 +261,19 @@ fn topological_sort(
     for id in tasks.keys() {
         in_degree.insert(id.clone(), 0);
         adjacency.insert(id.clone(), Vec::new());
+    }
+
+    // Add implicit edges: children -> container (container comes after children)
+    for (container_id, children) in &children_map {
+        for child_id in children {
+            // child -> container edge
+            if let Some(adj) = adjacency.get_mut(child_id) {
+                adj.push(container_id.clone());
+            }
+            if let Some(deg) = in_degree.get_mut(container_id) {
+                *deg += 1;
+            }
+        }
     }
 
     // Build the graph with resolved dependency paths
@@ -354,43 +392,72 @@ impl Scheduler for CpmSolver {
             );
         }
 
+        // Build children map for container date derivation
+        let children_map = build_children_map(&task_map);
+
         // Step 5: Forward pass - calculate ES and EF
+        // Because of topological sort, children are processed before their containers
         for id in &sorted_ids {
             let task = task_map[id];
-            let duration = nodes[id].duration_days;
 
-            // ES = max(EF of all predecessors), or 0 if no predecessors
-            let mut es = 0i64;
-            for dep in &task.depends {
-                // Resolve the dependency path to get the qualified ID
-                let resolved = resolve_dependency_path(
-                    &dep.predecessor,
-                    id,
-                    &context_map,
-                    &task_map,
-                );
-                if let Some(pred_id) = resolved {
-                    if let Some(pred_node) = nodes.get(&pred_id) {
-                        es = es.max(pred_node.early_finish);
+            // Check if this is a container task
+            if let Some(children) = children_map.get(id) {
+                // Container: derive dates from children
+                // All children have already been processed (topological order)
+                let mut min_es = i64::MAX;
+                let mut max_ef = i64::MIN;
+
+                for child_id in children {
+                    if let Some(child_node) = nodes.get(child_id) {
+                        min_es = min_es.min(child_node.early_start);
+                        max_ef = max_ef.max(child_node.early_finish);
                     }
                 }
-            }
 
-            // Also consider MustStartOn constraints
-            for constraint in &task.constraints {
-                if let TaskConstraint::MustStartOn(date) = constraint {
-                    // Convert date to working days from project start
-                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
-                    es = es.max(constraint_days);
+                if min_es != i64::MAX && max_ef != i64::MIN {
+                    if let Some(node) = nodes.get_mut(id) {
+                        node.early_start = min_es;
+                        node.early_finish = max_ef;
+                        node.duration_days = max_ef - min_es;
+                    }
                 }
-            }
+            } else {
+                // Leaf task: normal forward pass logic
+                let duration = nodes[id].duration_days;
 
-            // EF = ES + duration
-            let ef = es + duration;
+                // ES = max(EF of all predecessors), or 0 if no predecessors
+                let mut es = 0i64;
+                for dep in &task.depends {
+                    // Resolve the dependency path to get the qualified ID
+                    let resolved = resolve_dependency_path(
+                        &dep.predecessor,
+                        id,
+                        &context_map,
+                        &task_map,
+                    );
+                    if let Some(pred_id) = resolved {
+                        if let Some(pred_node) = nodes.get(&pred_id) {
+                            es = es.max(pred_node.early_finish);
+                        }
+                    }
+                }
 
-            if let Some(node) = nodes.get_mut(id) {
-                node.early_start = es;
-                node.early_finish = ef;
+                // Also consider MustStartOn constraints
+                for constraint in &task.constraints {
+                    if let TaskConstraint::MustStartOn(date) = constraint {
+                        // Convert date to working days from project start
+                        let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                        es = es.max(constraint_days);
+                    }
+                }
+
+                // EF = ES + duration
+                let ef = es + duration;
+
+                if let Some(node) = nodes.get_mut(id) {
+                    node.early_start = es;
+                    node.early_finish = ef;
+                }
             }
         }
 
@@ -398,8 +465,14 @@ impl Scheduler for CpmSolver {
         let project_end_days = nodes.values().map(|n| n.early_finish).max().unwrap_or(0);
 
         // Step 7: Backward pass - calculate LS and LF
-        // Process in reverse topological order
+        // Process in reverse topological order (leaf tasks first, then containers)
+        // Note: In reverse order, containers come first, but we skip them and handle after
         for id in sorted_ids.iter().rev() {
+            // Skip containers - they'll be handled in Step 7b
+            if children_map.contains_key(id) {
+                continue;
+            }
+
             let duration = nodes[id].duration_days;
 
             // Find all successors of this task (tasks that depend on this one)
@@ -441,6 +514,36 @@ impl Scheduler for CpmSolver {
                 node.late_start = ls;
                 node.late_finish = lf;
                 node.slack = slack;
+            }
+        }
+
+        // Step 7b: Derive container late dates from children (process deepest first)
+        let mut container_ids: Vec<&String> = children_map.keys().collect();
+        container_ids.sort_by(|a, b| {
+            let depth_a = a.matches('.').count();
+            let depth_b = b.matches('.').count();
+            depth_b.cmp(&depth_a) // Deepest first
+        });
+
+        for container_id in container_ids {
+            if let Some(children) = children_map.get(container_id) {
+                let mut min_ls = i64::MAX;
+                let mut max_lf = i64::MIN;
+
+                for child_id in children {
+                    if let Some(child_node) = nodes.get(child_id) {
+                        min_ls = min_ls.min(child_node.late_start);
+                        max_lf = max_lf.max(child_node.late_finish);
+                    }
+                }
+
+                if min_ls != i64::MAX && max_lf != i64::MIN {
+                    if let Some(container_node) = nodes.get_mut(container_id) {
+                        container_node.late_start = min_ls;
+                        container_node.late_finish = max_lf;
+                        container_node.slack = min_ls - container_node.early_start;
+                    }
+                }
             }
         }
 

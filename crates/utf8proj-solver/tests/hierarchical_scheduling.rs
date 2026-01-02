@@ -6,6 +6,8 @@
 //! Test progression matches SPEC_HIERARCHICAL_TASKS.md
 
 use chrono::NaiveDate;
+use utf8proj_core::{Duration, Project, Scheduler, Task, TaskConstraint};
+use utf8proj_solver::CpmSolver;
 
 fn date(year: i32, month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, day).unwrap()
@@ -32,41 +34,74 @@ fn schedule_flat_tasks_with_fs_dependencies() {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 3: Not yet implemented"]
 fn container_start_derived_from_earliest_child() {
     // Given: Container with children starting at different dates
     // When: Schedule is computed
     // Then: Container.start = min(child.start)
 
-    // Setup would be:
+    let mut project = Project::new("Container Start Test");
+    project.start = date(2025, 2, 3); // Monday
+
     // task phase1 {
     //     task act1 { start 2025-02-10 length 5d }
     //     task act2 { start 2025-02-03 length 5d }  // earlier
     // }
-    // Expected: phase1.start = 2025-02-03
+    let mut act1 = Task::new("act1").effort(Duration::days(5));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+
+    let mut act2 = Task::new("act2").effort(Duration::days(5));
+    act2.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    project.tasks = vec![Task::new("phase1").child(act1).child(act2)];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Container start should be the earliest child start (2025-02-03)
+    let phase1 = &schedule.tasks["phase1"];
+    assert_eq!(phase1.start, date(2025, 2, 3), "Container start should be min of children");
 }
 
 #[test]
-#[ignore = "Phase 3: Not yet implemented"]
 fn container_finish_derived_from_latest_child() {
     // Given: Container with children finishing at different dates
     // When: Schedule is computed
     // Then: Container.finish = max(child.finish)
 
-    // Setup would be:
+    let mut project = Project::new("Container Finish Test");
+    project.start = date(2025, 2, 3); // Monday
+
     // task phase1 {
-    //     task act1 { start 2025-02-03 length 10d }  // finishes later
-    //     task act2 { start 2025-02-03 length 5d }
+    //     task act1 { length 10d }  // finishes later
+    //     task act2 { length 5d }
     // }
-    // Expected: phase1.finish = 2025-02-17 (act1's finish)
+    project.tasks = vec![Task::new("phase1")
+        .child(Task::new("act1").effort(Duration::days(10)))
+        .child(Task::new("act2").effort(Duration::days(5)))];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act1: 10 days from Feb 03 -> finishes Feb 14 (last day of work)
+    // act2: 5 days from Feb 03 -> finishes Feb 07
+    // Container finish should be Feb 14
+    let phase1 = &schedule.tasks["phase1"];
+    let act1 = &schedule.tasks["phase1.act1"];
+
+    assert_eq!(
+        phase1.finish, act1.finish,
+        "Container finish should be max of children"
+    );
 }
 
 #[test]
-#[ignore = "Phase 3: Not yet implemented"]
 fn container_dependency_waits_for_all_children() {
     // Given: Task depending on container
     // When: Schedule is computed
     // Then: Dependent starts after ALL container children finish
+
+    let mut project = Project::new("Container Dependency Test");
+    project.start = date(2025, 2, 3); // Monday
 
     // task phase1 {
     //     task act1 { length 10d }
@@ -76,7 +111,29 @@ fn container_dependency_waits_for_all_children() {
     //     depends phase1  // depends on container
     //     length 5d
     // }
-    // Expected: phase2.start >= phase1.finish (= act2.finish)
+    project.tasks = vec![
+        Task::new("phase1")
+            .child(Task::new("act1").effort(Duration::days(10)))
+            .child(Task::new("act2").effort(Duration::days(20))),
+        Task::new("phase2")
+            .effort(Duration::days(5))
+            .depends_on("phase1"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // phase1.act2 finishes after 20 days = Feb 28
+    // phase2 should start after phase1 finishes (after Feb 28)
+    let phase1 = &schedule.tasks["phase1"];
+    let phase2 = &schedule.tasks["phase2"];
+
+    assert!(
+        phase2.start > phase1.finish,
+        "phase2 should start after phase1 finishes: phase2.start={}, phase1.finish={}",
+        phase2.start,
+        phase1.finish
+    );
 }
 
 // =============================================================================
