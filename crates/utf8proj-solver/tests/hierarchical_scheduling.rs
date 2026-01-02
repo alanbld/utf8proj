@@ -373,18 +373,252 @@ fn ss_negative_lag_acts_as_lead() {
 // =============================================================================
 
 #[test]
-#[ignore = "Full integration: Not yet implemented"]
 fn critical_path_with_ss_dependencies() {
     // TTG-style project with overlapping activities
     // Critical path should consider SS relationships
 
-    // This represents the actual TTG schedule:
-    // 1.1: Week 1-4 (validation)
-    // 2.1: Week 2-14 (development, SS+1w from 1.1)
-    // 3.1: Week 3-17 (ABL migration, SS+2w from 1.1)
-    // 3.2: Week 5-15 (Shell migration, SS+2w from 3.1)
-    // 3.3: Week 11-16 (Perl migration)
-    // 4.1: Week 15-17 (cutover, FS from all)
+    let mut project = Project::new("Critical Path SS Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    // Simplified TTG-style schedule:
+    // validation: 20 days (4 weeks)
+    // development: SS+5d from validation, 65 days (starts 1 week after validation)
+    // migration: SS+10d from validation, 75 days (starts 2 weeks after validation)
+    // cutover: FS from all, 15 days
+
+    let mut validation = Task::new("validation").effort(Duration::days(20));
+    validation.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    let mut development = Task::new("development").effort(Duration::days(65));
+    development.depends.push(utf8proj_core::Dependency {
+        predecessor: "validation".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: Some(Duration::days(5)), // SS+5d (1 week)
+    });
+
+    let mut migration = Task::new("migration").effort(Duration::days(75));
+    migration.depends.push(utf8proj_core::Dependency {
+        predecessor: "validation".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: Some(Duration::days(10)), // SS+10d (2 weeks)
+    });
+
+    let cutover = Task::new("cutover")
+        .effort(Duration::days(15))
+        .depends_on("validation")
+        .depends_on("development")
+        .depends_on("migration");
+
+    project.tasks = vec![validation, development, migration, cutover];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Verify overlapping starts due to SS dependencies
+    let val = &schedule.tasks["validation"];
+    let dev = &schedule.tasks["development"];
+    let mig = &schedule.tasks["migration"];
+    let cut = &schedule.tasks["cutover"];
+
+    // Development starts 5 days after validation starts
+    assert_eq!(
+        dev.start,
+        date(2025, 2, 10), // Feb 3 + 5 working days
+        "Development should start SS+5d from validation"
+    );
+
+    // Migration starts 10 days after validation starts
+    assert_eq!(
+        mig.start,
+        date(2025, 2, 17), // Feb 3 + 10 working days
+        "Migration should start SS+10d from validation"
+    );
+
+    // Verify tasks overlap (SS dependencies allow concurrent work)
+    assert!(
+        dev.start < val.finish,
+        "Development should overlap with validation"
+    );
+    assert!(
+        mig.start < val.finish,
+        "Migration should overlap with validation"
+    );
+
+    // Cutover starts after all predecessors finish
+    // validation: Feb 3 + 20 days = Feb 28
+    // development: Feb 10 + 65 days = ~May 14
+    // migration: Feb 17 + 75 days = ~May 30
+    // cutover should start after migration finishes (the latest)
+    assert!(
+        cut.start > mig.finish,
+        "Cutover should start after migration finishes: cut.start={}, mig.finish={}",
+        cut.start,
+        mig.finish
+    );
+    assert!(
+        cut.start > dev.finish,
+        "Cutover should start after development finishes"
+    );
+
+    // Critical path should include migration (longest path)
+    // Path: validation(partial) -> migration -> cutover
+    // OR the path that determines project end
+    assert!(
+        schedule.critical_path.contains(&"migration".to_string()),
+        "Migration should be on critical path (longest duration after SS): {:?}",
+        schedule.critical_path
+    );
+    assert!(
+        schedule.critical_path.contains(&"cutover".to_string()),
+        "Cutover should be on critical path: {:?}",
+        schedule.critical_path
+    );
+}
+
+#[test]
+fn critical_path_with_parallel_ss_chains() {
+    // Test that critical path correctly identifies the longest chain
+    // when multiple SS-dependent chains run in parallel
+
+    let mut project = Project::new("Parallel SS Chains Test");
+    project.start = date(2025, 2, 3);
+
+    // Two parallel chains from the same start:
+    // Chain A: start -> taskA1 (SS+0) -> taskA2 (FS) = 10 + 5 = 15 days total
+    // Chain B: start -> taskB1 (SS+0) -> taskB2 (FS) = 20 + 5 = 25 days total
+    // Chain B should be critical
+
+    let mut start_task = Task::new("start").effort(Duration::days(5));
+    start_task.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    // Chain A (shorter)
+    let mut task_a1 = Task::new("taskA1").effort(Duration::days(10));
+    task_a1.depends.push(utf8proj_core::Dependency {
+        predecessor: "start".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: None,
+    });
+    let task_a2 = Task::new("taskA2").effort(Duration::days(5)).depends_on("taskA1");
+
+    // Chain B (longer - critical)
+    let mut task_b1 = Task::new("taskB1").effort(Duration::days(20));
+    task_b1.depends.push(utf8proj_core::Dependency {
+        predecessor: "start".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: None,
+    });
+    let task_b2 = Task::new("taskB2").effort(Duration::days(5)).depends_on("taskB1");
+
+    // Final task depends on both chains
+    let finish = Task::new("finish")
+        .effort(Duration::days(2))
+        .depends_on("taskA2")
+        .depends_on("taskB2");
+
+    project.tasks = vec![start_task, task_a1, task_a2, task_b1, task_b2, finish];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Chain B should be critical (longer path)
+    assert!(
+        schedule.critical_path.contains(&"taskB1".to_string()),
+        "taskB1 should be on critical path: {:?}",
+        schedule.critical_path
+    );
+    assert!(
+        schedule.critical_path.contains(&"taskB2".to_string()),
+        "taskB2 should be on critical path: {:?}",
+        schedule.critical_path
+    );
+    assert!(
+        schedule.critical_path.contains(&"finish".to_string()),
+        "finish should be on critical path: {:?}",
+        schedule.critical_path
+    );
+
+    // Chain A should NOT be critical (has slack)
+    assert!(
+        !schedule.tasks["taskA1"].is_critical,
+        "taskA1 should NOT be critical (shorter chain)"
+    );
+    assert!(
+        !schedule.tasks["taskA2"].is_critical,
+        "taskA2 should NOT be critical (shorter chain)"
+    );
+
+    // Verify slack exists for chain A
+    assert!(
+        schedule.tasks["taskA2"].slack.as_days() > 0.0,
+        "taskA2 should have positive slack"
+    );
+}
+
+#[test]
+fn critical_path_with_ff_dependencies() {
+    // Test critical path with Finish-to-Finish dependencies
+
+    let mut project = Project::new("Critical Path FF Test");
+    project.start = date(2025, 2, 3);
+
+    // Two tasks that must finish together (FF)
+    // task1: 20 days
+    // task2: 10 days, FF with task1 (must finish when task1 finishes)
+    // task3: depends on both (FS)
+
+    let mut task1 = Task::new("task1").effort(Duration::days(20));
+    task1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    let mut task2 = Task::new("task2").effort(Duration::days(10));
+    task2.depends.push(utf8proj_core::Dependency {
+        predecessor: "task1".to_string(),
+        dep_type: utf8proj_core::DependencyType::FinishToFinish,
+        lag: None,
+    });
+
+    let task3 = Task::new("task3")
+        .effort(Duration::days(5))
+        .depends_on("task1")
+        .depends_on("task2");
+
+    project.tasks = vec![task1, task2, task3];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // task2 should finish at the same time as task1
+    assert_eq!(
+        schedule.tasks["task2"].finish,
+        schedule.tasks["task1"].finish,
+        "FF dependency: task2 should finish when task1 finishes"
+    );
+
+    // task2 should start later (since it's shorter but must finish with task1)
+    // task1: 20 days, task2: 10 days with FF
+    // task2 starts at day 10 so it finishes at day 20
+    assert!(
+        schedule.tasks["task2"].start > schedule.tasks["task1"].start,
+        "task2 should start later to align finish with task1"
+    );
+
+    // task3 is definitely on critical path (last task)
+    assert!(
+        schedule.critical_path.contains(&"task3".to_string()),
+        "task3 should be on critical path: {:?}",
+        schedule.critical_path
+    );
+
+    // task2 is on critical path (directly feeds task3 via FS)
+    assert!(
+        schedule.critical_path.contains(&"task2".to_string()),
+        "task2 should be on critical path: {:?}",
+        schedule.critical_path
+    );
+
+    // Note: task1 may or may not be marked critical depending on backward pass
+    // implementation for FF dependencies. The key behaviors verified above are:
+    // 1. FF alignment works (task2.finish == task1.finish)
+    // 2. Scheduling is correct (task2 starts later to align)
 }
 
 #[test]
