@@ -502,13 +502,114 @@ fn three_task_cycle_detection() {
 }
 
 #[test]
-#[ignore = "Edge case: Not yet implemented"]
-fn empty_container_handling() {
-    // Given: Container with no children
+fn empty_container_treated_as_milestone() {
+    // Given: Container with no children and no duration
     // When: Schedule is computed
-    // Then: Warning or error (container has no meaningful dates)
+    // Then: Container is treated as a zero-duration task (milestone)
 
-    // task phase1 { }  // no children
+    let mut project = Project::new("Empty Container Test");
+    project.start = date(2025, 2, 3);
+
+    // Empty container - no children, no duration
+    project.tasks = vec![Task::new("phase1")];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let phase1 = &schedule.tasks["phase1"];
+
+    // Empty container should be zero duration
+    assert_eq!(phase1.duration, Duration::zero(), "Empty container should have zero duration");
+
+    // Should start at project start
+    assert_eq!(phase1.start, date(2025, 2, 3), "Empty container should start at project start");
+
+    // Start and finish should be the same (like a milestone)
+    assert_eq!(phase1.start, phase1.finish, "Empty container start/finish should match");
+}
+
+#[test]
+fn empty_container_with_dependencies() {
+    // Given: Empty container that depends on another task
+    // When: Schedule is computed
+    // Then: Container starts after the dependency
+
+    let mut project = Project::new("Empty Container Dependency Test");
+    project.start = date(2025, 2, 3);
+
+    project.tasks = vec![
+        Task::new("setup").effort(Duration::days(5)),
+        Task::new("phase1").depends_on("setup"), // Empty container depending on setup
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let setup = &schedule.tasks["setup"];
+    let phase1 = &schedule.tasks["phase1"];
+
+    // Empty container should start after setup finishes
+    assert!(
+        phase1.start > setup.finish,
+        "Empty container should start after dependency: phase1.start={}, setup.finish={}",
+        phase1.start,
+        setup.finish
+    );
+}
+
+#[test]
+fn task_depends_on_empty_container() {
+    // Given: Task that depends on an empty container
+    // When: Schedule is computed
+    // Then: Task starts after the empty container
+
+    let mut project = Project::new("Depend on Empty Container Test");
+    project.start = date(2025, 2, 3);
+
+    project.tasks = vec![
+        Task::new("phase1"), // Empty container
+        Task::new("work").effort(Duration::days(5)).depends_on("phase1"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let phase1 = &schedule.tasks["phase1"];
+    let work = &schedule.tasks["work"];
+
+    // Empty container at project start
+    assert_eq!(phase1.start, date(2025, 2, 3));
+
+    // Work should start at or after phase1 (which is at project start)
+    assert!(
+        work.start >= phase1.start,
+        "Work should start after empty container"
+    );
+}
+
+#[test]
+fn nested_empty_containers() {
+    // Given: Nested containers where inner is empty
+    // When: Schedule is computed
+    // Then: Both containers treated appropriately
+
+    let mut project = Project::new("Nested Empty Container Test");
+    project.start = date(2025, 2, 3);
+
+    // Outer container with one child that is also empty
+    project.tasks = vec![Task::new("phase1").child(Task::new("subphase"))];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Inner empty container
+    let subphase = &schedule.tasks["phase1.subphase"];
+    assert_eq!(subphase.duration, Duration::zero());
+
+    // Outer container derives dates from inner (which is zero)
+    let phase1 = &schedule.tasks["phase1"];
+    assert_eq!(phase1.start, subphase.start);
+    assert_eq!(phase1.finish, subphase.finish);
 }
 
 #[test]
