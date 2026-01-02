@@ -109,7 +109,9 @@ complete_attr = { "complete" ~ integer }
 
 // Dependencies
 dependency_list = { dependency ~ ("," ~ dependency)* }
-dependency = { task_path ~ dep_modifier? }
+dependency = { dep_ss_marker? ~ task_path ~ dep_ff_marker? ~ dep_modifier? }
+dep_ss_marker = { "!" }  // Start-to-Start marker (before task path)
+dep_ff_marker = { "~" }  // Finish-to-Finish marker (after task path)
 dep_modifier = { "{" ~ dep_attr* ~ "}" }
 
 // Task path: supports dotted references like "phase1.act1_1"

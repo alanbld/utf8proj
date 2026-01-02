@@ -141,52 +141,140 @@ fn container_dependency_waits_for_all_children() {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn ss_dependency_aligns_starts() {
     // Given: Task B depends on Task A with SS relationship
     // When: Schedule is computed
     // Then: B.start >= A.start
 
-    // task act1 { start 2025-02-03 length 20d }
-    // task act2 { depends !act1 length 10d }
-    // Expected: act2.start = 2025-02-03 (same as act1.start)
+    let mut project = Project::new("SS Dependency Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    // act1 with constrained start, act2 depends SS on act1
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: None,
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act2.start should equal act1.start
+    assert_eq!(
+        schedule.tasks["act2"].start,
+        schedule.tasks["act1"].start,
+        "SS: act2 should start when act1 starts"
+    );
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn ss_dependency_with_positive_lag() {
     // Given: Task B depends on Task A with SS+5d
     // When: Schedule is computed
     // Then: B.start >= A.start + 5d
 
-    // task act1 { start 2025-02-03 length 20d }
-    // task act2 { depends !act1 { gaplength 5d } length 10d }
-    // Expected: act2.start = 2025-02-10 (act1.start + 5 working days)
+    let mut project = Project::new("SS+Lag Dependency Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToStart,
+        lag: Some(Duration::days(5)),
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act2.start should be act1.start + 5 working days
+    // Feb 03 + 5 working days = Feb 10
+    assert_eq!(
+        schedule.tasks["act2"].start,
+        date(2025, 2, 10),
+        "SS+5d: act2 should start 5 days after act1 starts"
+    );
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn ff_dependency_aligns_finishes() {
     // Given: Task B depends on Task A with FF relationship
     // When: Schedule is computed
     // Then: B.finish >= A.finish
 
-    // task act1 { start 2025-02-03 length 20d }
-    // task act2 { depends act1~ length 10d }
-    // Expected: act2.finish = 2025-02-28 (same as act1.finish)
-    // Therefore: act2.start = 2025-02-17 (finish - duration)
+    let mut project = Project::new("FF Dependency Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::FinishToFinish,
+        lag: None,
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act1 finishes after 20 days = Feb 28
+    // act2 with FF should finish on same day as act1
+    assert_eq!(
+        schedule.tasks["act2"].finish,
+        schedule.tasks["act1"].finish,
+        "FF: act2 should finish when act1 finishes"
+    );
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn sf_dependency_finish_after_start() {
     // Given: Task B depends on Task A with SF relationship
     // When: Schedule is computed
     // Then: B.finish >= A.start
 
-    // task act1 { start 2025-02-10 length 20d }
-    // task act2 { depends !act1~ length 10d }
-    // Expected: act2.finish >= 2025-02-10 (act1.start)
+    let mut project = Project::new("SF Dependency Test");
+    project.start = date(2025, 2, 3); // Monday
+
+    // act1 starts Feb 10
+    let mut act1 = Task::new("act1").effort(Duration::days(20));
+    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+
+    // act2 with SF depends on act1 - act2.finish >= act1.start
+    let mut act2 = Task::new("act2").effort(Duration::days(10));
+    act2.depends.push(utf8proj_core::Dependency {
+        predecessor: "act1".to_string(),
+        dep_type: utf8proj_core::DependencyType::StartToFinish,
+        lag: None,
+    });
+
+    project.tasks = vec![act1, act2];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // act2.finish >= act1.start (Feb 10)
+    // With 10d duration, act2 could start as early as Jan 27
+    // But project starts Feb 03, so act2.start = Feb 03, finish = Feb 14
+    // However, SF constraint says finish >= Feb 10, which is satisfied
+    assert!(
+        schedule.tasks["act2"].finish >= schedule.tasks["act1"].start,
+        "SF: act2 finish ({}) should be >= act1 start ({})",
+        schedule.tasks["act2"].finish,
+        schedule.tasks["act1"].start
+    );
 }
 
 // =============================================================================

@@ -28,8 +28,8 @@ use chrono::{NaiveDate, TimeDelta};
 use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
-    Assignment, Calendar, Duration, Explanation, FeasibilityResult, Project, Schedule,
-    ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
+    Assignment, Calendar, DependencyType, Duration, Explanation, FeasibilityResult, Project,
+    Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
 };
 
 /// CPM-based scheduler
@@ -425,7 +425,12 @@ impl Scheduler for CpmSolver {
                 // Leaf task: normal forward pass logic
                 let duration = nodes[id].duration_days;
 
-                // ES = max(EF of all predecessors), or 0 if no predecessors
+                // ES = max of all dependency constraints, or 0 if no predecessors
+                // Dependency types:
+                //   FS: B.start >= A.finish + lag
+                //   SS: B.start >= A.start + lag
+                //   FF: B.finish >= A.finish + lag → B.start >= A.finish + lag - B.duration
+                //   SF: B.finish >= A.start + lag → B.start >= A.start + lag - B.duration
                 let mut es = 0i64;
                 for dep in &task.depends {
                     // Resolve the dependency path to get the qualified ID
@@ -437,7 +442,29 @@ impl Scheduler for CpmSolver {
                     );
                     if let Some(pred_id) = resolved {
                         if let Some(pred_node) = nodes.get(&pred_id) {
-                            es = es.max(pred_node.early_finish);
+                            let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
+
+                            let constraint_es = match dep.dep_type {
+                                DependencyType::FinishToStart => {
+                                    // B.start >= A.finish + lag
+                                    pred_node.early_finish + lag
+                                }
+                                DependencyType::StartToStart => {
+                                    // B.start >= A.start + lag
+                                    pred_node.early_start + lag
+                                }
+                                DependencyType::FinishToFinish => {
+                                    // B.finish >= A.finish + lag
+                                    // B.start >= A.finish + lag - B.duration
+                                    (pred_node.early_finish + lag - duration).max(0)
+                                }
+                                DependencyType::StartToFinish => {
+                                    // B.finish >= A.start + lag
+                                    // B.start >= A.start + lag - B.duration
+                                    (pred_node.early_start + lag - duration).max(0)
+                                }
+                            };
+                            es = es.max(constraint_es);
                         }
                     }
                 }

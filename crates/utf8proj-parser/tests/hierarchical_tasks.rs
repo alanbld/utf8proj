@@ -191,8 +191,9 @@ fn container_finish_is_max_of_children() {
 // =============================================================================
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn parse_ss_dependency() {
+    use utf8proj_core::DependencyType;
+
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
     timezone "UTC"
@@ -207,13 +208,14 @@ task act2 "Activity 2" {
     let project = parse(input).expect("Should parse SS dependency");
 
     // Check that dependency is marked as Start-to-Start
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert!(dep.is_start_to_start());
+    let dep = &project.tasks[1].depends[0];
+    assert_eq!(dep.dep_type, DependencyType::StartToStart);
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn parse_ss_dependency_with_lag() {
+    use utf8proj_core::DependencyType;
+
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
     timezone "UTC"
@@ -228,14 +230,16 @@ task act2 "Activity 2" {
     let project = parse(input).expect("Should parse SS+lag dependency");
 
     // SS + 5 day lag
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert!(dep.is_start_to_start());
-    // assert_eq!(dep.lag_days, 5);
+    let dep = &project.tasks[1].depends[0];
+    assert_eq!(dep.dep_type, DependencyType::StartToStart);
+    assert!(dep.lag.is_some());
+    assert_eq!(dep.lag.unwrap().as_days() as i64, 5);
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn parse_ff_dependency() {
+    use utf8proj_core::DependencyType;
+
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
     timezone "UTC"
@@ -250,13 +254,14 @@ task act2 "Activity 2" {
     let project = parse(input).expect("Should parse FF dependency");
 
     // Check that dependency is marked as Finish-to-Finish
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert!(dep.is_finish_to_finish());
+    let dep = &project.tasks[1].depends[0];
+    assert_eq!(dep.dep_type, DependencyType::FinishToFinish);
 }
 
 #[test]
-#[ignore = "Phase 4: Not yet implemented"]
 fn parse_sf_dependency() {
+    use utf8proj_core::DependencyType;
+
     let input = r#"
 project test "Test" 2025-01-01 - 2025-12-31 {
     timezone "UTC"
@@ -271,8 +276,8 @@ task act2 "Activity 2" {
     let project = parse(input).expect("Should parse SF dependency");
 
     // Check that dependency is marked as Start-to-Finish
-    // let dep = &project.tasks[1].dependencies[0];
-    // assert!(dep.is_start_to_finish());
+    let dep = &project.tasks[1].depends[0];
+    assert_eq!(dep.dep_type, DependencyType::StartToFinish);
 }
 
 // =============================================================================

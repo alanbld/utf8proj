@@ -203,12 +203,53 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                         if dep.as_rule() == Rule::dependency_list {
                             for dep_item in dep.into_inner() {
                                 if dep_item.as_rule() == Rule::dependency {
-                                    // First child is task_path (dotted identifier)
-                                    let task_path = dep_item.into_inner().next().unwrap().as_str();
+                                    let mut has_ss_marker = false;
+                                    let mut has_ff_marker = false;
+                                    let mut task_path = String::new();
+                                    let mut lag: Option<Duration> = None;
+
+                                    for part in dep_item.into_inner() {
+                                        match part.as_rule() {
+                                            Rule::dep_ss_marker => has_ss_marker = true,
+                                            Rule::dep_ff_marker => has_ff_marker = true,
+                                            Rule::task_path => task_path = part.as_str().to_string(),
+                                            Rule::dep_modifier => {
+                                                // Parse lag from modifier
+                                                // dep_modifier contains dep_attr rules
+                                                for dep_attr in part.into_inner() {
+                                                    if dep_attr.as_rule() == Rule::dep_attr {
+                                                        // dep_attr wraps the actual attribute
+                                                        if let Some(attr) = dep_attr.into_inner().next() {
+                                                            match attr.as_rule() {
+                                                                Rule::gaplength_attr | Rule::gapduration_attr => {
+                                                                    if let Some(dur) = attr.into_inner().next() {
+                                                                        lag = Some(parse_duration(dur.as_str())?);
+                                                                    }
+                                                                }
+                                                                Rule::onstart_attr => has_ss_marker = true,
+                                                                Rule::onend_attr => has_ff_marker = true,
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+
+                                    // Determine dependency type from markers
+                                    let dep_type = match (has_ss_marker, has_ff_marker) {
+                                        (true, true) => DependencyType::StartToFinish,
+                                        (true, false) => DependencyType::StartToStart,
+                                        (false, true) => DependencyType::FinishToFinish,
+                                        (false, false) => DependencyType::FinishToStart,
+                                    };
+
                                     task.depends.push(Dependency {
-                                        predecessor: task_path.to_string(),
-                                        dep_type: DependencyType::FinishToStart,
-                                        lag: None,
+                                        predecessor: task_path,
+                                        dep_type,
+                                        lag,
                                     });
                                 }
                             }
