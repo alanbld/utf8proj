@@ -2,6 +2,8 @@
 //!
 //! Command-line interface for parsing, scheduling, and rendering projects.
 
+mod bench;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::fs;
@@ -58,6 +60,29 @@ enum Commands {
         #[arg(short, long)]
         output: std::path::PathBuf,
     },
+
+    /// Run performance benchmarks
+    Benchmark {
+        /// Benchmark type: synthetic topology or PSPLIB file
+        #[arg(short, long, value_enum, default_value = "chain")]
+        topology: bench::Topology,
+
+        /// Number of tasks for synthetic benchmarks
+        #[arg(short, long, default_value = "1000")]
+        count: usize,
+
+        /// Run a series of increasing sizes
+        #[arg(short, long)]
+        series: bool,
+
+        /// Enable resource leveling during scheduling
+        #[arg(short, long)]
+        leveling: bool,
+
+        /// PSPLIB file for validation benchmarks (future)
+        #[arg(short, long)]
+        file: Option<std::path::PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -75,15 +100,23 @@ fn main() -> Result<()> {
             cmd_schedule(&file, &format, output.as_deref())
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
+        Some(Commands::Benchmark {
+            topology,
+            count,
+            series,
+            leveling,
+            file: _,
+        }) => cmd_benchmark(topology, count, series, leveling),
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
             println!("Usage: utf8proj <COMMAND>");
             println!();
             println!("Commands:");
-            println!("  check     Parse and validate a project file");
-            println!("  schedule  Schedule a project and output results");
-            println!("  gantt     Generate a Gantt chart (SVG)");
+            println!("  check      Parse and validate a project file");
+            println!("  schedule   Schedule a project and output results");
+            println!("  gantt      Generate a Gantt chart (SVG)");
+            println!("  benchmark  Run performance benchmarks");
             println!();
             println!("Run 'utf8proj --help' for more information");
             Ok(())
@@ -296,4 +329,54 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max - 3])
     }
+}
+
+/// Benchmark command: run performance benchmarks
+fn cmd_benchmark(
+    topology: bench::Topology,
+    count: usize,
+    series: bool,
+    leveling: bool,
+) -> Result<()> {
+    println!("utf8proj Performance Benchmark");
+    println!("==============================");
+    println!();
+    println!("Configuration:");
+    println!("  Topology: {}", topology);
+    println!("  Resource Leveling: {}", if leveling { "enabled" } else { "disabled" });
+    println!();
+
+    let results = if series {
+        // Run a series of increasing sizes
+        let sizes = match topology {
+            bench::Topology::Chain => vec![100, 500, 1000, 5000, 10000, 50000],
+            bench::Topology::Diamond => vec![100, 500, 1000, 5000, 10000, 50000],
+            bench::Topology::Web => vec![100, 500, 1000, 2500, 5000, 10000],
+        };
+        println!("Running benchmark series: {:?}", sizes);
+        println!();
+        bench::run_benchmark_series(topology, &sizes, leveling)
+    } else {
+        // Single run
+        println!("Running single benchmark with {} tasks...", count);
+        println!();
+        vec![bench::run_synthetic_benchmark(topology, count, leveling)]
+    };
+
+    bench::print_report(&results);
+
+    // Check for any failures
+    let failures: Vec<_> = results
+        .iter()
+        .filter(|r| !matches!(r.status, bench::BenchmarkStatus::Success))
+        .collect();
+
+    if !failures.is_empty() {
+        println!("WARNING: {} benchmark(s) failed:", failures.len());
+        for f in failures {
+            println!("  - {} ({} tasks): {}", f.topology, f.task_count, f.status);
+        }
+    }
+
+    Ok(())
 }
