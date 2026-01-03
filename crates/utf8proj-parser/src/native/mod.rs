@@ -714,6 +714,7 @@ fn parse_task_constraint(pair: Pair<Rule>) -> Result<TaskConstraint, ParseError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Datelike;
 
     #[test]
     fn parse_empty_project() {
@@ -1075,5 +1076,266 @@ task deploy "Deployment" {
         assert_eq!(project.tasks[3].id, "deploy");
         assert!(project.tasks[3].milestone);
         assert_eq!(project.tasks[3].duration, Some(Duration::zero()));
+    }
+
+    #[test]
+    fn parse_single_date_holiday() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+calendar "Standard" {
+    working_days: mon-fri
+    holiday "New Year" 2025-01-01
+}
+"#;
+        let project = parse(input).expect("Failed to parse single date holiday");
+        let cal = &project.calendars[0];
+        assert_eq!(cal.holidays.len(), 1);
+        assert_eq!(cal.holidays[0].name, "New Year");
+        // Single date means start == end
+        assert_eq!(cal.holidays[0].start, cal.holidays[0].end);
+    }
+
+    #[test]
+    fn parse_working_days_list() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+calendar "Part Time" {
+    working_days: mon, wed, fri
+}
+"#;
+        let project = parse(input).expect("Failed to parse working days list");
+        let cal = &project.calendars[0];
+        // Should be Monday (1), Wednesday (3), Friday (5)
+        assert_eq!(cal.working_days.len(), 3);
+        assert!(cal.working_days.contains(&1)); // Monday
+        assert!(cal.working_days.contains(&3)); // Wednesday
+        assert!(cal.working_days.contains(&5)); // Friday
+    }
+
+    #[test]
+    fn parse_single_working_day() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+calendar "Minimal" {
+    working_days: fri
+}
+"#;
+        let project = parse(input).expect("Failed to parse single working day");
+        let cal = &project.calendars[0];
+        assert_eq!(cal.working_days.len(), 1);
+        assert_eq!(cal.working_days[0], 5); // Friday
+    }
+
+    #[test]
+    fn parse_milestone_declaration_syntax() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task work "Do Work" { effort: 5d }
+
+milestone phase1_complete "Phase 1 Complete" {
+    depends: work
+}
+"#;
+        let project = parse(input).expect("Failed to parse milestone declaration");
+        assert_eq!(project.tasks.len(), 2);
+
+        let milestone = &project.tasks[1];
+        assert_eq!(milestone.id, "phase1_complete");
+        assert_eq!(milestone.name, "Phase 1 Complete");
+        assert!(milestone.milestone);
+        assert_eq!(milestone.duration, Some(Duration::zero()));
+        assert_eq!(milestone.depends.len(), 1);
+        assert_eq!(milestone.depends[0].predecessor, "work");
+    }
+
+    #[test]
+    fn parse_milestone_with_note_and_payment() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+milestone payment_due "Payment Due" {
+    depends: delivery
+    note: "Invoice to be sent upon completion"
+    payment: 50000
+}
+"#;
+        let project = parse(input).expect("Failed to parse milestone with attributes");
+        let milestone = &project.tasks[0];
+
+        assert!(milestone.milestone);
+        assert_eq!(milestone.attributes.get("note").map(|s| s.as_str()),
+                   Some("Invoice to be sent upon completion"));
+        assert_eq!(milestone.attributes.get("payment").map(|s| s.as_str()),
+                   Some("50000"));
+    }
+
+    #[test]
+    fn parse_all_constraint_types() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task a "Task A" { effort: 1d
+    must_start_on: 2025-02-01
+}
+task b "Task B" { effort: 1d
+    must_finish_on: 2025-03-15
+}
+task c "Task C" { effort: 1d
+    start_no_earlier_than: 2025-02-15
+}
+task d "Task D" { effort: 1d
+    start_no_later_than: 2025-04-01
+}
+task e "Task E" { effort: 1d
+    finish_no_earlier_than: 2025-05-01
+}
+task f "Task F" { effort: 1d
+    finish_no_later_than: 2025-06-30
+}
+"#;
+        let project = parse(input).expect("Failed to parse all constraint types");
+        assert_eq!(project.tasks.len(), 6);
+
+        // Check each constraint type
+        match &project.tasks[0].constraints[0] {
+            TaskConstraint::MustStartOn(d) => assert_eq!(d.month(), 2),
+            _ => panic!("Expected MustStartOn"),
+        }
+        match &project.tasks[1].constraints[0] {
+            TaskConstraint::MustFinishOn(d) => assert_eq!(d.month(), 3),
+            _ => panic!("Expected MustFinishOn"),
+        }
+        match &project.tasks[2].constraints[0] {
+            TaskConstraint::StartNoEarlierThan(d) => assert_eq!(d.day(), 15),
+            _ => panic!("Expected StartNoEarlierThan"),
+        }
+        match &project.tasks[3].constraints[0] {
+            TaskConstraint::StartNoLaterThan(d) => assert_eq!(d.month(), 4),
+            _ => panic!("Expected StartNoLaterThan"),
+        }
+        match &project.tasks[4].constraints[0] {
+            TaskConstraint::FinishNoEarlierThan(d) => assert_eq!(d.month(), 5),
+            _ => panic!("Expected FinishNoEarlierThan"),
+        }
+        match &project.tasks[5].constraints[0] {
+            TaskConstraint::FinishNoLaterThan(d) => assert_eq!(d.month(), 6),
+            _ => panic!("Expected FinishNoLaterThan"),
+        }
+    }
+
+    #[test]
+    fn parse_task_with_note_and_tags() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task documented "Documented Task" {
+    effort: 3d
+    note: "This is an important task"
+    tag: critical
+    tag: priority
+}
+"#;
+        let project = parse(input).expect("Failed to parse task with note");
+        let task = &project.tasks[0];
+
+        assert_eq!(task.attributes.get("note").map(|s| s.as_str()),
+                   Some("This is an important task"));
+    }
+
+    #[test]
+    fn parse_task_with_cost() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task expensive "Expensive Task" {
+    effort: 5d
+    cost: 10000
+}
+"#;
+        let project = parse(input).expect("Failed to parse task with cost");
+        let task = &project.tasks[0];
+
+        assert_eq!(task.attributes.get("cost").map(|s| s.as_str()),
+                   Some("10000"));
+    }
+
+    #[test]
+    fn parse_sf_dependency_type() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task a "Task A" { effort: 5d }
+task b "Task B" {
+    effort: 3d
+    depends: a SF
+}
+"#;
+        let project = parse(input).expect("Failed to parse SF dependency");
+        assert_eq!(project.tasks[1].depends[0].dep_type, DependencyType::StartToFinish);
+    }
+
+    #[test]
+    fn parse_dependency_with_negative_lag() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task a "Task A" { effort: 5d }
+task b "Task B" {
+    effort: 3d
+    depends: a -1d
+}
+"#;
+        let project = parse(input).expect("Failed to parse negative lag");
+        let dep = &project.tasks[1].depends[0];
+        assert!(dep.lag.is_some());
+        assert_eq!(dep.lag.unwrap().as_days(), -1.0);
+    }
+
+    #[test]
+    fn parse_project_with_timezone() {
+        let input = r#"
+project "Test" {
+    start: 2025-01-01
+    timezone: Europe/Rome
+}
+"#;
+        let project = parse(input).expect("Failed to parse timezone");
+        assert_eq!(project.attributes.get("timezone").map(|s| s.as_str()),
+                   Some("Europe/Rome"));
+    }
+
+    #[test]
+    fn parse_resource_with_email() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource pm "Project Manager" {
+    rate: 850/day
+    email: "pm@example.com"
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource email");
+        let res = &project.resources[0];
+        assert_eq!(res.attributes.get("email").map(|s| s.as_str()),
+                   Some("pm@example.com"));
+    }
+
+    #[test]
+    fn parse_resource_percentage_parentheses() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource dev "Developer" {}
+task work "Work" {
+    effort: 5d
+    assign: dev(75%)
+}
+"#;
+        let project = parse(input).expect("Failed to parse percentage with parentheses");
+        let task = &project.tasks[0];
+        assert!((task.assigned[0].units - 0.75).abs() < 0.01);
     }
 }

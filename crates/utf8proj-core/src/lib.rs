@@ -825,4 +825,187 @@ mod tests {
         assert!(leaves.iter().any(|t| t.id == "child2"));
         assert!(leaves.iter().any(|t| t.id == "standalone"));
     }
+
+    #[test]
+    fn duration_constructors() {
+        // Test minutes constructor
+        let d_min = Duration::minutes(120);
+        assert_eq!(d_min.minutes, 120);
+        assert_eq!(d_min.as_hours(), 2.0);
+
+        // Test hours constructor
+        let d_hours = Duration::hours(3);
+        assert_eq!(d_hours.minutes, 180);
+        assert_eq!(d_hours.as_hours(), 3.0);
+
+        // Test weeks constructor (5 days * 8 hours)
+        let d_weeks = Duration::weeks(1);
+        assert_eq!(d_weeks.minutes, 5 * 8 * 60);
+        assert_eq!(d_weeks.as_days(), 5.0);
+    }
+
+    #[test]
+    fn project_get_task_nested() {
+        let project = Project {
+            id: "test".into(),
+            name: "Test".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: None,
+            calendar: "default".into(),
+            currency: "USD".into(),
+            tasks: vec![
+                Task::new("parent")
+                    .name("Parent Task")
+                    .child(Task::new("child1").name("Child 1"))
+                    .child(Task::new("child2")
+                        .name("Child 2")
+                        .child(Task::new("grandchild").name("Grandchild"))),
+                Task::new("standalone").name("Standalone"),
+            ],
+            resources: Vec::new(),
+            calendars: vec![Calendar::default()],
+            scenarios: Vec::new(),
+            attributes: HashMap::new(),
+        };
+
+        // Find top-level task
+        let standalone = project.get_task("standalone");
+        assert!(standalone.is_some());
+        assert_eq!(standalone.unwrap().name, "Standalone");
+
+        // Find nested task (depth 1)
+        let child1 = project.get_task("child1");
+        assert!(child1.is_some());
+        assert_eq!(child1.unwrap().name, "Child 1");
+
+        // Find deeply nested task (depth 2)
+        let grandchild = project.get_task("grandchild");
+        assert!(grandchild.is_some());
+        assert_eq!(grandchild.unwrap().name, "Grandchild");
+
+        // Non-existent task
+        let missing = project.get_task("nonexistent");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn project_get_resource() {
+        let project = Project {
+            id: "test".into(),
+            name: "Test".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: None,
+            calendar: "default".into(),
+            currency: "USD".into(),
+            tasks: Vec::new(),
+            resources: vec![
+                Resource::new("dev1").name("Developer 1"),
+                Resource::new("pm").name("Project Manager"),
+            ],
+            calendars: vec![Calendar::default()],
+            scenarios: Vec::new(),
+            attributes: HashMap::new(),
+        };
+
+        let dev = project.get_resource("dev1");
+        assert!(dev.is_some());
+        assert_eq!(dev.unwrap().name, "Developer 1");
+
+        let pm = project.get_resource("pm");
+        assert!(pm.is_some());
+        assert_eq!(pm.unwrap().name, "Project Manager");
+
+        let missing = project.get_resource("nonexistent");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn task_is_summary() {
+        let leaf_task = Task::new("leaf").name("Leaf Task");
+        assert!(!leaf_task.is_summary());
+
+        let summary_task = Task::new("summary")
+            .name("Summary Task")
+            .child(Task::new("child1"))
+            .child(Task::new("child2"));
+        assert!(summary_task.is_summary());
+    }
+
+    #[test]
+    fn task_assign_with_units() {
+        let task = Task::new("task1")
+            .assign("dev1")
+            .assign_with_units("dev2", 0.5)
+            .assign_with_units("contractor", 0.25);
+
+        assert_eq!(task.assigned.len(), 3);
+        assert_eq!(task.assigned[0].units, 1.0); // Default assignment
+        assert_eq!(task.assigned[1].units, 0.5); // Partial assignment
+        assert_eq!(task.assigned[2].units, 0.25); // Quarter assignment
+    }
+
+    #[test]
+    fn resource_efficiency() {
+        let resource = Resource::new("dev")
+            .name("Developer")
+            .efficiency(0.8);
+
+        assert_eq!(resource.efficiency, 0.8);
+    }
+
+    #[test]
+    fn calendar_hours_per_day() {
+        let cal = Calendar::default();
+        // Default: 9:00-12:00 (3h) + 13:00-17:00 (4h) = 7 hours
+        assert_eq!(cal.hours_per_day(), 7.0);
+    }
+
+    #[test]
+    fn time_range_duration() {
+        let range = TimeRange {
+            start: 9 * 60,  // 9:00 AM
+            end: 17 * 60,   // 5:00 PM
+        };
+        assert_eq!(range.duration_hours(), 8.0);
+
+        let half_day = TimeRange {
+            start: 9 * 60,
+            end: 13 * 60,
+        };
+        assert_eq!(half_day.duration_hours(), 4.0);
+    }
+
+    #[test]
+    fn holiday_contains_date() {
+        let holiday = Holiday {
+            name: "Winter Break".into(),
+            start: NaiveDate::from_ymd_opt(2025, 12, 24).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 12, 26).unwrap(),
+        };
+
+        // Before holiday
+        assert!(!holiday.contains(NaiveDate::from_ymd_opt(2025, 12, 23).unwrap()));
+
+        // First day of holiday
+        assert!(holiday.contains(NaiveDate::from_ymd_opt(2025, 12, 24).unwrap()));
+
+        // Middle of holiday
+        assert!(holiday.contains(NaiveDate::from_ymd_opt(2025, 12, 25).unwrap()));
+
+        // Last day of holiday
+        assert!(holiday.contains(NaiveDate::from_ymd_opt(2025, 12, 26).unwrap()));
+
+        // After holiday
+        assert!(!holiday.contains(NaiveDate::from_ymd_opt(2025, 12, 27).unwrap()));
+    }
+
+    #[test]
+    fn task_milestone() {
+        let milestone = Task::new("ms1")
+            .name("Phase Complete")
+            .milestone();
+
+        assert!(milestone.milestone);
+        assert_eq!(milestone.duration, Some(Duration::zero()));
+    }
 }

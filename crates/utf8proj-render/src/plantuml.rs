@@ -663,4 +663,136 @@ mod tests {
         let output = renderer.render(&project, &schedule).unwrap();
         assert!(!output.contains(" as ["));
     }
+
+    #[test]
+    fn plantuml_normal_color_option() {
+        let renderer = PlantUmlRenderer::new()
+            .normal_color("GreenYellow");
+
+        assert_eq!(renderer.normal_color, "GreenYellow");
+    }
+
+    #[test]
+    fn plantuml_no_completion_option() {
+        let renderer = PlantUmlRenderer::new()
+            .no_completion();
+
+        assert!(!renderer.show_completion);
+    }
+
+    #[test]
+    fn plantuml_format_duration_zero() {
+        let task = ScheduledTask {
+            task_id: "ms".to_string(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            duration: Duration::zero(),
+            assignments: vec![],
+            slack: Duration::zero(),
+            is_critical: false,
+            early_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            early_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            late_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            late_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+        };
+        assert_eq!(PlantUmlRenderer::format_duration(&task), "0 days");
+    }
+
+    #[test]
+    fn plantuml_format_duration_one_day() {
+        let task = ScheduledTask {
+            task_id: "quick".to_string(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            duration: Duration::days(1),
+            assignments: vec![],
+            slack: Duration::zero(),
+            is_critical: false,
+            early_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            early_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            late_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            late_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+        };
+        assert_eq!(PlantUmlRenderer::format_duration(&task), "1 day");
+    }
+
+    #[test]
+    fn plantuml_with_completion() {
+        let mut project = Project::new("Completion Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("work").name("Work").effort(Duration::days(5));
+        task.complete = Some(50.0);
+        project.tasks.push(task);
+
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "work".to_string(),
+            ScheduledTask {
+                task_id: "work".to_string(),
+                start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                early_finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                late_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                late_finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(5),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+            total_cost: None,
+        };
+
+        let renderer = PlantUmlRenderer::new();
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(output.contains("is 50% complete"));
+    }
+
+    #[test]
+    fn plantuml_no_completion_hides_percentage() {
+        let mut project = Project::new("Completion Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("work").name("Work").effort(Duration::days(5));
+        task.complete = Some(75.0);
+        project.tasks.push(task);
+
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "work".to_string(),
+            ScheduledTask {
+                task_id: "work".to_string(),
+                start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                early_finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                late_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                late_finish: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(5),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+            total_cost: None,
+        };
+
+        let renderer = PlantUmlRenderer::new().no_completion();
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(!output.contains("% complete"));
+    }
 }

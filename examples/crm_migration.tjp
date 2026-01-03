@@ -415,8 +415,8 @@ taskreport milestones "" {
           chart { ${TaskTip} scale week }
   timeformat "%Y-%m-%d"
   hideresource @all
-  # Only show milestone tasks
-  hidetask ~(plan.complete >= 0 & plan.duration = 0)
+  # Show all tasks
+  hidetask 0
   sorttasks plan.end.up
   scenarios plan, aggressive, conservative
 }
