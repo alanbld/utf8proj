@@ -1,9 +1,10 @@
 //! Benchmarking module for utf8proj
 //!
-//! Provides synthetic stress tests and PSPLIB validation benchmarks.
+//! Provides synthetic stress tests, BDD comparison, and PSPLIB validation benchmarks.
 
 #![allow(dead_code)] // Fields/variants for future PSPLIB validation
 
+pub mod bdd;
 pub mod synthetic;
 
 use std::time::{Duration, Instant};

@@ -83,6 +83,25 @@ enum Commands {
         #[arg(short, long)]
         file: Option<std::path::PathBuf>,
     },
+
+    /// Run BDD conflict resolution benchmarks
+    BddBenchmark {
+        /// Scenario type for BDD benchmarks
+        #[arg(short, long, value_enum, default_value = "single-resource")]
+        scenario: bench::bdd::BddScenario,
+
+        /// Number of tasks
+        #[arg(short, long, default_value = "50")]
+        tasks: usize,
+
+        /// Number of resources
+        #[arg(short, long, default_value = "5")]
+        resources: usize,
+
+        /// Run a series of increasing sizes
+        #[arg(long)]
+        series: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -107,6 +126,12 @@ fn main() -> Result<()> {
             leveling,
             file: _,
         }) => cmd_benchmark(topology, count, series, leveling),
+        Some(Commands::BddBenchmark {
+            scenario,
+            tasks,
+            resources,
+            series,
+        }) => cmd_bdd_benchmark(scenario, tasks, resources, series),
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
@@ -375,6 +400,61 @@ fn cmd_benchmark(
         println!("WARNING: {} benchmark(s) failed:", failures.len());
         for f in failures {
             println!("  - {} ({} tasks): {}", f.topology, f.task_count, f.status);
+        }
+    }
+
+    Ok(())
+}
+
+/// BDD benchmark command: compare BDD vs heuristic leveling
+fn cmd_bdd_benchmark(
+    scenario: bench::bdd::BddScenario,
+    tasks: usize,
+    resources: usize,
+    series: bool,
+) -> Result<()> {
+    println!("utf8proj BDD Conflict Resolution Benchmark");
+    println!("==========================================");
+    println!();
+    println!("Configuration:");
+    println!("  Scenario: {}", scenario);
+    println!();
+
+    let results = if series {
+        // Run a series of increasing sizes
+        let sizes: Vec<(usize, usize)> = match scenario {
+            bench::bdd::BddScenario::SingleResource => {
+                vec![(10, 1), (25, 1), (50, 1), (100, 1), (200, 1)]
+            }
+            bench::bdd::BddScenario::MultiResource => {
+                vec![(20, 3), (50, 5), (100, 10), (200, 15), (500, 20)]
+            }
+            bench::bdd::BddScenario::ResourceWeb => {
+                vec![(20, 4), (50, 8), (100, 12), (200, 16), (400, 20)]
+            }
+        };
+        println!("Running benchmark series: {:?}", sizes);
+        println!();
+        bench::bdd::run_bdd_benchmark_series(scenario, &sizes)
+    } else {
+        // Single run
+        println!("Running single benchmark with {} tasks, {} resources...", tasks, resources);
+        println!();
+        vec![bench::bdd::run_bdd_benchmark(scenario, tasks, resources)]
+    };
+
+    bench::bdd::print_bdd_report(&results);
+
+    // Check for any failures
+    let failures: Vec<_> = results
+        .iter()
+        .filter(|r| !matches!(r.status, bench::bdd::BddBenchmarkStatus::Success))
+        .collect();
+
+    if !failures.is_empty() {
+        println!("WARNING: {} benchmark(s) failed:", failures.len());
+        for f in failures {
+            println!("  - {} ({} tasks): {}", f.scenario, f.task_count, f.status);
         }
     }
 
