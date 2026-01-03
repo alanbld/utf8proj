@@ -1338,4 +1338,70 @@ task work "Work" {
         let task = &project.tasks[0];
         assert!((task.assigned[0].units - 0.75).abs() < 0.01);
     }
+
+    #[test]
+    fn parse_resource_with_role() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource dev "Developer" {
+    rate: 500/day
+    role: "Senior Engineer"
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource role");
+        let res = &project.resources[0];
+        assert_eq!(res.attributes.get("role").map(|s| s.as_str()),
+                   Some("Senior Engineer"));
+    }
+
+    #[test]
+    fn parse_resource_with_leave() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource dev "Developer" {
+    rate: 500/day
+    leave: 2025-06-01..2025-06-15
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource leave");
+        let res = &project.resources[0];
+        assert!(res.attributes.contains_key("leave"));
+    }
+
+    #[test]
+    fn parse_invalid_duration_unit() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+task a "Task A" { duration: 5x }
+"#;
+        let result = parse(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_saturday_working_day() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+calendar "Weekend Work" {
+    working_days: mon-sat
+}
+"#;
+        let project = parse(input).expect("Failed to parse saturday working day");
+        let cal = &project.calendars[0];
+        assert!(cal.working_days.contains(&6)); // Saturday
+    }
+
+    #[test]
+    fn parse_sunday_working_day() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+calendar "Seven Days" {
+    working_days: sun-sat
+}
+"#;
+        let project = parse(input).expect("Failed to parse sunday working day");
+        let cal = &project.calendars[0];
+        assert!(cal.working_days.contains(&0)); // Sunday
+        assert_eq!(cal.working_days.len(), 7);
+    }
 }
