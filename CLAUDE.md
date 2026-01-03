@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Rust-based project scheduling engine with CPM (Critical Path Method) solver and resource leveling. Parses TaskJuggler (.tjp) and native DSL (.proj) formats, schedules tasks, and renders output.
+Rust-based project scheduling engine with CPM (Critical Path Method) solver, resource leveling, and BDD-based conflict analysis. Parses TaskJuggler (.tjp) and native DSL (.proj) formats, schedules tasks, and renders output. Implements PMI/PMBOK scheduling standards.
 
 ## Workspace Structure
 
@@ -11,7 +11,8 @@ crates/
 ├── utf8proj-core/      # Core types: Task, Resource, Dependency, Calendar, Schedule
 ├── utf8proj-parser/    # Parsers for TJP and native DSL (pest grammar)
 ├── utf8proj-solver/    # CPM scheduler with resource leveling
-│   └── src/leveling.rs # Resource over-allocation detection and resolution
+│   ├── src/leveling.rs # Resource over-allocation detection and resolution
+│   └── src/bdd.rs      # BDD-based conflict analysis (Biodivine)
 ├── utf8proj-render/    # Output rendering (HTML Gantt, SVG)
 │   └── src/gantt.rs    # Interactive HTML Gantt chart renderer
 ├── utf8proj-cli/       # Command-line interface (untested)
@@ -33,11 +34,13 @@ playground/             # Browser-based playground
 - **Resources**: Rate, capacity, efficiency, calendar assignment
 - **Task attributes**: Priority, complete %, constraints (must_start_on)
 - **Critical path**: Calculation with all dependency types
+- **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: Automatic over-allocation detection and task shifting
+- **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (Biodivine)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-02)
+## Test Coverage (as of 2026-01-03)
 
 | Module | Coverage |
 |--------|----------|
@@ -50,7 +53,37 @@ playground/             # Browser-based playground
 | utf8proj-cli | 0% |
 | **Overall** | **81.25%** |
 
-**Tests:** 124 passing, 1 ignored (render doctest)
+**Tests:** 87 passing, 1 ignored (render doctest)
+
+## Effort-Driven Scheduling (PMI Compliant)
+
+Duration is calculated from effort using the PMI formula:
+
+```
+Duration = Effort / Total_Resource_Units
+```
+
+### Examples
+
+| Effort | Resources | Total Units | Duration |
+|--------|-----------|-------------|----------|
+| 40h | 1 @ 100% | 1.0 | 5 days |
+| 40h | 1 @ 50% | 0.5 | 10 days |
+| 40h | 2 @ 100% | 2.0 | 2.5 days |
+| 40h | 1@100% + 1@50% | 1.5 | ~3.3 days |
+
+### Usage
+
+```rust
+// Default 100% allocation
+Task::new("work").effort(Duration::days(5)).assign("dev")
+
+// Partial allocation (50%)
+Task::new("work").effort(Duration::days(5)).assign_with_units("dev", 0.5)
+
+// Fixed duration (ignores allocation)
+Task::new("meeting").duration(Duration::days(1)).assign("dev")
+```
 
 ## Resource Leveling
 
@@ -131,7 +164,24 @@ let renderer = HtmlGanttRenderer::new().hide_dependencies();
 
 ## Recent Work Completed
 
-1. **WASM Playground** (`crates/utf8proj-wasm/`, `playground/`)
+1. **PMI-Compliant Effort Scheduling** (`crates/utf8proj-solver/src/lib.rs`)
+   - Fixed effort-to-duration calculation: `Duration = Effort / Total_Resource_Units`
+   - Added `Task::assign_with_units()` for partial allocations
+   - 7 new tests for effort-driven scheduling scenarios
+   - See `docs/SCHEDULING_ANALYSIS.md` for full PMI compliance review
+
+2. **BDD Conflict Analysis** (`crates/utf8proj-solver/src/bdd.rs`)
+   - `BddConflictAnalyzer` using Biodivine library
+   - Encodes resource conflicts as Boolean satisfiability
+   - Finds optimal resolution via BDD traversal
+   - 5 tests for BDD functionality
+
+3. **CLI Enhancements** (`crates/utf8proj-cli/src/main.rs`)
+   - Added `-l/--leveling` flag to `schedule` command
+   - Added `bdd-benchmark` subcommand for BDD vs heuristic comparison
+   - BDD benchmark scenarios: SingleResource, MultiResource, ResourceWeb
+
+4. **WASM Playground** (`crates/utf8proj-wasm/`, `playground/`)
    - `Playground` struct with WASM bindings for schedule/render/validate
    - Monaco editor with custom syntax highlighting for TJP and native DSL
    - Real-time validation with error markers
@@ -139,36 +189,29 @@ let renderer = HtmlGanttRenderer::new().hide_dependencies();
    - Share functionality (URL-encoded projects)
    - Light/dark theme toggle
    - Example templates for both formats
-   - 8 WASM crate tests
 
-2. **Interactive Gantt Chart** (`crates/utf8proj-render/src/gantt.rs`)
+5. **Interactive Gantt Chart** (`crates/utf8proj-render/src/gantt.rs`)
    - `HtmlGanttRenderer` - Generates standalone HTML with embedded SVG
    - Dependency arrows with curved paths
    - Tooltips and zoom controls
    - Light and dark themes
-   - 14 tests (unit + integration)
 
-3. **Resource Leveling** (`crates/utf8proj-solver/src/leveling.rs`)
+6. **Resource Leveling** (`crates/utf8proj-solver/src/leveling.rs`)
    - `ResourceTimeline` - tracks resource usage by day
    - `detect_overallocations` - finds over-allocation periods
    - `level_resources` - resolves conflicts by shifting tasks
    - 12 integration tests covering various scenarios
 
-3. **TJP Integration Tests** (`crates/utf8proj-solver/tests/hierarchical_scheduling.rs`)
-   - `schedule_matches_tj3_output` - Parses ttg_02_deps.tjp, schedules, verifies dates
-   - `schedule_ttg_hierarchy` - Tests hierarchical TJP file parsing
-
-4. **Native Parser Coverage** (`crates/utf8proj-parser/src/native/mod.rs`)
-   - Added 11 tests covering: calendar parsing, project attributes, resource attributes, task constraints, dependency lag/types, resource ref percentages, hours duration, syntax errors
-
 ## Important Files
 
-- `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
+- `crates/utf8proj-solver/src/lib.rs` - CPM scheduler with effort-driven calculation
 - `crates/utf8proj-solver/src/leveling.rs` - Resource leveling algorithm
-- `crates/utf8proj-solver/src/lib.rs` - CPM scheduler
+- `crates/utf8proj-solver/src/bdd.rs` - BDD-based conflict analysis
+- `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
 - `crates/utf8proj-parser/src/native/mod.rs` - Native DSL parser
 - `crates/utf8proj-parser/src/tjp/mod.rs` - TaskJuggler parser
 - `crates/utf8proj-core/src/lib.rs` - Core types and traits
+- `docs/SCHEDULING_ANALYSIS.md` - PMI/PERT/CPM compliance analysis
 
 ## Related Project
 
@@ -186,6 +229,19 @@ cargo tarpaulin --workspace --out Stdout --skip-clean
 
 # Build release
 cargo build --release
+
+# Schedule a project
+target/release/utf8proj schedule project.tjp
+
+# Schedule with resource leveling
+target/release/utf8proj schedule -l project.tjp
+
+# Generate Gantt chart
+target/release/utf8proj gantt project.tjp -o gantt.svg
+
+# Run benchmarks
+target/release/utf8proj benchmark -t chain -c 10000 --series
+target/release/utf8proj bdd-benchmark --series
 
 # Build WASM and run playground
 cd playground && ./build.sh
