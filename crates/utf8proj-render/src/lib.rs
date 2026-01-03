@@ -7,6 +7,7 @@
 //! - SVG Gantt chart rendering
 //! - MermaidJS Gantt chart rendering (for Markdown/docs)
 //! - PlantUML Gantt chart rendering (for wikis and documentation)
+//! - Excel costing reports (for corporate project quoting)
 //! - Text-based output
 //! - Custom renderer trait
 //!
@@ -31,12 +32,19 @@
 //! // PlantUML for wikis and documentation
 //! let plantuml_renderer = PlantUmlRenderer::new();
 //! let plantuml = plantuml_renderer.render(&project, &schedule)?;
+//!
+//! // Excel costing report
+//! let excel_renderer = ExcelRenderer::new().currency("€");
+//! let xlsx_bytes = excel_renderer.render(&project, &schedule)?;
+//! std::fs::write("project_cost.xlsx", xlsx_bytes)?;
 //! ```
 
+pub mod excel;
 pub mod gantt;
 pub mod mermaid;
 pub mod plantuml;
 
+pub use excel::ExcelRenderer;
 pub use gantt::{GanttTheme, HtmlGanttRenderer};
 pub use mermaid::MermaidRenderer;
 pub use plantuml::PlantUmlRenderer;

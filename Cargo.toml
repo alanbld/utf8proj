@@ -57,8 +57,12 @@ quick-xml = { version = "0.31", features = ["serialize"] }
 # SVG rendering
 svg = "0.17"
 
+# Excel rendering
+rust_xlsxwriter = "0.80"
+
 # Numeric
 rust_decimal = { version = "1.33", features = ["serde"] }
+rust_decimal_macros = "1.33"
 num-bigint = "0.4"
 
 # BDD - lightweight decision diagrams for resource conflict resolution
