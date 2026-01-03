@@ -23,3 +23,12 @@ Thumbs.db
 # Scratch/reference files
 test.tjp
 utf8proj-system-instructions.md
+
+# TaskJuggler generated output
+examples/*.html
+examples/css/
+examples/icons/
+examples/scripts/
+
+# Tutorial source files
+tutor_ideas.zip
