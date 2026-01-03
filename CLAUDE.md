@@ -13,8 +13,11 @@ crates/
 ├── utf8proj-solver/    # CPM scheduler with resource leveling
 │   ├── src/leveling.rs # Resource over-allocation detection and resolution
 │   └── src/bdd.rs      # BDD-based conflict analysis (Biodivine)
-├── utf8proj-render/    # Output rendering (HTML Gantt, SVG)
-│   └── src/gantt.rs    # Interactive HTML Gantt chart renderer
+├── utf8proj-render/    # Output rendering (multiple formats)
+│   ├── src/gantt.rs    # Interactive HTML Gantt chart renderer
+│   ├── src/mermaid.rs  # MermaidJS Gantt diagram
+│   ├── src/plantuml.rs # PlantUML Gantt diagram
+│   └── src/excel.rs    # Excel costing reports with dependencies
 ├── utf8proj-cli/       # Command-line interface (untested)
 └── utf8proj-wasm/      # WebAssembly bindings for browser playground
 
@@ -38,6 +41,8 @@ playground/             # Browser-based playground
 - **Resource leveling**: Automatic over-allocation detection and task shifting
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (Biodivine)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
+- **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
+- **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
 ## Test Coverage (as of 2026-01-03)
@@ -53,7 +58,9 @@ playground/             # Browser-based playground
 | utf8proj-cli | 0% |
 | **Overall** | **81.25%** |
 
-**Tests:** 87 passing, 1 ignored (render doctest)
+**Tests:** 160+ passing, 1 ignored (render doctest)
+
+**Render crate breakdown:** 56 tests (HTML Gantt: 12, MermaidJS: 12, PlantUML: 17, Excel: 13, SVG: 6)
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
@@ -162,6 +169,105 @@ let renderer = HtmlGanttRenderer::new().hide_dependencies();
 - **Milestones**: Diamond shapes
 - **Themes**: Light (default) and dark
 
+## MermaidJS Renderer
+
+Generate Mermaid Gantt diagrams for Markdown documentation.
+
+```rust
+use utf8proj_render::MermaidRenderer;
+use utf8proj_core::Renderer;
+
+let renderer = MermaidRenderer::new();
+let mermaid = renderer.render(&project, &schedule)?;
+// Output: gantt\n  title Project\n  section Tasks\n  Design: crit, 2025-01-06, 5d\n...
+```
+
+### Features
+
+- Critical path markers (`crit`)
+- Milestone detection
+- Dependency syntax (`after taskId`)
+- Weekend exclusion
+- Section grouping
+
+## PlantUML Renderer
+
+Generate PlantUML Gantt diagrams for wikis and documentation.
+
+```rust
+use utf8proj_render::PlantUmlRenderer;
+use utf8proj_core::Renderer;
+
+let renderer = PlantUmlRenderer::new();
+let plantuml = renderer.render(&project, &schedule)?;
+// Output: @startgantt\n[Design] starts 2025-01-06 and lasts 5 days\n...
+```
+
+### Features
+
+- Critical path coloring (configurable colors)
+- Dependency syntax (`starts at [X]'s end`)
+- Milestone markers (`happens at`)
+- Weekend closure
+- Scale options (day/week/month)
+- Today marker
+
+## Excel Costing Report Renderer
+
+Generate XLSX files with formula-driven scheduling and dependency cascading.
+
+```rust
+use utf8proj_render::ExcelRenderer;
+use utf8proj_core::Renderer;
+
+let renderer = ExcelRenderer::new()
+    .currency("€")
+    .weeks(24)
+    .hours_per_day(8.0);
+
+let xlsx_bytes = renderer.render(&project, &schedule)?;
+std::fs::write("project_cost.xlsx", xlsx_bytes)?;
+```
+
+### Sheets Generated
+
+1. **Profiles and Costs**: Resource rates, effort totals, cost calculations
+2. **Schedule**: Week-based Gantt with formula-driven hours distribution
+3. **Executive Summary**: Project overview with total effort and cost
+
+### Dependency Support (Live Scheduling)
+
+When dependencies are enabled (default), the Schedule sheet includes:
+
+| Column | Purpose |
+|--------|---------|
+| Task ID | Unique ID for VLOOKUP |
+| Depends On | Predecessor task ID |
+| Type | FS/SS/FF/SF |
+| Lag (d) | Lead/lag time |
+| Start Week | **Formula**: `=VLOOKUP(predecessor_end) + 1 + lag` |
+| End Week | **Formula**: `=Start + CEILING(effort/week_hours)` |
+
+**Cascade Effect**: Change a task's effort → End recalculates → Successor Start recalculates → All dependent tasks shift automatically.
+
+### Configuration
+
+```rust
+// Default: dependencies enabled, formulas enabled
+let renderer = ExcelRenderer::new();
+
+// Disable dependencies (simpler output)
+let renderer = ExcelRenderer::new().no_dependencies();
+
+// Static values instead of formulas
+let renderer = ExcelRenderer::new().static_values();
+
+// Custom work week
+let renderer = ExcelRenderer::new()
+    .hours_per_day(8.0)
+    .hours_per_week(35.0);  // Part-time
+```
+
 ## Recent Work Completed
 
 1. **PMI-Compliant Effort Scheduling** (`crates/utf8proj-solver/src/lib.rs`)
@@ -202,12 +308,35 @@ let renderer = HtmlGanttRenderer::new().hide_dependencies();
    - `level_resources` - resolves conflicts by shifting tasks
    - 12 integration tests covering various scenarios
 
+7. **MermaidJS Renderer** (`crates/utf8proj-render/src/mermaid.rs`)
+   - `MermaidRenderer` - Generates Mermaid Gantt syntax
+   - Critical path markers, milestone detection, dependency syntax
+   - Weekend exclusion, section grouping
+   - 12 tests
+
+8. **PlantUML Renderer** (`crates/utf8proj-render/src/plantuml.rs`)
+   - `PlantUmlRenderer` - Generates PlantUML Gantt syntax
+   - Critical path coloring, dependency syntax, milestone markers
+   - Weekend closure, scale options, today marker
+   - 17 tests
+
+9. **Excel Costing Report** (`crates/utf8proj-render/src/excel.rs`)
+   - `ExcelRenderer` - Generates XLSX files using rust_xlsxwriter
+   - Multiple sheets: Profiles/Costs, Schedule (Gantt), Executive Summary
+   - Formula-driven scheduling with VLOOKUP for dependencies
+   - All dependency types (FS/SS/FF/SF) with lag support
+   - Cascade effect: change effort → all successors recalculate
+   - 13 tests
+
 ## Important Files
 
 - `crates/utf8proj-solver/src/lib.rs` - CPM scheduler with effort-driven calculation
 - `crates/utf8proj-solver/src/leveling.rs` - Resource leveling algorithm
 - `crates/utf8proj-solver/src/bdd.rs` - BDD-based conflict analysis
 - `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
+- `crates/utf8proj-render/src/mermaid.rs` - MermaidJS Gantt renderer
+- `crates/utf8proj-render/src/plantuml.rs` - PlantUML Gantt renderer
+- `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
 - `crates/utf8proj-parser/src/native/mod.rs` - Native DSL parser
 - `crates/utf8proj-parser/src/tjp/mod.rs` - TaskJuggler parser
 - `crates/utf8proj-core/src/lib.rs` - Core types and traits
