@@ -49,20 +49,31 @@ playground/             # Browser-based playground
 
 ## Test Coverage (as of 2026-01-03)
 
-| Module | Coverage |
-|--------|----------|
-| utf8proj-solver/leveling | 94.4% |
-| utf8proj-solver | 96.3% |
-| utf8proj-render | 91.0% |
-| utf8proj-parser/native | 91.2% |
-| utf8proj-parser/tjp | 78.8% |
-| utf8proj-core | 77.0% |
-| utf8proj-cli | 0% |
-| **Overall** | **81.25%** |
+| Module | Lines | Coverage |
+|--------|-------|----------|
+| utf8proj-solver/leveling | 187/196 | 95.4% |
+| utf8proj-solver/bdd | 104/111 | 93.7% |
+| utf8proj-solver | 269/280 | 96.1% |
+| utf8proj-render/excel | 411/432 | 95.1% |
+| utf8proj-render/gantt | 255/278 | 91.7% |
+| utf8proj-render/mermaid | 96/111 | 86.5% |
+| utf8proj-render/plantuml | 96/119 | 80.7% |
+| utf8proj-core | 105/128 | 82.0% |
+| utf8proj-parser/tjp | 122/151 | 80.8% |
+| utf8proj-parser/native | 271/353 | 76.8% |
+| utf8proj-cli | 143/446 | 32.1% |
+| utf8proj-wasm | 18/121 | 14.9% |
+| **Overall** | **2310/2990** | **77.26%** |
 
-**Tests:** 160+ passing, 1 ignored (render doctest)
+**Tests:** 196 passing, 1 ignored (render doctest)
 
-**Render crate breakdown:** 56 tests (HTML Gantt: 12, MermaidJS: 12, PlantUML: 17, Excel: 13, SVG: 6)
+**Test breakdown:**
+- utf8proj-solver: 30 unit + 27 hierarchical + 12 leveling = 69 tests
+- utf8proj-render: 56 unit + 5 integration = 61 tests
+- utf8proj-parser: 21 unit + 19 integration = 40 tests
+- utf8proj-cli: 10 tests
+- utf8proj-wasm: 8 tests
+- utf8proj-core: 4 tests + 4 doc-tests
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
