@@ -210,28 +210,44 @@ fn get_task_duration_days(task: &Task) -> i64 {
     0
 }
 
-/// Add working days to a date, respecting the calendar
-fn add_working_days(start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDate {
-    if days <= 0 {
-        return start;
-    }
-
-    let mut current = start;
-    let mut remaining = days;
-
-    while remaining > 0 {
-        current = current + TimeDelta::days(1);
-        if calendar.is_working_day(current) {
-            remaining -= 1;
-        }
-    }
-
-    current
+/// Pre-computed mapping from working day index to calendar date
+/// This provides O(1) lookup instead of O(days) recalculation
+struct WorkingDayCache {
+    /// Maps working day index (0, 1, 2, ...) to calendar date
+    dates: Vec<NaiveDate>,
 }
 
-/// Convert days from project start to an actual date
-fn days_to_date(project_start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDate {
-    add_working_days(project_start, days, calendar)
+impl WorkingDayCache {
+    /// Build a cache for the given project duration
+    fn new(project_start: NaiveDate, max_days: i64, calendar: &Calendar) -> Self {
+        let mut dates = Vec::with_capacity((max_days + 1) as usize);
+        dates.push(project_start); // Day 0 = project start
+
+        let mut current = project_start;
+        for _ in 0..max_days {
+            current = current + TimeDelta::days(1);
+            while !calendar.is_working_day(current) {
+                current = current + TimeDelta::days(1);
+            }
+            dates.push(current);
+        }
+
+        Self { dates }
+    }
+
+    /// Get the date for a given working day index (O(1))
+    fn get(&self, working_days: i64) -> NaiveDate {
+        if working_days <= 0 {
+            return self.dates[0];
+        }
+        let idx = working_days as usize;
+        if idx < self.dates.len() {
+            self.dates[idx]
+        } else {
+            // Fallback for days beyond cache (shouldn't happen)
+            *self.dates.last().unwrap_or(&self.dates[0])
+        }
+    }
 }
 
 /// Convert a date to working days from project start
@@ -253,8 +269,16 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
     working_days
 }
 
+/// Result of topological sort including precomputed successor map
+struct TopoSortResult {
+    /// Tasks in topological order
+    sorted_ids: Vec<String>,
+    /// Map from task ID to its successors (tasks that depend on it)
+    successors: HashMap<String, Vec<String>>,
+}
+
 /// Perform topological sort using Kahn's algorithm
-/// Returns sorted task IDs or error if cycle detected
+/// Returns sorted task IDs and a precomputed successors map
 ///
 /// This ensures:
 /// 1. Tasks come after their dependencies (explicit edges)
@@ -262,18 +286,20 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
 fn topological_sort(
     tasks: &HashMap<String, &Task>,
     context_map: &HashMap<String, String>,
-) -> Result<Vec<String>, ScheduleError> {
+) -> Result<TopoSortResult, ScheduleError> {
     // Build children map for container handling
     let children_map = build_children_map(tasks);
 
-    // Build adjacency list and in-degree count
+    // Build adjacency list, in-degree count, and successors map
     let mut in_degree: HashMap<String, usize> = HashMap::new();
     let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+    let mut successors: HashMap<String, Vec<String>> = HashMap::new();
 
-    // Initialize all tasks with 0 in-degree
+    // Initialize all tasks with 0 in-degree and empty successors
     for id in tasks.keys() {
         in_degree.insert(id.clone(), 0);
         adjacency.insert(id.clone(), Vec::new());
+        successors.insert(id.clone(), Vec::new());
     }
 
     // Add implicit edges: children -> container (container comes after children)
@@ -286,6 +312,7 @@ fn topological_sort(
             if let Some(deg) = in_degree.get_mut(container_id) {
                 *deg += 1;
             }
+            // Note: container is not a "real" successor for backward pass
         }
     }
 
@@ -307,6 +334,10 @@ fn topological_sort(
                 }
                 if let Some(deg) = in_degree.get_mut(qualified_id) {
                     *deg += 1;
+                }
+                // Build successors map: pred_id has qualified_id as successor
+                if let Some(succ) = successors.get_mut(&pred_id) {
+                    succ.push(qualified_id.clone());
                 }
             }
             // If dependency can't be resolved, we skip it (might be external or error)
@@ -352,7 +383,10 @@ fn topological_sort(
         )));
     }
 
-    Ok(result)
+    Ok(TopoSortResult {
+        sorted_ids: result,
+        successors,
+    })
 }
 
 // =============================================================================
@@ -376,7 +410,9 @@ impl Scheduler for CpmSolver {
         }
 
         // Step 2: Topological sort (with dependency path resolution)
-        let sorted_ids = topological_sort(&task_map, &context_map)?;
+        let topo_result = topological_sort(&task_map, &context_map)?;
+        let sorted_ids = topo_result.sorted_ids;
+        let successors_map = topo_result.successors;
 
         // Step 3: Get calendar (use first calendar or default)
         let calendar = project
@@ -510,6 +546,9 @@ impl Scheduler for CpmSolver {
         // Step 6: Find project end (max EF)
         let project_end_days = nodes.values().map(|n| n.early_finish).max().unwrap_or(0);
 
+        // Build working day cache for O(1) date lookups
+        let working_day_cache = WorkingDayCache::new(project.start, project_end_days, &calendar);
+
         // Step 7: Backward pass - calculate LS and LF
         // Process in reverse topological order (leaf tasks first, then containers)
         // Note: In reverse order, containers come first, but we skip them and handle after
@@ -521,33 +560,17 @@ impl Scheduler for CpmSolver {
 
             let duration = nodes[id].duration_days;
 
-            // Find all successors of this task (tasks that depend on this one)
-            let successors: Vec<String> = task_map
-                .iter()
-                .filter(|(succ_id, t)| {
-                    t.depends.iter().any(|d| {
-                        // Resolve the dependency path from the successor's context
-                        let resolved = resolve_dependency_path(
-                            &d.predecessor,
-                            succ_id,
-                            &context_map,
-                            &task_map,
-                        );
-                        resolved.as_ref() == Some(id)
-                    })
-                })
-                .map(|(id, _)| id.clone())
-                .collect();
+            // Get successors from precomputed map (O(1) lookup instead of O(n) scan)
+            let successors = successors_map.get(id);
 
             // LF = min(LS of all successors), or project_end if no successors
-            let lf = if successors.is_empty() {
-                project_end_days
-            } else {
-                successors
+            let lf = match successors {
+                Some(succs) if !succs.is_empty() => succs
                     .iter()
                     .filter_map(|s| nodes.get(s).map(|n| n.late_start))
                     .min()
-                    .unwrap_or(project_end_days)
+                    .unwrap_or(project_end_days),
+                _ => project_end_days,
             };
 
             // LS = LF - duration
@@ -594,25 +617,32 @@ impl Scheduler for CpmSolver {
         }
 
         // Step 8: Identify critical path (tasks with zero slack)
+        // Build position map for O(1) lookup during sort
+        let position_map: HashMap<&String, usize> = sorted_ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id, i))
+            .collect();
+
         let mut critical_path: Vec<TaskId> = nodes
             .iter()
             .filter(|(_, node)| node.slack == 0 && node.duration_days > 0)
             .map(|(id, _)| id.clone())
             .collect();
 
-        // Sort critical path in topological order
-        critical_path.sort_by_key(|id| sorted_ids.iter().position(|s| s == id).unwrap_or(0));
+        // Sort critical path in topological order using O(1) position lookup
+        critical_path.sort_by_key(|id| position_map.get(id).copied().unwrap_or(0));
 
         // Step 9: Build ScheduledTask entries
         let mut scheduled_tasks: HashMap<TaskId, ScheduledTask> = HashMap::new();
 
         for (id, node) in &nodes {
-            let start_date = days_to_date(project.start, node.early_start, &calendar);
+            let start_date = working_day_cache.get(node.early_start);
             // Finish date is the last day of work, not the day after
             // So for a 20-day task starting Feb 03, finish is Feb 28 (day 20), not Mar 03
             let finish_date = if node.duration_days > 0 {
                 // early_finish - 1 because finish is inclusive (last day of work)
-                days_to_date(project.start, node.early_finish - 1, &calendar)
+                working_day_cache.get(node.early_finish - 1)
             } else {
                 start_date // Milestone
             };
@@ -641,17 +671,17 @@ impl Scheduler for CpmSolver {
                     assignments,
                     slack: Duration::days(node.slack),
                     is_critical: node.slack == 0 && node.duration_days > 0,
-                    early_start: days_to_date(project.start, node.early_start, &calendar),
+                    early_start: working_day_cache.get(node.early_start),
                     early_finish: if node.duration_days > 0 {
-                        days_to_date(project.start, node.early_finish - 1, &calendar)
+                        working_day_cache.get(node.early_finish - 1)
                     } else {
-                        days_to_date(project.start, node.early_finish, &calendar)
+                        working_day_cache.get(node.early_finish)
                     },
-                    late_start: days_to_date(project.start, node.late_start, &calendar),
+                    late_start: working_day_cache.get(node.late_start),
                     late_finish: if node.duration_days > 0 {
-                        days_to_date(project.start, node.late_finish - 1, &calendar)
+                        working_day_cache.get(node.late_finish - 1)
                     } else {
-                        days_to_date(project.start, node.late_finish, &calendar)
+                        working_day_cache.get(node.late_finish)
                     },
                 },
             );
@@ -660,7 +690,7 @@ impl Scheduler for CpmSolver {
         // Step 10: Build final schedule
         // project_end is the last working day of the project
         let project_end_date = if project_end_days > 0 {
-            days_to_date(project.start, project_end_days - 1, &calendar)
+            working_day_cache.get(project_end_days - 1)
         } else {
             project.start
         };
@@ -687,7 +717,7 @@ impl Scheduler for CpmSolver {
         let (task_map, context_map) = flatten_tasks_with_context(&project.tasks);
 
         match topological_sort(&task_map, &context_map) {
-            Ok(_) => FeasibilityResult {
+            Ok(_topo_result) => FeasibilityResult {
                 feasible: true,
                 conflicts: vec![],
                 suggestions: vec![],
