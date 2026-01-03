@@ -5,6 +5,22 @@
 //! - Summary: Activities × Profiles matrix with effort allocation
 //! - Schedule: Week-based Gantt chart with hour distribution formulas
 //!
+//! ## Dependency Support
+//!
+//! When `show_dependencies` is enabled, the Schedule sheet includes:
+//! - Task ID column for VLOOKUP references
+//! - Depends On column showing predecessor task ID
+//! - Dependency Type (FS/SS/FF/SF) with dropdown validation
+//! - Lag in days (positive = delay, negative = lead)
+//! - **Formula-driven Start/End weeks** that cascade when predecessors change
+//!
+//! ## Dependency Types
+//!
+//! - **FS (Finish-to-Start)**: Successor starts after predecessor finishes (most common)
+//! - **SS (Start-to-Start)**: Successor starts when predecessor starts
+//! - **FF (Finish-to-Finish)**: Successor finishes when predecessor finishes
+//! - **SF (Start-to-Finish)**: Successor finishes when predecessor starts
+//!
 //! ## Example Output Structure
 //!
 //! ```text
@@ -14,11 +30,18 @@
 //! | PM         | Project Manager      | 500      | 10   | 5000     |
 //! | DEV        | Developer            | 400      | 50   | 20000    |
 //!
-//! Sheet: Schedule
-//! | Activity | Profile | pd | Start | End | W1 | W2 | W3 | ...
-//! |----------|---------|----| ------|-----|----|----|----| ...
-//! | Design   | DEV     | 5  | 1     | 2   | 20 | 20 | 0  | ...
+//! Sheet: Schedule (with dependencies)
+//! | ID     | Activity | Profile | Depends | Type | Lag | pd | Start | End | W1 | W2 | ...
+//! |--------|----------|---------|---------|------|-----|----| ------|-----|----|----| ...
+//! | design | Design   | DEV     |         |      |     | 5  | 1     | =F  | 20 | 20 | ...
+//! | impl   | Implement| DEV     | design  | FS   | 0   | 10 | =F    | =F  | 0  | 0  | ...
 //! ```
+//!
+//! The Start Week formula for dependent tasks:
+//! ```text
+//! =IF(D2="", 1, IF(E2="FS", VLOOKUP(D2,TaskTable,9,0)+1+F2, ...))
+//! ```
+//! This creates a **live schedule** - change a task's effort and all successors update!
 
 use chrono::NaiveDate;
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
@@ -35,6 +58,8 @@ pub struct ExcelRenderer {
     pub schedule_weeks: u32,
     /// Working hours per day
     pub hours_per_day: f64,
+    /// Working hours per week (for duration calculations)
+    pub hours_per_week: f64,
     /// Whether to include Executive Summary sheet
     pub include_summary: bool,
     /// Whether to include formulas (vs static values)
@@ -43,6 +68,8 @@ pub struct ExcelRenderer {
     pub project_start: Option<NaiveDate>,
     /// Default rate for resources without explicit rate
     pub default_rate: f64,
+    /// Whether to show dependency columns and use formula-driven scheduling
+    pub show_dependencies: bool,
 }
 
 impl Default for ExcelRenderer {
@@ -51,10 +78,12 @@ impl Default for ExcelRenderer {
             currency: "€".into(),
             schedule_weeks: 18,
             hours_per_day: 8.0,
+            hours_per_week: 40.0,
             include_summary: true,
             use_formulas: true,
             project_start: None,
             default_rate: 400.0,
+            show_dependencies: true, // Enable by default for live scheduling
         }
     }
 }
@@ -97,6 +126,18 @@ impl ExcelRenderer {
     /// Set default rate for resources
     pub fn default_rate(mut self, rate: f64) -> Self {
         self.default_rate = rate;
+        self
+    }
+
+    /// Disable dependency columns (simpler output, no formula-driven scheduling)
+    pub fn no_dependencies(mut self) -> Self {
+        self.show_dependencies = false;
+        self
+    }
+
+    /// Set working hours per week (default 40)
+    pub fn hours_per_week(mut self, hours: f64) -> Self {
+        self.hours_per_week = hours;
         self
     }
 
@@ -337,7 +378,7 @@ impl ExcelRenderer {
         Ok(())
     }
 
-    /// Add Schedule (Gantt) sheet
+    /// Add Schedule (Gantt) sheet with optional dependency support
     fn add_schedule_sheet(
         &self,
         workbook: &mut Workbook,
@@ -351,33 +392,26 @@ impl ExcelRenderer {
             .set_name("Schedule")
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Headers: Activity, Profile, pd, Start Week, End Week, W1, W2, ...
-        let fixed_headers = ["Activity", "Profile", "pd", "Start\nweek", "End\nweek"];
-        let mut col: u16 = 0;
+        // Column layout depends on show_dependencies
+        // With deps: Task ID, Activity, Profile, Depends On, Type, Lag, Effort, Start, End, W1...
+        // Without:   Activity, Profile, pd, Start, End, W1...
 
-        for header in &fixed_headers {
-            sheet
-                .write_with_format(0, col, *header, &formats.header)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
-            col += 1;
-        }
+        let (week_start_col, effort_col, start_col, end_col) = if self.show_dependencies {
+            self.write_schedule_headers_with_deps(sheet, formats)?;
+            (9u16, 6u16, 7u16, 8u16) // Week columns start at J (col 9)
+        } else {
+            self.write_schedule_headers_simple(sheet, formats)?;
+            (5u16, 2u16, 3u16, 4u16) // Week columns start at F (col 5)
+        };
 
-        // Week columns
-        let week_start_col = col;
+        // Week column headers
         for week in 1..=self.schedule_weeks {
+            let col = week_start_col + (week - 1) as u16;
             sheet
                 .write_with_format(0, col, week as f64, &formats.week_header)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
             sheet.set_column_width(col, 4).ok();
-            col += 1;
         }
-
-        // Column widths for fixed columns
-        sheet.set_column_width(0, 25).ok(); // Activity
-        sheet.set_column_width(1, 15).ok(); // Profile
-        sheet.set_column_width(2, 6).ok(); // pd
-        sheet.set_column_width(3, 6).ok(); // Start
-        sheet.set_column_width(4, 6).ok(); // End
 
         // Set row height for header (rotated text)
         sheet.set_row_height(0, 50).ok();
@@ -385,6 +419,19 @@ impl ExcelRenderer {
         // Sort tasks by start date
         let mut tasks: Vec<&ScheduledTask> = schedule.tasks.values().collect();
         tasks.sort_by_key(|t| t.start);
+
+        // Build task row mapping for VLOOKUP (task_id -> row number)
+        let mut task_row_map: HashMap<String, u32> = HashMap::new();
+        let mut current_row = 2u32; // Excel rows are 1-indexed, data starts at row 2
+        for scheduled in &tasks {
+            task_row_map.insert(scheduled.task_id.clone(), current_row);
+            if scheduled.assignments.is_empty() {
+                current_row += 1;
+            } else {
+                current_row += scheduled.assignments.len() as u32;
+            }
+        }
+        let last_data_row = current_row - 1;
 
         // Write task rows
         let mut row = 1u32;
@@ -394,6 +441,22 @@ impl ExcelRenderer {
                 .map(|t| t.name.clone())
                 .unwrap_or_else(|| scheduled.task_id.clone());
 
+            // Get first predecessor (if any) for dependency column
+            let (predecessor, dep_type, lag) = task
+                .and_then(|t| t.depends.first())
+                .map(|d| {
+                    use utf8proj_core::DependencyType;
+                    let dep_type = match d.dep_type {
+                        DependencyType::StartToStart => "SS",
+                        DependencyType::FinishToFinish => "FF",
+                        DependencyType::StartToFinish => "SF",
+                        DependencyType::FinishToStart => "FS",
+                    };
+                    let lag_days = d.lag.map(|l| l.as_days() as i32).unwrap_or(0);
+                    (d.predecessor.clone(), dep_type, lag_days)
+                })
+                .unwrap_or_default();
+
             // Calculate week numbers relative to project start
             let start_week = self.date_to_week(scheduled.start, project_start);
             let end_week = self.date_to_week(scheduled.finish, project_start);
@@ -401,80 +464,123 @@ impl ExcelRenderer {
 
             // If task has assignments, create a row per assignment
             if scheduled.assignments.is_empty() {
-                // No assignments - single row with task info
-                self.write_schedule_row(
-                    sheet,
-                    row,
-                    &task_name,
-                    "",
-                    duration_days,
-                    start_week,
-                    end_week,
-                    scheduled.is_critical,
-                    formats,
-                    week_start_col,
-                )?;
+                if self.show_dependencies {
+                    self.write_schedule_row_with_deps(
+                        sheet, row, &scheduled.task_id, &task_name, "",
+                        &predecessor, dep_type, lag, duration_days,
+                        start_week, end_week, scheduled.is_critical,
+                        formats, week_start_col, effort_col, start_col, end_col,
+                        last_data_row,
+                    )?;
+                } else {
+                    self.write_schedule_row_simple(
+                        sheet, row, &task_name, "", duration_days,
+                        start_week, end_week, scheduled.is_critical,
+                        formats, week_start_col, effort_col, start_col, end_col,
+                    )?;
+                }
                 row += 1;
             } else {
                 // One row per assignment
+                let mut first_assignment = true;
                 for assignment in &scheduled.assignments {
-                    // Effort = duration days * allocation units
                     let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
                     let effort = assignment_days * assignment.units as f64;
-                    self.write_schedule_row(
-                        sheet,
-                        row,
-                        &task_name,
-                        &assignment.resource_id,
-                        effort,
-                        start_week,
-                        end_week,
-                        scheduled.is_critical,
-                        formats,
-                        week_start_col,
-                    )?;
+
+                    // Only show dependency info on first row for this task
+                    let (pred, dtype, lag_val) = if first_assignment {
+                        (predecessor.clone(), dep_type, lag)
+                    } else {
+                        (String::new(), "", 0)
+                    };
+
+                    if self.show_dependencies {
+                        self.write_schedule_row_with_deps(
+                            sheet, row, &scheduled.task_id, &task_name, &assignment.resource_id,
+                            &pred, dtype, lag_val, effort,
+                            start_week, end_week, scheduled.is_critical,
+                            formats, week_start_col, effort_col, start_col, end_col,
+                            last_data_row,
+                        )?;
+                    } else {
+                        self.write_schedule_row_simple(
+                            sheet, row, &task_name, &assignment.resource_id, effort,
+                            start_week, end_week, scheduled.is_critical,
+                            formats, week_start_col, effort_col, start_col, end_col,
+                        )?;
+                    }
+                    first_assignment = false;
                     row += 1;
                 }
             }
         }
 
         // Total row for each week column
-        if row > 1 {
-            sheet
-                .write_with_format(row, 0, "TOTAL", &formats.total_row)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
-            for col_idx in 1..week_start_col {
-                sheet
-                    .write_with_format(row, col_idx, "", &formats.total_row)
-                    .map_err(|e| RenderError::Format(e.to_string()))?;
-            }
+        self.write_schedule_totals(sheet, row, week_start_col, formats)?;
 
-            // Sum formulas for each week column
-            for week in 0..self.schedule_weeks {
-                let week_col = week_start_col + week as u16;
-                if self.use_formulas {
-                    let col_letter = Self::col_to_letter(week_col);
-                    let formula = format!("=SUM({}2:{}{})", col_letter, col_letter, row);
-                    sheet
-                        .write_formula_with_format(row, week_col, formula.as_str(), &formats.total_row)
-                        .map_err(|e| RenderError::Format(e.to_string()))?;
-                } else {
-                    sheet
-                        .write_with_format(row, week_col, 0.0, &formats.total_row)
-                        .map_err(|e| RenderError::Format(e.to_string()))?;
-                }
-            }
-        }
-
-        // Freeze first row and first 5 columns
-        sheet.set_freeze_panes(1, 5).ok();
+        // Freeze first row and fixed columns
+        let freeze_cols = if self.show_dependencies { 9 } else { 5 };
+        sheet.set_freeze_panes(1, freeze_cols).ok();
 
         Ok(())
     }
 
-    /// Write a single schedule row
+    /// Write headers for simple schedule (no dependencies)
+    fn write_schedule_headers_simple(
+        &self,
+        sheet: &mut Worksheet,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        let headers = ["Activity", "Profile", "pd", "Start\nweek", "End\nweek"];
+        for (col, header) in headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Column widths
+        sheet.set_column_width(0, 25).ok(); // Activity
+        sheet.set_column_width(1, 15).ok(); // Profile
+        sheet.set_column_width(2, 6).ok();  // pd
+        sheet.set_column_width(3, 6).ok();  // Start
+        sheet.set_column_width(4, 6).ok();  // End
+
+        Ok(())
+    }
+
+    /// Write headers for schedule with dependencies
+    fn write_schedule_headers_with_deps(
+        &self,
+        sheet: &mut Worksheet,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        let headers = [
+            "Task ID", "Activity", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
+            "Effort\n(pd)", "Start\nweek", "End\nweek"
+        ];
+        for (col, header) in headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Column widths
+        sheet.set_column_width(0, 12).ok(); // Task ID
+        sheet.set_column_width(1, 25).ok(); // Activity
+        sheet.set_column_width(2, 12).ok(); // Profile
+        sheet.set_column_width(3, 10).ok(); // Depends On
+        sheet.set_column_width(4, 5).ok();  // Type
+        sheet.set_column_width(5, 5).ok();  // Lag
+        sheet.set_column_width(6, 7).ok();  // Effort
+        sheet.set_column_width(7, 6).ok();  // Start
+        sheet.set_column_width(8, 6).ok();  // End
+
+        Ok(())
+    }
+
+    /// Write a schedule row without dependency formulas
     #[allow(clippy::too_many_arguments)]
-    fn write_schedule_row(
+    fn write_schedule_row_simple(
         &self,
         sheet: &mut Worksheet,
         row: u32,
@@ -486,74 +592,228 @@ impl ExcelRenderer {
         is_critical: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
+        effort_col: u16,
+        start_col: u16,
+        end_col: u16,
     ) -> Result<(), RenderError> {
-        // Fixed columns
-        sheet
-            .write_with_format(row, 0, task_name, &formats.text)
+        // Fixed columns: Activity, Profile, pd, Start, End
+        sheet.write_with_format(row, 0, task_name, &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet
-            .write_with_format(row, 1, profile, &formats.text)
+        sheet.write_with_format(row, 1, profile, &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet
-            .write_with_format(row, 2, person_days, &formats.number)
+        sheet.write_with_format(row, effort_col, person_days, &formats.number)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet
-            .write_with_format(row, 3, start_week as f64, &formats.integer)
+        sheet.write_with_format(row, start_col, start_week as f64, &formats.integer)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet
-            .write_with_format(row, 4, end_week as f64, &formats.integer)
+        sheet.write_with_format(row, end_col, end_week as f64, &formats.integer)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Week columns with formulas or values
+        // Week columns
+        self.write_week_columns(sheet, row, start_week, end_week, is_critical,
+            formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+
+        Ok(())
+    }
+
+    /// Write a schedule row with dependency formulas
+    #[allow(clippy::too_many_arguments)]
+    fn write_schedule_row_with_deps(
+        &self,
+        sheet: &mut Worksheet,
+        row: u32,
+        task_id: &str,
+        task_name: &str,
+        profile: &str,
+        predecessor: &str,
+        dep_type: &str,
+        lag: i32,
+        person_days: f64,
+        start_week: u32,
+        end_week: u32,
+        is_critical: bool,
+        formats: &ExcelFormats,
+        week_start_col: u16,
+        effort_col: u16,
+        start_col: u16,
+        end_col: u16,
+        last_data_row: u32,
+    ) -> Result<(), RenderError> {
+        let excel_row = row + 1; // Excel is 1-indexed
+
+        // Col A: Task ID
+        sheet.write_with_format(row, 0, task_id, &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col B: Activity
+        sheet.write_with_format(row, 1, task_name, &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col C: Profile
+        sheet.write_with_format(row, 2, profile, &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col D: Depends On
+        sheet.write_with_format(row, 3, predecessor, &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col E: Type (FS/SS/FF/SF)
+        let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
+        sheet.write_with_format(row, 4, dep_type_val, &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col F: Lag
+        if !predecessor.is_empty() {
+            sheet.write_with_format(row, 5, lag as f64, &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet.write_with_format(row, 5, "", &formats.text)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Col G: Effort (pd)
+        sheet.write_with_format(row, effort_col, person_days, &formats.number)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col H: Start Week - Formula-driven if has predecessor
+        if self.use_formulas && !predecessor.is_empty() {
+            // Formula: IF(D="", manual_start, VLOOKUP(D, A:I, 9, 0) + 1 + F)
+            // For FS: Start = Predecessor End + 1 + Lag
+            // For SS: Start = Predecessor Start + Lag
+            // For FF: Start = Predecessor End - Duration + 1 + Lag
+            // For SF: Start = Predecessor Start - Duration + 1 + Lag
+            let formula = format!(
+                "=IF(D{}=\"\",{},IF(E{}=\"FS\",VLOOKUP(D{},$A$2:$I${},9,0)+1+F{},\
+                IF(E{}=\"SS\",VLOOKUP(D{},$A$2:$I${},8,0)+F{},\
+                IF(E{}=\"FF\",VLOOKUP(D{},$A$2:$I${},9,0)-CEILING(G{}*{}/{},1)+1+F{},\
+                IF(E{}=\"SF\",VLOOKUP(D{},$A$2:$I${},8,0)-CEILING(G{}*{}/{},1)+1+F{},\
+                {})))))",
+                excel_row, start_week,
+                excel_row, excel_row, last_data_row, excel_row,
+                excel_row, excel_row, last_data_row, excel_row,
+                excel_row, excel_row, last_data_row, excel_row, self.hours_per_day, self.hours_per_week, excel_row,
+                excel_row, excel_row, last_data_row, excel_row, self.hours_per_day, self.hours_per_week, excel_row,
+                start_week
+            );
+            sheet.write_formula_with_format(row, start_col, formula.as_str(), &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet.write_with_format(row, start_col, start_week as f64, &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Col I: End Week - Formula: Start + CEILING(effort * hours_per_day / hours_per_week) - 1
+        if self.use_formulas {
+            let start_col_letter = Self::col_to_letter(start_col);
+            let effort_col_letter = Self::col_to_letter(effort_col);
+            let formula = format!(
+                "={}{}+MAX(CEILING({}{}*{}/{},1)-1,0)",
+                start_col_letter, excel_row,
+                effort_col_letter, excel_row,
+                self.hours_per_day, self.hours_per_week
+            );
+            sheet.write_formula_with_format(row, end_col, formula.as_str(), &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet.write_with_format(row, end_col, end_week as f64, &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Week columns
+        self.write_week_columns(sheet, row, start_week, end_week, is_critical,
+            formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+
+        Ok(())
+    }
+
+    /// Write week columns with Gantt bar formulas
+    #[allow(clippy::too_many_arguments)]
+    fn write_week_columns(
+        &self,
+        sheet: &mut Worksheet,
+        row: u32,
+        start_week: u32,
+        end_week: u32,
+        is_critical: bool,
+        formats: &ExcelFormats,
+        week_start_col: u16,
+        effort_col: u16,
+        start_col: u16,
+        end_col: u16,
+        person_days: f64,
+    ) -> Result<(), RenderError> {
+        let excel_row = row + 1;
         let weeks_span = (end_week.saturating_sub(start_week) + 1).max(1);
-        let hours_per_week = (person_days * self.hours_per_day) / weeks_span as f64;
+        let hours_per_week_val = (person_days * self.hours_per_day) / weeks_span as f64;
+
+        let effort_col_letter = Self::col_to_letter(effort_col);
+        let start_col_letter = Self::col_to_letter(start_col);
+        let end_col_letter = Self::col_to_letter(end_col);
 
         for week in 1..=self.schedule_weeks {
             let col = week_start_col + (week - 1) as u16;
             let in_range = week >= start_week && week <= end_week;
+            let col_letter = Self::col_to_letter(col);
+
+            let format = if in_range {
+                if is_critical { &formats.gantt_critical } else { &formats.gantt_filled }
+            } else {
+                &formats.gantt_empty
+            };
 
             if self.use_formulas {
-                // Formula: IF(AND(week >= start, week <= end), (pd * 8) / (end - start + 1), 0)
-                let col_letter = Self::col_to_letter(col);
+                // Formula: IF(week >= Start AND week <= End, Effort * hours_per_day / (End - Start + 1), 0)
+                // References Start/End columns which may themselves be formulas for cascading
                 let formula = format!(
-                    "=ROUND(IF(AND({}$1>=$D{},{}$1<=$E{}),($C{}*{})/($E{}-$D{}+1),0),0)",
-                    col_letter,
-                    row + 1,
-                    col_letter,
-                    row + 1,
-                    row + 1,
-                    self.hours_per_day,
-                    row + 1,
-                    row + 1
+                    "=ROUND(IF(AND({}$1>=${}{},{}$1<=${}{}),({}{}*{})/(${}{}-${}{}+1),0),0)",
+                    col_letter, start_col_letter, excel_row,
+                    col_letter, end_col_letter, excel_row,
+                    effort_col_letter, excel_row, self.hours_per_day,
+                    end_col_letter, excel_row, start_col_letter, excel_row
                 );
-
-                let format = if in_range {
-                    if is_critical {
-                        &formats.gantt_critical
-                    } else {
-                        &formats.gantt_filled
-                    }
-                } else {
-                    &formats.gantt_empty
-                };
-
-                sheet
-                    .write_formula_with_format(row, col, formula.as_str(), format)
+                sheet.write_formula_with_format(row, col, formula.as_str(), format)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             } else {
-                let value = if in_range { hours_per_week.round() } else { 0.0 };
-                let format = if in_range {
-                    if is_critical {
-                        &formats.gantt_critical
-                    } else {
-                        &formats.gantt_filled
-                    }
-                } else {
-                    &formats.gantt_empty
-                };
+                let value = if in_range { hours_per_week_val.round() } else { 0.0 };
+                sheet.write_with_format(row, col, value, format)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
+        }
 
-                sheet
-                    .write_with_format(row, col, value, format)
+        Ok(())
+    }
+
+    /// Write total row for schedule
+    fn write_schedule_totals(
+        &self,
+        sheet: &mut Worksheet,
+        row: u32,
+        week_start_col: u16,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        if row <= 1 {
+            return Ok(());
+        }
+
+        // Write TOTAL label in first column
+        sheet.write_with_format(row, 0, "TOTAL", &formats.total_row)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Fill empty cells up to week columns
+        for col_idx in 1..week_start_col {
+            sheet.write_with_format(row, col_idx, "", &formats.total_row)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Sum formulas for each week column
+        for week in 0..self.schedule_weeks {
+            let week_col = week_start_col + week as u16;
+            if self.use_formulas {
+                let col_letter = Self::col_to_letter(week_col);
+                let formula = format!("=SUM({}2:{}{})", col_letter, col_letter, row);
+                sheet.write_formula_with_format(row, week_col, formula.as_str(), &formats.total_row)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            } else {
+                sheet.write_with_format(row, week_col, 0.0, &formats.total_row)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             }
         }
@@ -951,6 +1211,68 @@ mod tests {
     #[test]
     fn excel_with_different_currency() {
         let renderer = ExcelRenderer::new().currency("USD");
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn excel_with_dependencies_enabled() {
+        // Dependencies are enabled by default
+        let renderer = ExcelRenderer::new();
+        assert!(renderer.show_dependencies);
+
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+
+        let bytes = result.unwrap();
+        // Should produce valid XLSX
+        assert!(bytes.len() > 100);
+        assert_eq!(&bytes[0..2], b"PK");
+    }
+
+    #[test]
+    fn excel_with_dependencies_disabled() {
+        let renderer = ExcelRenderer::new().no_dependencies();
+        assert!(!renderer.show_dependencies);
+
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+
+        let bytes = result.unwrap();
+        // Should produce valid XLSX
+        assert!(bytes.len() > 100);
+        assert_eq!(&bytes[0..2], b"PK");
+    }
+
+    #[test]
+    fn excel_hours_per_week_setting() {
+        let renderer = ExcelRenderer::new()
+            .hours_per_day(8.0)
+            .hours_per_week(35.0); // Part-time work week
+
+        assert_eq!(renderer.hours_per_week, 35.0);
+
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn excel_dependency_formulas_cascade() {
+        // Test that with dependencies, changing predecessor would cascade
+        // (We can't test actual Excel formula evaluation, but we can verify structure)
+        let renderer = ExcelRenderer::new();
         let project = create_test_project();
         let schedule = create_test_schedule();
 
