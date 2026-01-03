@@ -48,6 +48,10 @@ enum Commands {
         /// Output file (stdout if not specified)
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
+
+        /// Enable resource leveling
+        #[arg(short, long)]
+        leveling: bool,
     },
 
     /// Generate a Gantt chart
@@ -115,8 +119,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Check { file }) => cmd_check(&file),
-        Some(Commands::Schedule { file, format, output }) => {
-            cmd_schedule(&file, &format, output.as_deref())
+        Some(Commands::Schedule { file, format, output, leveling }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -190,13 +194,18 @@ fn cmd_schedule(
     file: &std::path::Path,
     format: &str,
     output: Option<&std::path::Path>,
+    leveling: bool,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Check feasibility first
-    let solver = CpmSolver::new();
+    let solver = if leveling {
+        CpmSolver::with_leveling()
+    } else {
+        CpmSolver::new()
+    };
     let feasibility = solver.is_feasible(&project);
 
     if !feasibility.feasible {
