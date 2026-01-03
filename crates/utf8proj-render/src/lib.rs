@@ -5,6 +5,7 @@
 //! This crate provides:
 //! - Interactive HTML Gantt chart rendering
 //! - SVG Gantt chart rendering
+//! - MermaidJS Gantt chart rendering (for Markdown/docs)
 //! - Text-based output
 //! - Custom renderer trait
 //!
@@ -12,7 +13,7 @@
 //!
 //! ```rust,ignore
 //! use utf8proj_core::{Project, Schedule, Renderer};
-//! use utf8proj_render::{HtmlGanttRenderer, SvgRenderer};
+//! use utf8proj_render::{HtmlGanttRenderer, SvgRenderer, MermaidRenderer};
 //!
 //! // Interactive HTML Gantt chart
 //! let renderer = HtmlGanttRenderer::new();
@@ -21,10 +22,17 @@
 //! // Pure SVG output
 //! let svg_renderer = SvgRenderer::default();
 //! let svg = svg_renderer.render(&project, &schedule)?;
+//!
+//! // MermaidJS for Markdown/documentation
+//! let mermaid_renderer = MermaidRenderer::new();
+//! let mermaid = mermaid_renderer.render(&project, &schedule)?;
 //! ```
 
 pub mod gantt;
-pub use gantt::{HtmlGanttRenderer, GanttTheme};
+pub mod mermaid;
+
+pub use gantt::{GanttTheme, HtmlGanttRenderer};
+pub use mermaid::MermaidRenderer;
 
 use chrono::NaiveDate;
 use svg::node::element::{Group, Line, Rectangle, Text};
