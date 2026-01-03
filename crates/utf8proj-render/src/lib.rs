@@ -6,6 +6,7 @@
 //! - Interactive HTML Gantt chart rendering
 //! - SVG Gantt chart rendering
 //! - MermaidJS Gantt chart rendering (for Markdown/docs)
+//! - PlantUML Gantt chart rendering (for wikis and documentation)
 //! - Text-based output
 //! - Custom renderer trait
 //!
@@ -13,7 +14,7 @@
 //!
 //! ```rust,ignore
 //! use utf8proj_core::{Project, Schedule, Renderer};
-//! use utf8proj_render::{HtmlGanttRenderer, SvgRenderer, MermaidRenderer};
+//! use utf8proj_render::{HtmlGanttRenderer, SvgRenderer, MermaidRenderer, PlantUmlRenderer};
 //!
 //! // Interactive HTML Gantt chart
 //! let renderer = HtmlGanttRenderer::new();
@@ -26,13 +27,19 @@
 //! // MermaidJS for Markdown/documentation
 //! let mermaid_renderer = MermaidRenderer::new();
 //! let mermaid = mermaid_renderer.render(&project, &schedule)?;
+//!
+//! // PlantUML for wikis and documentation
+//! let plantuml_renderer = PlantUmlRenderer::new();
+//! let plantuml = plantuml_renderer.render(&project, &schedule)?;
 //! ```
 
 pub mod gantt;
 pub mod mermaid;
+pub mod plantuml;
 
 pub use gantt::{GanttTheme, HtmlGanttRenderer};
 pub use mermaid::MermaidRenderer;
+pub use plantuml::PlantUmlRenderer;
 
 use chrono::NaiveDate;
 use svg::node::element::{Group, Line, Rectangle, Text};
