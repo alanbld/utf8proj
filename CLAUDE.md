@@ -33,9 +33,11 @@ playground/             # Browser-based playground
 
 - **Hierarchical tasks**: Nested task parsing, container date derivation (min/max of children)
 - **Dependency types**: FS (default), SS (!), FF (~), SF (!~) with lag support
-- **Calendars**: Working days, working hours, holidays
-- **Resources**: Rate, capacity, efficiency, calendar assignment
-- **Task attributes**: Priority, complete %, constraints (must_start_on)
+- **Calendars**: Working days, working hours, holidays (single-date and range)
+- **Resources**: Rate, capacity, efficiency, calendar, email, role, leave
+- **Task attributes**: Priority, complete %, constraints, note, tag, cost, payment
+- **Milestones**: Dedicated `milestone` declaration syntax
+- **Constraints**: Declarative constraint blocks for what-if analysis
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: Automatic over-allocation detection and task shifting
@@ -328,6 +330,21 @@ let renderer = ExcelRenderer::new()
    - Cascade effect: change effort → all successors recalculate
    - 13 tests
 
+10. **Extended Native DSL Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+    - Project: `timezone:` attribute
+    - Resources: `email:`, `role:`, `leave:` attributes
+    - Tasks: `note:`, `tag:`, `cost:`, `payment:` attributes
+    - Milestones: Dedicated `milestone id "name" { }` declaration
+    - Reports: Extended with `title:`, `type:`, `show:`, `scale:`, `width:`, `breakdown:`, `period:`
+    - Constraints: Declarative `constraint id { }` blocks for what-if analysis
+    - Holidays: Single-date support (not just ranges)
+    - Resource refs: Both `@50%` and `(50%)` syntax for partial allocation
+
+11. **Tutorial & Benchmark Documentation** (`docs/`)
+    - `tutorial.md` - Step-by-step guide using CRM migration example
+    - `benchmark-report.md` - TaskJuggler comparison and adoption readiness
+    - Full comparison of syntax, features, and performance
+
 ## Important Files
 
 - `crates/utf8proj-solver/src/lib.rs` - CPM scheduler with effort-driven calculation
@@ -338,9 +355,29 @@ let renderer = ExcelRenderer::new()
 - `crates/utf8proj-render/src/plantuml.rs` - PlantUML Gantt renderer
 - `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
 - `crates/utf8proj-parser/src/native/mod.rs` - Native DSL parser
+- `crates/utf8proj-parser/src/native/grammar.pest` - Native DSL grammar
 - `crates/utf8proj-parser/src/tjp/mod.rs` - TaskJuggler parser
 - `crates/utf8proj-core/src/lib.rs` - Core types and traits
 - `docs/SCHEDULING_ANALYSIS.md` - PMI/PERT/CPM compliance analysis
+- `docs/tutorial.md` - Step-by-step tutorial (CRM migration example)
+- `docs/benchmark-report.md` - TaskJuggler comparison and adoption readiness
+
+## Example Projects
+
+```
+examples/
+├── crm_migration.proj   # Full-featured CRM project (native DSL)
+├── crm_migration.tjp    # TaskJuggler equivalent
+├── crm_simple.proj      # Simplified version for testing
+└── crm_simple.tjp       # Simplified TJP version
+```
+
+The CRM Migration example demonstrates:
+- 28 tasks across 5 phases (Discovery, Data Migration, Integration, Deployment, Hypercare)
+- 6 resources with varying rates and capacities
+- Parallel tracks with convergence points
+- Milestones with payment triggers
+- All dependency types with lag
 
 ## Related Project
 
@@ -387,8 +424,69 @@ python3 -m http.server 8080
 
 ## Grammar Notes
 
-- Holiday date range uses `..` not `-`: `holiday "Name" 2025-12-25..2025-12-26`
-- Resource percentage uses `@`: `assign: dev@50%`
-- Constraints: `must_start_on: 2025-02-01`
-- Dependency types: `depends: a` (FS), `depends: !a` (SS), `depends: a~` (FF), `depends: !a~` (SF)
-- Dependency lag: `depends: a +2d` or `depends: a -1d`
+### Native DSL (.proj)
+
+**Project attributes:**
+- `start:`, `end:`, `currency:`, `calendar:`, `timezone:`
+
+**Resource attributes:**
+- `rate: 850/day` or `rate: 100/hour`
+- `capacity: 0.75` (75% allocation)
+- `efficiency: 1.2` (productivity factor)
+- `email: "user@company.it"`
+- `role: "Solution Architect"`
+- `leave: 2026-03-02..2026-03-13`
+
+**Task attributes:**
+- `effort: 15d` (person-time, divided among assignees)
+- `duration: 2w` (fixed calendar time)
+- `assign: sa1, sa2` or `assign: dev1@50%` or `assign: dev1(50%)`
+- `depends: task`, `depends: phase.task`, `depends: a, b`
+- `priority: 800` (higher = scheduled first)
+- `note: "Description text"`
+- `tag: critical, integration`
+- `cost: 500` (fixed cost)
+- `payment: 25000` (milestone payment)
+- `milestone: true` or dedicated `milestone id "name" { }` syntax
+- `complete: 75%` (progress tracking)
+
+**Dependency syntax:**
+- `depends: a` (FS - Finish-to-Start, default)
+- `depends: a SS` (Start-to-Start)
+- `depends: a FF` (Finish-to-Finish)
+- `depends: a SF` (Start-to-Finish)
+- `depends: a +2d` (lag: start 2 days after)
+- `depends: a -1d` (lead: start 1 day before)
+
+**Holidays:**
+- Single date: `holiday "Easter" 2026-04-06`
+- Date range: `holiday "Christmas" 2025-12-25..2025-12-26`
+
+**Constraints (declarative blocks):**
+```proj
+constraint hard_deadline {
+    type: soft
+    target: deployment.golive_complete
+    condition: end <= 2026-05-01
+    priority: 900
+}
+```
+
+**Reports:**
+```proj
+report gantt "output/timeline.svg" {
+    title: "Project Schedule"
+    tasks: all
+    show: resources, critical_path
+    scale: week
+    width: 1200
+}
+```
+
+### TaskJuggler (.tjp)
+
+- `!` prefix for sibling references: `depends !kickoff`
+- `~` suffix for FF: `depends task~`
+- `!~` for SF: `depends !task~`
+- Resource allocation: `allocate dev1, dev2`
+- Leaves: `leaves annual 2026-03-02 - 2026-03-13`
