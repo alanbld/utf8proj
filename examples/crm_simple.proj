@@ -1,0 +1,203 @@
+# CRM Migration Project - utf8proj Native Format (Simplified)
+#
+# This version works with utf8proj's current native DSL parser.
+# Run with: utf8proj schedule crm_simple.proj
+
+project "CRM Migration to Salesforce" {
+    start: 2026-02-01
+    end: 2026-06-15
+    currency: EUR
+}
+
+# Calendar with Italian holidays
+calendar "standard" {
+    working_hours: 09:00-13:00, 14:00-18:00
+    working_days: mon-fri
+    holiday "Easter Monday" 2026-04-06..2026-04-06
+    holiday "Liberation Day" 2026-04-25..2026-04-25
+    holiday "Labour Day" 2026-05-01..2026-05-01
+}
+
+# Resources
+resource pm "Maria Rossi" {
+    rate: 850/day
+    capacity: 0.75
+}
+
+resource sa1 "Luca Bianchi" {
+    rate: 800/day
+}
+
+resource sa2 "Anna Verdi" {
+    rate: 750/day
+}
+
+resource dev1 "Marco Neri" {
+    rate: 600/day
+}
+
+resource dev2 "Giulia Russo" {
+    rate: 620/day
+}
+
+resource trainer "Paolo Gialli" {
+    rate: 500/day
+}
+
+# Phase 1: Discovery & Planning
+task discovery "Discovery & Planning" {
+
+    task kickoff "Project Kickoff" {
+        duration: 1d
+        assign: pm, sa1, sa2
+    }
+
+    task requirements "Requirements Analysis" {
+        effort: 15d
+        assign: sa1, sa2
+        depends: kickoff
+    }
+
+    task gap_analysis "Gap Analysis" {
+        effort: 8d
+        assign: sa1
+        depends: requirements
+    }
+
+    task architecture "Solution Architecture" {
+        effort: 10d
+        assign: sa1, sa2
+        depends: gap_analysis
+    }
+
+    task plan_approved "Planning Complete" {
+        duration: 0d
+        depends: architecture
+        milestone: true
+    }
+}
+
+# Phase 2: Data Migration
+task datamigration "Data Migration" {
+    depends: discovery.plan_approved
+
+    task data_mapping "Data Mapping & Cleansing Rules" {
+        effort: 12d
+        assign: sa2, dev1
+    }
+
+    task etl_dev "ETL Development" {
+        effort: 20d
+        assign: dev1, dev2
+        depends: data_mapping
+    }
+
+    task test_migration "Test Migration (3 iterations)" {
+        effort: 10d
+        assign: dev1
+        depends: etl_dev
+    }
+
+    task data_complete "Data Migration Ready" {
+        duration: 0d
+        depends: test_migration
+        milestone: true
+    }
+}
+
+# Phase 3: Integration Development
+task integration "Integration Development" {
+    depends: discovery.plan_approved
+
+    task api_design "API Design & Contracts" {
+        effort: 6d
+        assign: sa1
+    }
+
+    task middleware "Middleware Configuration" {
+        effort: 8d
+        assign: dev2
+        depends: api_design
+    }
+
+    task erp_connector "ERP Connector Development" {
+        effort: 15d
+        assign: dev1, dev2
+        depends: api_design
+        priority: 800
+    }
+
+    task integration_test "Integration Testing" {
+        effort: 8d
+        assign: dev1, dev2, sa1
+        depends: middleware, erp_connector
+    }
+
+    task integration_complete "Integration Ready" {
+        duration: 0d
+        depends: integration_test
+        milestone: true
+    }
+}
+
+# Phase 4: Training & Deployment
+task deployment "Training & Deployment" {
+    depends: datamigration.data_complete, integration.integration_complete
+
+    task train_material "Training Material Development" {
+        effort: 8d
+        assign: trainer
+    }
+
+    task train_admin "Admin Training (IT Team)" {
+        effort: 3d
+        assign: trainer, sa2
+        depends: train_material
+    }
+
+    task train_users "End User Training (5 sessions)" {
+        effort: 5d
+        assign: trainer
+        depends: train_admin
+    }
+
+    task cutover_prep "Cutover Preparation" {
+        effort: 3d
+        assign: pm, sa1, dev1
+        depends: train_users
+    }
+
+    task go_live "Go-Live" {
+        duration: 2d
+        assign: pm, sa1, sa2, dev1, dev2
+        depends: cutover_prep
+    }
+
+    task golive_complete "System Live" {
+        duration: 0d
+        depends: go_live
+        milestone: true
+    }
+}
+
+# Phase 5: Hypercare
+task hypercare "Hypercare Support" {
+    depends: deployment.golive_complete
+
+    task support "Post-Go-Live Support" {
+        duration: 2w
+        assign: sa2, dev1
+    }
+
+    task handover "Knowledge Transfer & Handover" {
+        effort: 5d
+        assign: sa1, sa2, pm
+        depends: support
+    }
+
+    task project_close "Project Closure" {
+        duration: 0d
+        depends: handover
+        milestone: true
+    }
+}

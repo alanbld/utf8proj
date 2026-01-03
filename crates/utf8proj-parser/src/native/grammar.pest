@@ -11,7 +11,7 @@
 
 project_file = {
     SOI ~
-    (project_decl | calendar_decl | resource_decl | task_decl | report_decl)* ~
+    (project_decl | calendar_decl | resource_decl | task_decl | milestone_decl | report_decl | constraint_decl)* ~
     EOI
 }
 
@@ -27,17 +27,20 @@ project_decl = {
 
 project_body = { project_attr* }
 
-project_attr = { 
-    project_start | 
-    project_end | 
+project_attr = {
+    project_start |
+    project_end |
     project_currency |
-    project_calendar
+    project_calendar |
+    project_timezone
 }
 
 project_start = { "start" ~ ":" ~ date }
 project_end = { "end" ~ ":" ~ date }
 project_currency = { "currency" ~ ":" ~ identifier }
 project_calendar = { "calendar" ~ ":" ~ identifier }
+project_timezone = { "timezone" ~ ":" ~ timezone_value }
+timezone_value = @{ (ASCII_ALPHA | "/" | "_")+ }
 
 // ============================================================================
 // Calendar Declaration
@@ -59,7 +62,7 @@ calendar_attr = {
 
 working_hours = { "working_hours" ~ ":" ~ time_range_list }
 working_days = { "working_days" ~ ":" ~ day_list }
-holiday = { "holiday" ~ string ~ date_range }
+holiday = { "holiday" ~ string ~ (date_range | date) }
 
 time_range_list = { time_range ~ ("," ~ time_range)* }
 time_range = { time ~ "-" ~ time }
@@ -80,17 +83,23 @@ resource_decl = {
 
 resource_body = { resource_attr* }
 
-resource_attr = { 
-    resource_rate | 
-    resource_capacity | 
+resource_attr = {
+    resource_rate |
+    resource_capacity |
     resource_calendar |
-    resource_efficiency
+    resource_efficiency |
+    resource_email |
+    resource_role |
+    resource_leave
 }
 
 resource_rate = { "rate" ~ ":" ~ money }
 resource_capacity = { "capacity" ~ ":" ~ number }
 resource_calendar = { "calendar" ~ ":" ~ identifier }
 resource_efficiency = { "efficiency" ~ ":" ~ number }
+resource_email = { "email" ~ ":" ~ string }
+resource_role = { "role" ~ ":" ~ string }
+resource_leave = { "leave" ~ ":" ~ date_range }
 
 money = { number ~ "/" ~ time_unit }
 
@@ -98,23 +107,42 @@ money = { number ~ "/" ~ time_unit }
 // Task Declaration
 // ============================================================================
 
-task_decl = { 
-    "task" ~ identifier ~ string ~ "{" ~ 
-    task_body ~ 
-    "}" 
+task_decl = {
+    "task" ~ identifier ~ string ~ "{" ~
+    task_body ~
+    "}"
 }
 
-task_body = { (task_attr | task_decl)* }
+// Milestone as a separate declaration form
+milestone_decl = {
+    "milestone" ~ identifier ~ string ~ "{" ~
+    milestone_body ~
+    "}"
+}
 
-task_attr = { 
-    task_effort | 
-    task_duration | 
-    task_depends | 
-    task_assign | 
+task_body = { (task_attr | task_decl | milestone_decl)* }
+
+milestone_body = { milestone_attr* }
+
+task_attr = {
+    task_effort |
+    task_duration |
+    task_depends |
+    task_assign |
     task_priority |
     task_constraint |
     task_milestone |
-    task_complete
+    task_complete |
+    task_note |
+    task_tag |
+    task_cost |
+    task_payment
+}
+
+milestone_attr = {
+    task_depends |
+    task_note |
+    task_payment
 }
 
 task_effort = { "effort" ~ ":" ~ duration }
@@ -124,6 +152,10 @@ task_assign = { "assign" ~ ":" ~ resource_ref_list }
 task_priority = { "priority" ~ ":" ~ integer }
 task_milestone = { "milestone" ~ ":" ~ boolean }
 task_complete = { "complete" ~ ":" ~ percentage }
+task_note = { "note" ~ ":" ~ string }
+task_tag = { "tag" ~ ":" ~ identifier_list }
+task_cost = { "cost" ~ ":" ~ number }
+task_payment = { "payment" ~ ":" ~ number }
 
 // Dependencies
 dependency_list = { dependency ~ ("," ~ dependency)* }
@@ -141,9 +173,9 @@ dep_type = { dep_type_keyword }
 dep_type_keyword = { "FS" | "SS" | "FF" | "SF" }
 dep_percentage = { "." ~ percentage }
 
-// Resource references
+// Resource references (supports both @50% and (50%) syntax)
 resource_ref_list = { resource_ref ~ ("," ~ resource_ref)* }
-resource_ref = { identifier ~ ("@" ~ percentage)? }
+resource_ref = { identifier ~ (("@" ~ percentage) | ("(" ~ percentage ~ ")"))? }
 
 // Constraints
 task_constraint = { constraint_type ~ ":" ~ date }
@@ -160,35 +192,79 @@ constraint_type = {
 // Report Declaration
 // ============================================================================
 
-report_decl = { 
-    "report" ~ report_type ~ string ~ "{" ~ 
-    report_body ~ 
-    "}" 
+report_decl = {
+    "report" ~ report_name ~ string ~ "{" ~
+    report_body ~
+    "}"
 }
 
-report_type = { "gantt" | "table" | "calendar" | "costs" | "resources" }
+// Report name is just an identifier (type is specified via type: attribute inside)
+report_name = { identifier }
 
 report_body = { report_attr* }
 
-report_attr = { 
+report_attr = {
+    report_title |
+    report_type_attr |
     report_tasks |
     report_resources |
     report_columns |
     report_critical_path |
     report_timeframe |
-    report_format
+    report_format |
+    report_show |
+    report_scale |
+    report_width |
+    report_breakdown |
+    report_period
 }
 
+report_title = { "title" ~ ":" ~ string }
+report_type_attr = { "type" ~ ":" ~ identifier }
 report_tasks = { "tasks" ~ ":" ~ task_filter }
 report_resources = { "resources" ~ ":" ~ resource_filter }
 report_columns = { "columns" ~ ":" ~ column_list }
 report_critical_path = { "critical_path" ~ ":" ~ ("highlight" | "show" | "hide") }
 report_timeframe = { "timeframe" ~ ":" ~ date_range }
 report_format = { "format" ~ ":" ~ identifier }
+report_show = { "show" ~ ":" ~ identifier_list }
+report_scale = { "scale" ~ ":" ~ identifier }
+report_width = { "width" ~ ":" ~ integer }
+report_breakdown = { "breakdown" ~ ":" ~ identifier_list }
+report_period = { "period" ~ ":" ~ identifier }
 
 task_filter = { "all" | identifier_list }
 resource_filter = { "all" | "show" | "hide" | identifier_list }
 column_list = { identifier ~ ("," ~ identifier)* }
+
+// ============================================================================
+// Constraint Declaration (for what-if analysis)
+// ============================================================================
+
+constraint_decl = {
+    "constraint" ~ identifier ~ "{" ~
+    constraint_body ~
+    "}"
+}
+
+constraint_body = { constraint_attr* }
+
+constraint_attr = {
+    constraint_type_attr |
+    constraint_target |
+    constraint_condition |
+    constraint_priority |
+    constraint_resources
+}
+
+constraint_type_attr = { "type" ~ ":" ~ ("soft" | "hard") }
+constraint_target = { "target" ~ ":" ~ task_ref }
+constraint_condition = { "condition" ~ ":" ~ constraint_expr }
+constraint_priority = { "priority" ~ ":" ~ integer }
+constraint_resources = { "resources" ~ ":" ~ resource_filter }
+
+// Simple constraint expression (for now, just capture the raw text)
+constraint_expr = @{ (!NEWLINE ~ ANY)+ }
 
 // ============================================================================
 // Primitives

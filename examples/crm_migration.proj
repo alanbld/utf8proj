@@ -1,0 +1,337 @@
+# CRM Migration Project - utf8proj Native Format
+# File: crm_migration.proj
+#
+# A realistic enterprise system integration project demonstrating
+# utf8proj's cleaner, modern DSL syntax.
+#
+# Run with: utf8proj schedule crm_migration.proj
+
+project "CRM Migration to Salesforce" {
+    start: 2026-02-01
+    end: 2026-05-15
+    currency: EUR
+    timezone: Europe/Rome
+}
+
+# ===========================================================================
+# CALENDARS
+# ===========================================================================
+
+calendar "standard" {
+    working_hours: 09:00-13:00, 14:00-18:00
+    working_days: mon-fri
+    
+    # Italian holidays 2026
+    holiday "Epiphany" 2026-01-06
+    holiday "Easter Monday" 2026-04-06
+    holiday "Liberation Day" 2026-04-25
+    holiday "Labour Day" 2026-05-01
+}
+
+# ===========================================================================
+# RESOURCES
+# ===========================================================================
+
+resource pm "Maria Rossi" {
+    email: "m.rossi@company.it"
+    rate: 850/day
+    capacity: 0.75  # 6h/8h = 75% allocation to this project
+}
+
+resource sa1 "Luca Bianchi" {
+    email: "l.bianchi@company.it"
+    rate: 800/day
+    role: "Solution Architect"
+}
+
+resource sa2 "Anna Verdi" {
+    email: "a.verdi@company.it"
+    rate: 750/day
+    role: "Solution Architect"
+    leave: 2026-03-02..2026-03-13  # Annual leave
+}
+
+resource dev1 "Marco Neri" {
+    email: "m.neri@company.it"
+    rate: 600/day
+    role: "Developer"
+}
+
+resource dev2 "Giulia Russo" {
+    email: "g.russo@company.it"
+    rate: 620/day
+    role: "Developer"
+}
+
+resource trainer "Paolo Gialli" {
+    email: "p.gialli@company.it"
+    rate: 500/day
+    role: "Trainer"
+}
+
+# ===========================================================================
+# PHASE 1: DISCOVERY & PLANNING
+# ===========================================================================
+
+task discovery "Discovery & Planning" {
+    
+    task kickoff "Project Kickoff" {
+        duration: 1d
+        assign: pm, sa1, sa2
+        cost: 500  # Workshop materials and catering
+    }
+    
+    task requirements "Requirements Analysis" {
+        effort: 15d
+        assign: sa1, sa2
+        depends: kickoff
+        note: "Interview 5 departments, document 120+ user stories"
+    }
+    
+    task gap_analysis "Gap Analysis" {
+        effort: 8d
+        assign: sa1
+        depends: requirements
+        tag: critical
+        note: "Compare current capabilities vs. Salesforce features"
+    }
+    
+    task architecture "Solution Architecture" {
+        effort: 10d
+        assign: sa1, sa2
+        depends: gap_analysis
+        tag: critical
+        note: "Design integration patterns, data model, security"
+    }
+    
+    milestone plan_approved "Planning Complete" {
+        depends: architecture
+        payment: 25000
+    }
+}
+
+# ===========================================================================
+# PHASE 2: DATA MIGRATION
+# ===========================================================================
+
+task datamigration "Data Migration" {
+    depends: discovery.plan_approved
+    tag: critical
+    
+    task data_mapping "Data Mapping & Cleansing Rules" {
+        effort: 12d
+        assign: sa2, dev1
+        note: "Map 47 legacy tables to Salesforce objects"
+    }
+    
+    task etl_dev "ETL Development" {
+        effort: 20d
+        assign: dev1, dev2
+        depends: data_mapping
+        note: "Talend jobs for extraction, transformation, loading"
+    }
+    
+    task test_migration "Test Migration (3 iterations)" {
+        effort: 10d
+        assign: dev1
+        depends: etl_dev
+        note: "Dev → QA → UAT environment migrations"
+    }
+    
+    milestone data_complete "Data Migration Ready" {
+        depends: test_migration
+    }
+}
+
+# ===========================================================================
+# PHASE 3: INTEGRATION DEVELOPMENT
+# ===========================================================================
+
+task integration "Integration Development" {
+    depends: discovery.plan_approved
+    tag: integration
+    
+    task api_design "API Design & Contracts" {
+        effort: 6d
+        assign: sa1
+        note: "OpenAPI specs for all integration points"
+    }
+    
+    task middleware "Middleware Configuration" {
+        effort: 8d
+        assign: dev2
+        depends: api_design
+        cost: 12000  # MuleSoft Anypoint license
+        note: "MuleSoft Anypoint Platform setup"
+    }
+    
+    task erp_connector "ERP Connector Development" {
+        effort: 15d
+        assign: dev1, dev2
+        depends: api_design
+        priority: 800  # High priority - critical path
+        note: "SAP integration via RFC/BAPI"
+    }
+    
+    task integration_test "Integration Testing" {
+        effort: 8d
+        assign: dev1, dev2, sa1
+        depends: middleware, erp_connector
+        note: "End-to-end integration verification"
+    }
+    
+    milestone integration_complete "Integration Ready" {
+        depends: integration_test
+        payment: 35000
+    }
+}
+
+# ===========================================================================
+# PHASE 4: TRAINING & DEPLOYMENT
+# ===========================================================================
+
+task deployment "Training & Deployment" {
+    depends: datamigration.data_complete, integration.integration_complete
+    tag: training
+    
+    task train_material "Training Material Development" {
+        effort: 8d
+        assign: trainer
+        note: "User guides, quick reference cards, video tutorials"
+    }
+    
+    task train_admin "Admin Training (IT Team)" {
+        effort: 3d
+        assign: trainer, sa2
+        depends: train_material
+        note: "System administration, configuration, troubleshooting"
+    }
+    
+    task train_users "End User Training (5 sessions)" {
+        effort: 5d
+        assign: trainer
+        depends: train_admin
+        note: "50 users across 5 departments"
+    }
+    
+    task cutover_prep "Cutover Preparation" {
+        effort: 3d
+        assign: pm, sa1, dev1
+        depends: train_users
+        note: "Cutover checklist, rollback plan, communication"
+    }
+    
+    task go_live "Go-Live" {
+        duration: 2d
+        assign: pm, sa1, sa2, dev1, dev2
+        depends: cutover_prep
+        tag: critical
+        note: "Go-live weekend: Friday evening to Sunday"
+    }
+    
+    milestone golive_complete "System Live" {
+        depends: go_live
+        payment: 40000
+    }
+}
+
+# ===========================================================================
+# PHASE 5: HYPERCARE
+# ===========================================================================
+
+task hypercare "Hypercare Support" {
+    depends: deployment.golive_complete
+    
+    task support "Post-Go-Live Support" {
+        duration: 2w
+        assign: sa2, dev1(50%)  # dev1 at 50% capacity
+        note: "On-call support, bug fixes, user assistance"
+    }
+    
+    task handover "Knowledge Transfer & Handover" {
+        effort: 5d
+        assign: sa1, sa2, pm
+        depends: support
+        note: "Documentation, runbooks, support transition"
+    }
+    
+    milestone project_close "Project Closure" {
+        depends: handover
+        note: "Lessons learned, final sign-off"
+    }
+}
+
+# ===========================================================================
+# REPORTS
+# ===========================================================================
+
+report gantt "output/gantt_chart.svg" {
+    title: "CRM Migration - Project Schedule"
+    tasks: all
+    show: resources, critical_path, milestones
+    scale: week
+    width: 1200
+}
+
+report gantt_detailed "output/gantt_detailed.svg" {
+    title: "CRM Migration - Detailed Timeline"
+    tasks: all
+    show: resources, dependencies, progress
+    scale: day
+    width: 1800
+}
+
+report tasks "output/task_list.md" {
+    type: tasks
+    columns: wbs, name, start, end, effort, duration, assigned, status
+    format: markdown
+}
+
+report costs "output/cost_summary.md" {
+    type: costs
+    breakdown: phase, resource
+    show: labor, fixed_costs, payments
+    format: markdown
+}
+
+report resources "output/resource_allocation.svg" {
+    type: resource_allocation
+    resources: all
+    period: project
+    show: utilization, overallocation
+}
+
+report milestones "output/milestones.md" {
+    type: milestones
+    columns: name, date, payment, status
+    format: markdown
+}
+
+# ===========================================================================
+# CONSTRAINTS (for what-if analysis)
+# ===========================================================================
+
+# These constraints can be modified with utf8proj what-if command:
+#
+# utf8proj what-if crm_migration.proj \
+#     --change "constraint.hard_deadline = 2026-04-30"
+#
+# utf8proj what-if crm_migration.proj \
+#     --change "resource.dev3 = { rate: 580/day }" \
+#     --change "task.etl_dev.assign += dev3"
+
+constraint hard_deadline {
+    # Optional: enforce a fixed end date
+    # task.golive_complete.end <= 2026-05-01
+    type: soft
+    target: deployment.golive_complete
+    condition: end <= 2026-05-01
+    priority: 900
+}
+
+constraint resource_cap {
+    # Ensure no resource exceeds 100% allocation
+    type: hard
+    resources: all
+    condition: utilization <= 1.0
+}

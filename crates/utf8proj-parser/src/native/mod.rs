@@ -52,6 +52,10 @@ pub fn parse(input: &str) -> Result<Project, ParseError> {
                 let task = parse_task_decl(pair)?;
                 project.tasks.push(task);
             }
+            Rule::milestone_decl => {
+                let task = parse_milestone_decl(pair)?;
+                project.tasks.push(task);
+            }
             Rule::report_decl => {
                 // Reports are parsed but not stored in Project for now
                 // They will be handled separately during rendering
@@ -203,6 +207,11 @@ fn parse_project_attr(pair: Pair<Rule>, project: &mut Project) -> Result<(), Par
             let id_pair = inner.into_inner().next().unwrap();
             project.calendar = parse_identifier(id_pair);
         }
+        Rule::project_timezone => {
+            // Timezone stored in attributes for now
+            let tz_pair = inner.into_inner().next().unwrap();
+            project.attributes.insert("timezone".to_string(), tz_pair.as_str().to_string());
+        }
         _ => {}
     }
     Ok(())
@@ -335,10 +344,18 @@ fn parse_day_list(pair: Pair<Rule>, days: &mut Vec<u8>) -> Result<(), ParseError
 fn parse_holiday(pair: Pair<Rule>) -> Result<Holiday, ParseError> {
     let mut inner = pair.into_inner();
     let name = parse_string(inner.next().unwrap());
-    let date_range = inner.next().unwrap();
-    let mut dates = date_range.into_inner();
-    let start = parse_date(dates.next().unwrap())?;
-    let end = parse_date(dates.next().unwrap())?;
+    let date_or_range = inner.next().unwrap();
+
+    let (start, end) = if date_or_range.as_rule() == Rule::date_range {
+        let mut dates = date_or_range.into_inner();
+        let start = parse_date(dates.next().unwrap())?;
+        let end = parse_date(dates.next().unwrap())?;
+        (start, end)
+    } else {
+        // Single date - start and end are the same
+        let date = parse_date(date_or_range)?;
+        (date, date)
+    };
 
     Ok(Holiday { name, start, end })
 }
@@ -387,6 +404,21 @@ fn parse_resource_attr(pair: Pair<Rule>, resource: &mut Resource) -> Result<(), 
             let num_pair = inner.into_inner().next().unwrap();
             resource.efficiency = parse_number(num_pair)? as f32;
         }
+        Rule::resource_email => {
+            let str_pair = inner.into_inner().next().unwrap();
+            resource.attributes.insert("email".to_string(), parse_string(str_pair));
+        }
+        Rule::resource_role => {
+            let str_pair = inner.into_inner().next().unwrap();
+            resource.attributes.insert("role".to_string(), parse_string(str_pair));
+        }
+        Rule::resource_leave => {
+            let date_range = inner.into_inner().next().unwrap();
+            let mut dates = date_range.into_inner();
+            let start = parse_date(dates.next().unwrap())?;
+            let end = parse_date(dates.next().unwrap())?;
+            resource.attributes.insert("leave".to_string(), format!("{}..{}", start, end));
+        }
         _ => {}
     }
     Ok(())
@@ -428,6 +460,10 @@ fn parse_task_decl(pair: Pair<Rule>) -> Result<Task, ParseError> {
                         let child = parse_task_decl(item)?;
                         task.children.push(child);
                     }
+                    Rule::milestone_decl => {
+                        let child = parse_milestone_decl(item)?;
+                        task.children.push(child);
+                    }
                     _ => {}
                 }
             }
@@ -435,6 +471,57 @@ fn parse_task_decl(pair: Pair<Rule>) -> Result<Task, ParseError> {
     }
 
     Ok(task)
+}
+
+/// Parse a milestone declaration (milestone id "name" { ... })
+fn parse_milestone_decl(pair: Pair<Rule>) -> Result<Task, ParseError> {
+    let mut inner = pair.into_inner();
+    let id = parse_identifier(inner.next().unwrap());
+    let name = parse_string(inner.next().unwrap());
+
+    let mut task = Task::new(&id).name(&name);
+    task.milestone = true;
+    task.duration = Some(Duration::zero());
+
+    if let Some(body) = inner.next() {
+        if body.as_rule() == Rule::milestone_body {
+            for attr in body.into_inner() {
+                if attr.as_rule() == Rule::milestone_attr {
+                    parse_milestone_attr(attr, &mut task)?;
+                }
+            }
+        }
+    }
+
+    Ok(task)
+}
+
+fn parse_milestone_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> {
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::task_depends => {
+            for dep_list in inner.into_inner() {
+                if dep_list.as_rule() == Rule::dependency_list {
+                    for dep in dep_list.into_inner() {
+                        if dep.as_rule() == Rule::dependency {
+                            let dependency = parse_dependency(dep)?;
+                            task.depends.push(dependency);
+                        }
+                    }
+                }
+            }
+        }
+        Rule::task_note => {
+            let str_pair = inner.into_inner().next().unwrap();
+            task.attributes.insert("note".to_string(), parse_string(str_pair));
+        }
+        Rule::task_payment => {
+            let num_pair = inner.into_inner().next().unwrap();
+            task.attributes.insert("payment".to_string(), num_pair.as_str().to_string());
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> {
@@ -490,6 +577,29 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
         Rule::task_constraint => {
             let constraint = parse_task_constraint(inner)?;
             task.constraints.push(constraint);
+        }
+        Rule::task_note => {
+            let str_pair = inner.into_inner().next().unwrap();
+            task.attributes.insert("note".to_string(), parse_string(str_pair));
+        }
+        Rule::task_tag => {
+            let mut tags = Vec::new();
+            for id in inner.into_inner() {
+                if id.as_rule() == Rule::identifier_list {
+                    for tag in id.into_inner() {
+                        tags.push(parse_identifier(tag));
+                    }
+                }
+            }
+            task.attributes.insert("tags".to_string(), tags.join(","));
+        }
+        Rule::task_cost => {
+            let num_pair = inner.into_inner().next().unwrap();
+            task.attributes.insert("cost".to_string(), num_pair.as_str().to_string());
+        }
+        Rule::task_payment => {
+            let num_pair = inner.into_inner().next().unwrap();
+            task.attributes.insert("payment".to_string(), num_pair.as_str().to_string());
         }
         _ => {}
     }

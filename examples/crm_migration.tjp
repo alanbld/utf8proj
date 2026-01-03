@@ -1,0 +1,422 @@
+/*
+ * CRM Migration Project - TaskJuggler Format
+ * File: crm_migration.tjp
+ * 
+ * A realistic enterprise system integration project demonstrating
+ * TaskJuggler's core features with correct TJ3 syntax.
+ *
+ * Run with: tj3 crm_migration.tjp
+ * Output: ./reports/ directory
+ */
+
+project crm "CRM Migration to Salesforce" 2026-02-01 +20w {
+  timezone "Europe/Rome"
+  timeformat "%Y-%m-%d"
+  numberformat "-" "" "." "," 1
+  currencyformat "(" ")" "." "," 0
+  currency "EUR"
+  
+  # Track status as of this date for reports
+  now 2026-03-15
+  
+  # Define scenarios for what-if analysis
+  scenario plan "Baseline Plan" {
+    scenario aggressive "Aggressive Timeline"
+    scenario conservative "Conservative (Buffer)"
+  }
+}
+
+# Default daily rate for all resources (EUR)
+rate 650.0
+
+# Global holidays (Italy 2026)
+leaves holiday "Epiphany" 2026-01-06
+leaves holiday "Easter Monday" 2026-04-06
+leaves holiday "Liberation Day" 2026-04-25
+leaves holiday "Labour Day" 2026-05-01
+
+# Custom flags for filtering reports
+flags critical, integration, training
+
+# ===========================================================================
+# RESOURCES
+# ===========================================================================
+
+resource pm "Maria Rossi" {
+  email "m.rossi@company.it"
+  rate 850.0
+  # PM works 6h/day on this project (other commitments)
+  limits { dailymax 6h }
+}
+
+resource sa "Solution Architects" {
+  resource sa1 "Luca Bianchi" {
+    email "l.bianchi@company.it"
+    rate 800.0
+  }
+  resource sa2 "Anna Verdi" {
+    email "a.verdi@company.it"
+    rate 750.0
+    # Anna is on leave first two weeks of March
+    leaves annual 2026-03-02 - 2026-03-13
+  }
+}
+
+resource dev "Developers" {
+  resource dev1 "Marco Neri" {
+    email "m.neri@company.it"
+    rate 600.0
+  }
+  resource dev2 "Giulia Russo" {
+    email "g.russo@company.it"
+    rate 620.0
+  }
+}
+
+resource trainer "Paolo Gialli" {
+  email "p.gialli@company.it"
+  rate 500.0
+}
+
+# ===========================================================================
+# COST ACCOUNTS
+# ===========================================================================
+
+account costs "Project Costs" {
+  account labor "Labor Costs"
+  account infra "Infrastructure"
+  account licenses "Software Licenses"
+}
+account revenue "Revenue"
+balance costs revenue
+
+# ===========================================================================
+# TASKS (Work Breakdown Structure)
+# ===========================================================================
+
+task crm "CRM Migration Project" {
+  
+  # Default cost account for labor
+  chargeset labor
+  responsible pm
+  
+  # -------------------------------------------------------------------------
+  # Phase 1: Discovery & Planning
+  # -------------------------------------------------------------------------
+  task discovery "Discovery & Planning" {
+    
+    task kickoff "Project Kickoff" {
+      duration 1d
+      allocate pm
+      allocate sa1, sa2
+      start ${projectstart}
+      # Fixed cost: workshop materials and catering
+      purge chargeset
+      chargeset infra
+      charge 500 onstart
+    }
+    
+    task requirements "Requirements Analysis" {
+      effort 15d
+      depends !kickoff
+      allocate sa1, sa2
+      note "Interview 5 departments, document 120+ user stories"
+    }
+    
+    task gap_analysis "Gap Analysis" {
+      effort 8d
+      depends !requirements
+      allocate sa1
+      flags critical
+      note "Compare current vs. Salesforce capabilities"
+    }
+    
+    task architecture "Solution Architecture" {
+      effort 10d
+      depends !gap_analysis
+      allocate sa1, sa2
+      flags critical
+      journalentry 2026-02-20 "Architecture review scheduled" {
+        author pm
+        summary "Review meeting with IT leadership on Feb 27"
+      }
+    }
+    
+    task plan_approved "Planning Complete" {
+      depends !architecture
+      milestone
+      # Charge customer payment milestone
+      purge chargeset
+      chargeset revenue
+      charge 25000 onend
+    }
+  }
+  
+  # -------------------------------------------------------------------------
+  # Phase 2: Data Migration
+  # -------------------------------------------------------------------------
+  task datamigration "Data Migration" {
+    depends !discovery.plan_approved
+    flags critical
+    
+    task data_mapping "Data Mapping & Cleansing Rules" {
+      effort 12d
+      allocate sa2, dev1
+      note "Map 47 legacy tables to Salesforce objects"
+    }
+    
+    task etl_dev "ETL Development" {
+      effort 20d
+      depends !data_mapping
+      allocate dev1, dev2
+      # In aggressive scenario, we add overtime
+      aggressive:effort 15d
+    }
+    
+    task test_migration "Test Migration (3 iterations)" {
+      effort 10d
+      depends !etl_dev
+      allocate dev1
+    }
+    
+    task data_complete "Data Migration Ready" {
+      depends !test_migration
+      milestone
+    }
+  }
+  
+  # -------------------------------------------------------------------------
+  # Phase 3: Integration Development
+  # -------------------------------------------------------------------------
+  task integration "Integration Development" {
+    depends !discovery.plan_approved
+    flags integration
+    
+    task api_design "API Design & Contracts" {
+      effort 6d
+      allocate sa1
+    }
+    
+    task middleware "Middleware Configuration" {
+      effort 8d
+      depends !api_design
+      allocate dev2
+      note "MuleSoft Anypoint configuration"
+      # License cost
+      purge chargeset
+      chargeset licenses
+      charge 12000 onstart
+    }
+    
+    task erp_connector "ERP Connector Development" {
+      effort 15d
+      depends !api_design
+      allocate dev1, dev2
+      priority 800
+    }
+    
+    task integration_test "Integration Testing" {
+      effort 8d
+      depends !middleware, !erp_connector
+      allocate dev1, dev2, sa1
+    }
+    
+    task integration_complete "Integration Ready" {
+      depends !integration_test
+      milestone
+      purge chargeset
+      chargeset revenue
+      charge 35000 onend
+    }
+  }
+  
+  # -------------------------------------------------------------------------
+  # Phase 4: Training & Deployment
+  # -------------------------------------------------------------------------
+  task deployment "Training & Deployment" {
+    depends !datamigration.data_complete, !integration.integration_complete
+    flags training
+    
+    task train_material "Training Material Development" {
+      effort 8d
+      allocate trainer
+    }
+    
+    task train_admin "Admin Training (IT Team)" {
+      effort 3d
+      depends !train_material
+      allocate trainer, sa2
+    }
+    
+    task train_users "End User Training (5 sessions)" {
+      effort 5d
+      depends !train_admin
+      allocate trainer
+      note "50 users across 5 departments"
+    }
+    
+    task cutover_prep "Cutover Preparation" {
+      effort 3d
+      depends !train_users
+      allocate pm, sa1, dev1
+    }
+    
+    task go_live "Go-Live" {
+      duration 2d
+      depends !cutover_prep
+      allocate pm, sa1, sa2, dev1, dev2
+      flags critical
+    }
+    
+    task golive_complete "System Live" {
+      depends !go_live
+      milestone
+      purge chargeset
+      chargeset revenue
+      charge 40000 onend
+    }
+  }
+  
+  # -------------------------------------------------------------------------
+  # Phase 5: Hypercare
+  # -------------------------------------------------------------------------
+  task hypercare "Hypercare Support" {
+    depends !deployment.golive_complete
+    
+    task support "Post-Go-Live Support" {
+      duration 2w
+      allocate sa2
+      allocate dev1  # dev1 at half capacity
+      note "On-call support, bug fixes, user questions"
+    }
+    
+    task handover "Knowledge Transfer & Handover" {
+      effort 5d
+      depends !support
+      allocate sa1, sa2, pm
+    }
+    
+    task project_close "Project Closure" {
+      depends !handover
+      milestone
+      note "Lessons learned, final documentation"
+    }
+  }
+}
+
+# ===========================================================================
+# REPORTS
+# ===========================================================================
+
+navigator navbar {
+  hidereport @none
+}
+
+macro TaskTip [
+  tooltip istask() -8<-
+    '''Start:''' <-query attribute='start'->
+    '''End:''' <-query attribute='end'->
+    '''Effort:''' <-query attribute='effort'->
+    ----
+    '''Assigned:''' <-query attribute='resources'->
+  ->8-
+]
+
+textreport frame "" {
+  header -8<-
+    == CRM Migration to Salesforce ==
+    <[navigator id="navbar"]>
+  ->8-
+  footer "Generated by TaskJuggler"
+  
+  textreport index "Overview" {
+    formats html
+    center '<[report id="overview"]>'
+  }
+  
+  textreport "Gantt" {
+    formats html
+    center '<[report id="gantt"]>'
+  }
+  
+  textreport "Resources" {
+    formats html
+    center '<[report id="resources"]>'
+  }
+  
+  textreport "Costs" {
+    formats html
+    center '<[report id="costs"]>'
+  }
+  
+  textreport "Milestones" {
+    formats html
+    center '<[report id="milestones"]>'
+  }
+}
+
+# Project overview (summary Gantt)
+taskreport overview "" {
+  header -8<-
+    === Project Overview ===
+    CRM Migration from legacy system to Salesforce.
+    
+    * Duration: ~14 weeks
+    * Team: 6 resources
+    * Budget: EUR 100,000 (customer payments)
+  ->8-
+  columns bsi { title 'WBS' }, name, start, end, effort, cost,
+          revenue, chart { ${TaskTip} scale week }
+  timeformat "%Y-%m-%d"
+  loadunit days
+  hideresource @all
+  balance costs revenue
+  sorttasks plan.start.up
+}
+
+# Detailed Gantt chart with resources
+taskreport gantt "" {
+  headline "Detailed Project Schedule"
+  columns bsi { title 'WBS' }, name, start, end, duration,
+          resources { listtype bullets width 150 },
+          chart { ${TaskTip} scale day width 500 }
+  timeformat "%Y-%m-%d"
+  loadunit days
+  hideresource ~isleaf()
+  sorttasks plan.start.up
+  scenarios plan, aggressive
+}
+
+# Resource allocation
+resourcereport resources "" {
+  headline "Resource Allocation"
+  columns no, name, email, effort, rate, weekly { ${TaskTip} }
+  loadunit days
+  hideresource ~isleaf()
+  sorttasks plan.start.up
+  hidetask ~isleaf()
+}
+
+# Cost breakdown by phase
+taskreport costs "" {
+  headline "Cost Breakdown by Phase"
+  columns bsi { title 'WBS' }, name, start, end, cost, revenue
+  timeformat "%Y-%m-%d"
+  hideresource @all
+  rollupresource @all
+  # Show only top-level phases
+  hidetask plan.end > ${projectend}
+}
+
+# Milestones report
+taskreport milestones "" {
+  headline "Project Milestones"
+  columns bsi, name, start, end, note { width 250 }, complete,
+          chart { ${TaskTip} scale week }
+  timeformat "%Y-%m-%d"
+  hideresource @all
+  # Only show milestone tasks
+  hidetask ~(plan.complete >= 0 & plan.duration = 0)
+  sorttasks plan.end.up
+  scenarios plan, aggressive, conservative
+}

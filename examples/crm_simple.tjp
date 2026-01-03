@@ -1,0 +1,179 @@
+/*
+ * CRM Migration Project - Simplified TaskJuggler Format
+ *
+ * This is a simplified version that works with utf8proj's current TJP parser.
+ * It removes advanced TJ3 features not yet supported.
+ */
+
+project crm "CRM Migration to Salesforce" 2026-02-01 - 2026-06-15 {
+  timezone "Europe/Rome"
+  currency "EUR"
+}
+
+# Resources
+resource pm "Maria Rossi"
+resource sa1 "Luca Bianchi"
+resource sa2 "Anna Verdi"
+resource dev1 "Marco Neri"
+resource dev2 "Giulia Russo"
+resource trainer "Paolo Gialli"
+
+# Phase 1: Discovery & Planning
+task discovery "Discovery & Planning" {
+
+  task kickoff "Project Kickoff" {
+    duration 1d
+    allocate pm, sa1, sa2
+  }
+
+  task requirements "Requirements Analysis" {
+    effort 15d
+    depends !kickoff
+    allocate sa1, sa2
+    note "Interview 5 departments, document 120+ user stories"
+  }
+
+  task gap_analysis "Gap Analysis" {
+    effort 8d
+    depends !requirements
+    allocate sa1
+    note "Compare current vs. Salesforce capabilities"
+  }
+
+  task architecture "Solution Architecture" {
+    effort 10d
+    depends !gap_analysis
+    allocate sa1, sa2
+  }
+
+  task plan_approved "Planning Complete" {
+    depends !architecture
+    milestone
+  }
+}
+
+# Phase 2: Data Migration
+task datamigration "Data Migration" {
+  depends !discovery.plan_approved
+
+  task data_mapping "Data Mapping & Cleansing Rules" {
+    effort 12d
+    allocate sa2, dev1
+    note "Map 47 legacy tables to Salesforce objects"
+  }
+
+  task etl_dev "ETL Development" {
+    effort 20d
+    depends !data_mapping
+    allocate dev1, dev2
+  }
+
+  task test_migration "Test Migration (3 iterations)" {
+    effort 10d
+    depends !etl_dev
+    allocate dev1
+  }
+
+  task data_complete "Data Migration Ready" {
+    depends !test_migration
+    milestone
+  }
+}
+
+# Phase 3: Integration Development
+task integration "Integration Development" {
+  depends !discovery.plan_approved
+
+  task api_design "API Design & Contracts" {
+    effort 6d
+    allocate sa1
+  }
+
+  task middleware "Middleware Configuration" {
+    effort 8d
+    depends !api_design
+    allocate dev2
+    note "MuleSoft Anypoint configuration"
+  }
+
+  task erp_connector "ERP Connector Development" {
+    effort 15d
+    depends !api_design
+    allocate dev1, dev2
+    priority 800
+  }
+
+  task integration_test "Integration Testing" {
+    effort 8d
+    depends !middleware, !erp_connector
+    allocate dev1, dev2, sa1
+  }
+
+  task integration_complete "Integration Ready" {
+    depends !integration_test
+    milestone
+  }
+}
+
+# Phase 4: Training & Deployment
+task deployment "Training & Deployment" {
+  depends !datamigration.data_complete, !integration.integration_complete
+
+  task train_material "Training Material Development" {
+    effort 8d
+    allocate trainer
+  }
+
+  task train_admin "Admin Training (IT Team)" {
+    effort 3d
+    depends !train_material
+    allocate trainer, sa2
+  }
+
+  task train_users "End User Training (5 sessions)" {
+    effort 5d
+    depends !train_admin
+    allocate trainer
+    note "50 users across 5 departments"
+  }
+
+  task cutover_prep "Cutover Preparation" {
+    effort 3d
+    depends !train_users
+    allocate pm, sa1, dev1
+  }
+
+  task go_live "Go-Live" {
+    duration 2d
+    depends !cutover_prep
+    allocate pm, sa1, sa2, dev1, dev2
+  }
+
+  task golive_complete "System Live" {
+    depends !go_live
+    milestone
+  }
+}
+
+# Phase 5: Hypercare
+task hypercare "Hypercare Support" {
+  depends !deployment.golive_complete
+
+  task support "Post-Go-Live Support" {
+    duration 2w
+    allocate sa2, dev1
+    note "On-call support, bug fixes, user questions"
+  }
+
+  task handover "Knowledge Transfer & Handover" {
+    effort 5d
+    depends !support
+    allocate sa1, sa2, pm
+  }
+
+  task project_close "Project Closure" {
+    depends !handover
+    milestone
+    note "Lessons learned, final documentation"
+  }
+}

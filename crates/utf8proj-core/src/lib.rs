@@ -140,6 +140,8 @@ pub struct Project {
     pub calendars: Vec<Calendar>,
     /// Scenario definitions (for what-if analysis)
     pub scenarios: Vec<Scenario>,
+    /// Custom attributes (timezone, etc.)
+    pub attributes: HashMap<String, String>,
 }
 
 impl Project {
@@ -156,6 +158,7 @@ impl Project {
             resources: Vec::new(),
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
+            attributes: HashMap::new(),
         }
     }
 
@@ -813,6 +816,7 @@ mod tests {
             resources: Vec::new(),
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
+            attributes: HashMap::new(),
         };
 
         let leaves = project.leaf_tasks();
