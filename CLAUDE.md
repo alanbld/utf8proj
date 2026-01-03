@@ -47,33 +47,36 @@ playground/             # Browser-based playground
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-03)
+## Test Coverage (as of 2026-01-04)
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
-| utf8proj-core | 124/128 | 96.9% |
-| utf8proj-solver | 269/280 | 96.1% |
-| utf8proj-solver/leveling | 188/196 | 95.9% |
-| utf8proj-render/excel | 421/432 | 97.4% |
+| utf8proj-parser/lib | 13/13 | 100.0% |
+| utf8proj-render/excel | 421/432 | 97.5% |
+| utf8proj-core | 127/131 | 96.9% |
+| utf8proj-parser/native | 340/353 | 96.3% |
+| utf8proj-solver/lib | 269/280 | 96.1% |
+| utf8proj-solver/leveling | 187/196 | 95.4% |
+| utf8proj-solver/bdd | 105/111 | 94.6% |
+| utf8proj-solver/cpm | 78/83 | 94.0% |
+| utf8proj-parser/tjp | 140/151 | 92.7% |
 | utf8proj-render/gantt | 255/278 | 91.7% |
 | utf8proj-render/plantuml | 109/119 | 91.6% |
 | utf8proj-render/lib | 223/245 | 91.0% |
-| utf8proj-parser/native | 332/353 | 94.1% |
-| utf8proj-solver/bdd | 104/111 | 93.7% |
+| utf8proj-solver/dag | 129/142 | 90.8% |
 | utf8proj-render/mermaid | 96/111 | 86.5% |
-| utf8proj-parser/tjp | 122/151 | 80.8% |
 | utf8proj-cli | 143/446 | 32.1% |
 | utf8proj-wasm | 18/121 | 14.9% |
-| **Overall** | **2465/3041** | **81.06%** |
+| **Overall** | **2710/3269** | **82.90%** |
 
-**All core components achieve 85%+ coverage** (excluding CLI and WASM).
+**All core business logic components achieve 90%+ coverage** (excluding CLI and WASM).
 
-**Tests:** 220+ passing, 1 ignored (render doctest)
+**Tests:** 290+ passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 30 unit + 27 hierarchical + 12 leveling = 69 tests
-- utf8proj-render: 56 unit + 5 integration + 6 new = 67 tests
-- utf8proj-parser: 34 unit + 19 integration = 53 tests
+- utf8proj-solver: 60 unit + 27 hierarchical + 8 correctness + 12 leveling = 107 tests
+- utf8proj-render: 62 unit + 5 integration = 67 tests
+- utf8proj-parser: 53 unit + 19 integration = 72 tests
 - utf8proj-core: 14 tests + 1 doc-test
 - utf8proj-cli: 10 tests
 - utf8proj-wasm: 8 tests
