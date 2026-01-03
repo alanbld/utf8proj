@@ -32,7 +32,10 @@ use utf8proj_core::{
     Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
 };
 
+pub mod bdd;
 pub mod leveling;
+
+pub use bdd::{BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict, ShiftDirection};
 pub use leveling::{
     detect_overallocations, level_resources, LevelingResult, OverallocationPeriod,
     ResourceTimeline, ShiftedTask, UnresolvedConflict,

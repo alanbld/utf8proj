@@ -61,11 +61,12 @@ svg = "0.17"
 rust_decimal = { version = "1.33", features = ["serde"] }
 num-bigint = "0.4"
 
-# BDD (for future use)
-# oxidd = "0.7"
+# BDD - lightweight decision diagrams for resource conflict resolution
+biodivine-lib-bdd = "0.5"
 
-# SAT (for future use)
-# varisat = "0.2"
+# Alternative BDD libraries (not currently used)
+# oxidd = "0.7"      # Heavier, concurrent framework
+# varisat = "0.2"    # SAT solver
 
 # Testing
 pretty_assertions = "1.4"

@@ -12,6 +12,7 @@ keywords = ["scheduling", "cpm", "solver"]
 utf8proj-core.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
+biodivine-lib-bdd.workspace = true
 
 [lints]
 workspace = true
