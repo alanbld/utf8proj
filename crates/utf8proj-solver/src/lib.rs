@@ -200,15 +200,36 @@ fn resolve_dependency_path(
 }
 
 /// Get the duration of a task in working days
+///
+/// For effort-driven tasks (PMI "Fixed Work"):
+///   Duration = Effort / Total_Resource_Units
+///
+/// Where Total_Resource_Units is the sum of all assigned resource allocation
+/// percentages (e.g., 1.0 = 100%, 0.5 = 50%).
+///
+/// Examples:
+/// - 40h effort with 1 resource @ 100% = 5 days
+/// - 40h effort with 1 resource @ 50% = 10 days
+/// - 40h effort with 2 resources @ 100% each = 2.5 days
 fn get_task_duration_days(task: &Task) -> i64 {
-    // If explicit duration is set, use that
+    // If explicit duration is set, use that (Fixed Duration task type)
     if let Some(dur) = task.duration {
         return dur.as_days().ceil() as i64;
     }
-    // Otherwise use effort (assuming 1 resource at 100%)
+
+    // Effort-driven: Duration = Effort / Total_Resource_Units
     if let Some(effort) = task.effort {
-        return effort.as_days().ceil() as i64;
+        let total_units: f64 = if task.assigned.is_empty() {
+            1.0 // Default: assume 1 resource at 100%
+        } else {
+            task.assigned.iter().map(|r| r.units as f64).sum()
+        };
+
+        // Prevent division by zero
+        let effective_units = if total_units > 0.0 { total_units } else { 1.0 };
+        return (effort.as_days() / effective_units).ceil() as i64;
     }
+
     // Milestone or summary task
     0
 }
@@ -1006,5 +1027,135 @@ mod tests {
             implement_task.start > design_task.finish,
             "implement should start after design finishes"
         );
+    }
+
+    // =========================================================================
+    // Effort-Driven Duration Tests (PMI Compliance)
+    // =========================================================================
+
+    #[test]
+    fn effort_with_no_resource_assumes_100_percent() {
+        // No resources assigned = assume 1 resource at 100%
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![Task::new("work").effort(Duration::days(5))];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // 5 days effort / 1.0 units = 5 days
+        assert_eq!(schedule.tasks["work"].duration.as_days(), 5.0);
+    }
+
+    #[test]
+    fn effort_with_full_allocation() {
+        // 1 resource at 100% allocation
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev")];
+        project.tasks = vec![Task::new("work")
+            .effort(Duration::days(5))
+            .assign("dev")]; // 100% by default
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // 5 days effort / 1.0 units = 5 days
+        assert_eq!(schedule.tasks["work"].duration.as_days(), 5.0);
+    }
+
+    #[test]
+    fn effort_with_partial_allocation() {
+        // 1 resource at 50% allocation = duration doubles
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev")];
+        project.tasks = vec![Task::new("work")
+            .effort(Duration::days(5))
+            .assign_with_units("dev", 0.5)]; // 50%
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // 5 days effort / 0.5 units = 10 days
+        assert_eq!(schedule.tasks["work"].duration.as_days(), 10.0);
+    }
+
+    #[test]
+    fn effort_with_multiple_resources() {
+        // 2 resources at 100% each = duration halves
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev1"), Resource::new("dev2")];
+        project.tasks = vec![Task::new("work")
+            .effort(Duration::days(10))
+            .assign("dev1")
+            .assign("dev2")]; // 100% + 100% = 200%
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // 10 days effort / 2.0 units = 5 days
+        assert_eq!(schedule.tasks["work"].duration.as_days(), 5.0);
+    }
+
+    #[test]
+    fn effort_with_mixed_allocations() {
+        // 1 resource at 100% + 1 at 50% = 150% total
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev1"), Resource::new("dev2")];
+        project.tasks = vec![Task::new("work")
+            .effort(Duration::days(15))
+            .assign("dev1") // 100%
+            .assign_with_units("dev2", 0.5)]; // 50%
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // 15 days effort / 1.5 units = 10 days
+        assert_eq!(schedule.tasks["work"].duration.as_days(), 10.0);
+    }
+
+    #[test]
+    fn fixed_duration_ignores_allocation() {
+        // Explicit duration overrides effort-based calculation
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev")];
+        project.tasks = vec![Task::new("meeting")
+            .duration(Duration::days(1)) // Fixed 1 day
+            .assign_with_units("dev", 0.25)]; // 25% shouldn't matter
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Duration is fixed at 1 day regardless of allocation
+        assert_eq!(schedule.tasks["meeting"].duration.as_days(), 1.0);
+    }
+
+    #[test]
+    fn effort_chain_with_different_allocations() {
+        // Chain of tasks with varying allocations
+        let mut project = Project::new("Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev")];
+        project.tasks = vec![
+            Task::new("phase1")
+                .effort(Duration::days(5))
+                .assign("dev"), // 100% -> 5 days
+            Task::new("phase2")
+                .effort(Duration::days(5))
+                .assign_with_units("dev", 0.5) // 50% -> 10 days
+                .depends_on("phase1"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Total project duration: 5 + 10 = 15 days
+        assert_eq!(schedule.project_duration.as_days(), 15.0);
+        assert_eq!(schedule.tasks["phase1"].duration.as_days(), 5.0);
+        assert_eq!(schedule.tasks["phase2"].duration.as_days(), 10.0);
     }
 }

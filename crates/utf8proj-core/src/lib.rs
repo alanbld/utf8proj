@@ -287,6 +287,19 @@ impl Task {
         self
     }
 
+    /// Assign a resource with specific allocation units
+    ///
+    /// Units represent allocation percentage: 1.0 = 100%, 0.5 = 50%, etc.
+    /// This affects effort-driven duration calculation:
+    ///   Duration = Effort / Total_Units
+    pub fn assign_with_units(mut self, resource: impl Into<String>, units: f32) -> Self {
+        self.assigned.push(ResourceRef {
+            resource_id: resource.into(),
+            units,
+        });
+        self
+    }
+
     /// Set priority
     pub fn priority(mut self, priority: u32) -> Self {
         self.priority = priority;
