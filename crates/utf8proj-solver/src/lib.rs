@@ -33,6 +33,8 @@ use utf8proj_core::{
 };
 
 pub mod bdd;
+pub mod cpm;
+pub mod dag;
 pub mod leveling;
 
 pub use bdd::{BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict, ShiftDirection};
