@@ -620,4 +620,30 @@ mod tests {
         assert!(analysis.stats.variables > 0, "Should have variables");
         assert!(analysis.stats.nodes > 0, "Should have nodes");
     }
+
+    #[test]
+    fn analyzer_with_custom_max_days() {
+        let analyzer = BddConflictAnalyzer::with_max_days(730);
+        assert_eq!(analyzer.max_days, 730);
+    }
+
+    #[test]
+    fn empty_project_no_conflicts() {
+        // Project with no tasks and no resource assignments
+        let project = Project::new("Empty");
+        let schedule = Schedule {
+            tasks: HashMap::new(),
+            critical_path: vec![],
+            project_duration: Duration::zero(),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_cost: None,
+        };
+
+        let analyzer = BddConflictAnalyzer::new();
+        let analysis = analyzer.analyze(&project, &schedule);
+
+        // No conflicts for empty project
+        assert!(analysis.is_valid);
+        assert!(analysis.conflicts.is_empty());
+    }
 }

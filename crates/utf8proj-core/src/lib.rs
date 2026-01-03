@@ -271,13 +271,19 @@ impl Task {
         self
     }
 
-    /// Add a dependency
+    /// Add a dependency (FinishToStart by default)
     pub fn depends_on(mut self, predecessor: impl Into<String>) -> Self {
         self.depends.push(Dependency {
             predecessor: predecessor.into(),
             dep_type: DependencyType::FinishToStart,
             lag: None,
         });
+        self
+    }
+
+    /// Add a dependency with full control over type and lag
+    pub fn with_dependency(mut self, dep: Dependency) -> Self {
+        self.depends.push(dep);
         self
     }
 

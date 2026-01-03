@@ -442,4 +442,144 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_empty_graph_error() {
+        let tasks: Vec<Task> = vec![];
+        let graph = SchedulingGraph::from_wbs(&tasks);
+
+        // Empty WBS produces empty graph
+        assert!(graph.is_err() || graph.as_ref().unwrap().tasks.is_empty());
+
+        if let Ok(g) = graph {
+            let result = CpmScheduler::new().schedule(&g);
+            assert!(matches!(result, Err(CpmError::EmptyGraph)));
+        }
+    }
+
+    #[test]
+    fn test_cpm_error_display() {
+        let err = CpmError::NegativeSlack { task: "test_task".to_string(), slack: -5 };
+        let msg = format!("{}", err);
+        assert!(msg.contains("test_task"));
+        assert!(msg.contains("-5"));
+
+        let err2 = CpmError::EmptyGraph;
+        let msg2 = format!("{}", err2);
+        assert!(msg2.contains("empty"));
+    }
+
+    #[test]
+    fn test_cpm_scheduler_default() {
+        let scheduler = CpmScheduler::default();
+        // Just verify default() works (covers line 239-240)
+        let tasks = vec![Task::new("a").duration(Duration::days(1))];
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+        let schedule = scheduler.schedule(&graph);
+        assert!(schedule.is_ok());
+    }
+
+    #[test]
+    fn test_dependency_type_coverage() {
+        use utf8proj_core::Dependency;
+
+        // Test that SS, FF, SF dependency types are handled in forward pass
+        // These tests just exercise the code paths for coverage
+
+        // SS: Start-to-Start
+        let tasks_ss = vec![
+            Task::new("a").duration(Duration::days(5)),
+            Task::new("b").duration(Duration::days(3)),
+            Task::new("c").duration(Duration::days(2))
+                .depends_on("a") // FS to a
+                .with_dependency(Dependency {
+                    predecessor: "b".to_string(),
+                    dep_type: DependencyType::StartToStart,
+                    lag: None,
+                }),
+        ];
+        let graph = SchedulingGraph::from_wbs(&tasks_ss).unwrap();
+        let schedule = CpmScheduler::new().schedule(&graph).unwrap();
+        assert!(schedule.results.contains_key("c"));
+
+        // FF: Finish-to-Finish
+        let tasks_ff = vec![
+            Task::new("a").duration(Duration::days(5)),
+            Task::new("b").duration(Duration::days(3)),
+            Task::new("c").duration(Duration::days(2))
+                .depends_on("a") // FS to a
+                .with_dependency(Dependency {
+                    predecessor: "b".to_string(),
+                    dep_type: DependencyType::FinishToFinish,
+                    lag: None,
+                }),
+        ];
+        let graph = SchedulingGraph::from_wbs(&tasks_ff).unwrap();
+        let schedule = CpmScheduler::new().schedule(&graph).unwrap();
+        assert!(schedule.results.contains_key("c"));
+
+        // SF: Start-to-Finish
+        let tasks_sf = vec![
+            Task::new("a").duration(Duration::days(5)),
+            Task::new("b").duration(Duration::days(3)),
+            Task::new("c").duration(Duration::days(2))
+                .depends_on("a") // FS to a
+                .with_dependency(Dependency {
+                    predecessor: "b".to_string(),
+                    dep_type: DependencyType::StartToFinish,
+                    lag: None,
+                }),
+        ];
+        let graph = SchedulingGraph::from_wbs(&tasks_sf).unwrap();
+        let schedule = CpmScheduler::new().schedule(&graph).unwrap();
+        assert!(schedule.results.contains_key("c"));
+    }
+
+    #[test]
+    fn test_dependency_with_lag() {
+        use utf8proj_core::Dependency;
+
+        // Test dependencies with lag values
+        let tasks = vec![
+            Task::new("a").duration(Duration::days(5)),
+            Task::new("b").duration(Duration::days(3)),
+            Task::new("c").duration(Duration::days(2))
+                .depends_on("a")
+                .with_dependency(Dependency {
+                    predecessor: "b".to_string(),
+                    dep_type: DependencyType::StartToStart,
+                    lag: Some(Duration::days(2)),
+                }),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+        let schedule = CpmScheduler::new().schedule(&graph).unwrap();
+
+        // Just verify it schedules without error
+        assert!(schedule.results.contains_key("c"));
+        assert!(schedule.project_end > 0);
+    }
+
+    #[test]
+    fn test_free_slack_calculation() {
+        // A(5) -> C(2)
+        // B(3) -> C(2)
+        // A is critical (longer), B has slack
+        let tasks = make_tasks_with_deps(&[
+            ("a", 5, &[]),
+            ("b", 3, &[]),
+            ("c", 2, &["a", "b"]),
+        ]);
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+        let schedule = CpmScheduler::new().schedule(&graph).unwrap();
+
+        // B has free slack: min(ES of successors) - EF(B)
+        // ES(C) = 5 (from A), EF(B) = 3
+        // Free slack = 5 - 3 = 2
+        assert_eq!(schedule.results["b"].free_slack, 2);
+
+        // A has no free slack (critical)
+        assert_eq!(schedule.results["a"].free_slack, 0);
+    }
 }

@@ -519,4 +519,158 @@ mod tests {
         let duration = compute_duration_days(&task);
         assert_eq!(duration, 5);
     }
+
+    #[test]
+    fn test_graph_error_display() {
+        let err = GraphError::CycleDetected { tasks: vec!["a".to_string(), "b".to_string()] };
+        let msg = format!("{}", err);
+        assert!(msg.contains("Cycle"));
+        assert!(msg.contains("a"));
+
+        let err2 = GraphError::MissingDependency {
+            task: "child".to_string(),
+            missing: "parent".to_string(),
+        };
+        let msg2 = format!("{}", err2);
+        assert!(msg2.contains("child"));
+        assert!(msg2.contains("parent"));
+    }
+
+    #[test]
+    fn test_cycle_detection() {
+        // A -> B -> C -> A (cycle)
+        let tasks = vec![
+            Task::new("a").duration(Duration::days(1)).depends_on("c"),
+            Task::new("b").duration(Duration::days(1)).depends_on("a"),
+            Task::new("c").duration(Duration::days(1)).depends_on("b"),
+        ];
+
+        let result = SchedulingGraph::from_wbs(&tasks);
+        assert!(result.is_err());
+        if let Err(GraphError::CycleDetected { tasks }) = result {
+            assert!(!tasks.is_empty());
+        } else {
+            panic!("Expected CycleDetected error");
+        }
+    }
+
+    #[test]
+    fn test_container_dependency_resolution() {
+        // Task in one container depends on another container's task
+        let tasks = vec![
+            Task::new("phase1")
+                .child(Task::new("a").duration(Duration::days(3)))
+                .child(Task::new("b").duration(Duration::days(2)).depends_on("a")),
+            Task::new("phase2")
+                .child(Task::new("c").duration(Duration::days(2)).depends_on("phase1.b")),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        // Should have 3 leaf tasks
+        assert_eq!(graph.tasks.len(), 3);
+
+        // c should depend on b
+        let c = graph.get_task("c").unwrap();
+        assert!(!c.dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_deeply_nested_container() {
+        let tasks = vec![
+            Task::new("level1")
+                .child(Task::new("level2")
+                    .child(Task::new("level3")
+                        .child(Task::new("leaf").duration(Duration::days(1))))),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        // Only the leaf should be in the graph
+        assert_eq!(graph.tasks.len(), 1);
+
+        let leaf = graph.get_task("leaf").unwrap();
+        assert_eq!(leaf.qualified_id, "level1.level2.level3.leaf");
+        assert_eq!(leaf.wbs_path, vec!["level1", "level2", "level3", "leaf"]);
+    }
+
+    #[test]
+    fn test_milestone_task() {
+        let task = Task::new("milestone").milestone();
+
+        let duration = compute_duration_days(&task);
+        assert_eq!(duration, 0);
+    }
+
+    #[test]
+    fn test_effort_with_no_resources() {
+        // Effort with no resources = assume 100% allocation
+        let task = Task::new("work").effort(Duration::days(5));
+
+        let duration = compute_duration_days(&task);
+        assert_eq!(duration, 5);
+    }
+
+    #[test]
+    fn test_effort_with_multiple_resources() {
+        // 10 days effort with 2 resources at 100% = 5 days
+        let task = Task::new("work")
+            .effort(Duration::days(10))
+            .assign("dev1")
+            .assign("dev2");
+
+        let duration = compute_duration_days(&task);
+        assert_eq!(duration, 5);
+    }
+
+    #[test]
+    fn test_relative_dependency_resolution() {
+        // Sibling dependencies within same container
+        let tasks = vec![
+            Task::new("phase")
+                .child(Task::new("a").duration(Duration::days(2)))
+                .child(Task::new("b").duration(Duration::days(3)).depends_on("a")),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        // b should depend on a
+        let b = graph.get_task("b").unwrap();
+        assert_eq!(b.dependencies.len(), 1);
+        assert_eq!(b.dependencies[0].predecessor, "a");
+    }
+
+    #[test]
+    fn test_container_to_container_dependency() {
+        // One container depends on another - should expand to leaf dependencies
+        let tasks = vec![
+            Task::new("phase1")
+                .child(Task::new("a").duration(Duration::days(2))),
+            Task::new("phase2")
+                .child(Task::new("b").duration(Duration::days(2)).depends_on("phase1")),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        // b should depend on a (the leaf under phase1)
+        let b = graph.get_task("b").unwrap();
+        assert!(!b.dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_empty_wbs() {
+        let tasks: Vec<Task> = vec![];
+        let result = SchedulingGraph::from_wbs(&tasks);
+
+        // Empty WBS should produce an error or empty graph
+        assert!(result.is_err() || result.unwrap().tasks.is_empty());
+    }
+
+    #[test]
+    fn test_get_task_not_found() {
+        let tasks = vec![Task::new("a").duration(Duration::days(1))];
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        assert!(graph.get_task("nonexistent").is_none());
+    }
 }
