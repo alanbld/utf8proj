@@ -1,0 +1,17 @@
+{
+  "name": "utf8proj-wasm",
+  "type": "module",
+  "description": "WebAssembly bindings for utf8proj scheduling engine",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "utf8proj_wasm_bg.wasm",
+    "utf8proj_wasm.js",
+    "utf8proj_wasm.d.ts"
+  ],
+  "main": "utf8proj_wasm.js",
+  "types": "utf8proj_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
