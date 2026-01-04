@@ -52,6 +52,10 @@ enum Commands {
         /// Enable resource leveling
         #[arg(short, long)]
         leveling: bool,
+
+        /// Show progress tracking information
+        #[arg(short = 'p', long)]
+        show_progress: bool,
     },
 
     /// Generate a Gantt chart
@@ -119,8 +123,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Check { file }) => cmd_check(&file),
-        Some(Commands::Schedule { file, format, output, leveling }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -195,6 +199,7 @@ fn cmd_schedule(
     format: &str,
     output: Option<&std::path::Path>,
     leveling: bool,
+    show_progress: bool,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
@@ -225,8 +230,8 @@ fn cmd_schedule(
 
     // Format output
     let result = match format {
-        "json" => format_json(&project, &schedule)?,
-        "text" | _ => format_text(&project, &schedule),
+        "json" => format_json(&project, &schedule, show_progress)?,
+        "text" | _ => format_text(&project, &schedule, show_progress),
     };
 
     // Write output
@@ -277,7 +282,7 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
 }
 
 /// Format schedule as text table
-fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule) -> String {
+fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool) -> String {
     let mut output = String::new();
 
     // Header
@@ -294,29 +299,57 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         output.push_str("\n\n");
     }
 
-    // Task table header
-    output.push_str(&format!(
-        "{:<20} {:<12} {:<12} {:>8} {:>8} {}\n",
-        "Task", "Start", "Finish", "Duration", "Slack", "Critical"
-    ));
-    output.push_str(&format!("{}\n", "-".repeat(76)));
-
-    // Sort tasks by start date
-    let mut tasks: Vec<_> = schedule.tasks.values().collect();
-    tasks.sort_by_key(|t| t.start);
-
-    // Task rows
-    for task in tasks {
-        let critical = if task.is_critical { "*" } else { "" };
+    if show_progress {
+        // Progress-aware output format
         output.push_str(&format!(
-            "{:<20} {:<12} {:<12} {:>6}d {:>6}d {}\n",
-            truncate(&task.task_id, 20),
-            task.start.format("%Y-%m-%d"),
-            task.finish.format("%Y-%m-%d"),
-            task.duration.as_days() as i64,
-            task.slack.as_days() as i64,
-            critical
+            "{:<16} {:>6} {:<14} {:<12} {:<12} {:>8} {}\n",
+            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Critical"
         ));
+        output.push_str(&format!("{}\n", "-".repeat(88)));
+
+        // Sort tasks by start date
+        let mut tasks: Vec<_> = schedule.tasks.values().collect();
+        tasks.sort_by_key(|t| t.start);
+
+        // Task rows with progress
+        for task in tasks {
+            let critical = if task.is_critical { "*" } else { "" };
+            output.push_str(&format!(
+                "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {}\n",
+                truncate(&task.task_id, 16),
+                task.percent_complete,
+                format!("{}", task.status),
+                task.forecast_start.format("%Y-%m-%d"),
+                task.forecast_finish.format("%Y-%m-%d"),
+                task.remaining_duration.as_days() as i64,
+                critical
+            ));
+        }
+    } else {
+        // Standard output format
+        output.push_str(&format!(
+            "{:<20} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "Task", "Start", "Finish", "Duration", "Slack", "Critical"
+        ));
+        output.push_str(&format!("{}\n", "-".repeat(76)));
+
+        // Sort tasks by start date
+        let mut tasks: Vec<_> = schedule.tasks.values().collect();
+        tasks.sort_by_key(|t| t.start);
+
+        // Task rows
+        for task in tasks {
+            let critical = if task.is_critical { "*" } else { "" };
+            output.push_str(&format!(
+                "{:<20} {:<12} {:<12} {:>6}d {:>6}d {}\n",
+                truncate(&task.task_id, 20),
+                task.start.format("%Y-%m-%d"),
+                task.finish.format("%Y-%m-%d"),
+                task.duration.as_days() as i64,
+                task.slack.as_days() as i64,
+                critical
+            ));
+        }
     }
 
     output
@@ -326,6 +359,7 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
 fn format_json(
     project: &utf8proj_core::Project,
     schedule: &utf8proj_core::Schedule,
+    show_progress: bool,
 ) -> Result<String> {
     // Create a summary structure for JSON output
     let summary = serde_json::json!({
@@ -337,7 +371,7 @@ fn format_json(
         },
         "critical_path": schedule.critical_path,
         "tasks": schedule.tasks.values().map(|t| {
-            serde_json::json!({
+            let mut task_json = serde_json::json!({
                 "id": t.task_id,
                 "start": t.start.to_string(),
                 "finish": t.finish.to_string(),
@@ -348,7 +382,19 @@ fn format_json(
                 "early_finish": t.early_finish.to_string(),
                 "late_start": t.late_start.to_string(),
                 "late_finish": t.late_finish.to_string(),
-            })
+            });
+
+            // Add progress fields if requested
+            if show_progress {
+                task_json["progress"] = serde_json::json!({
+                    "percent_complete": t.percent_complete,
+                    "status": format!("{}", t.status),
+                    "remaining_days": t.remaining_duration.as_days(),
+                    "forecast_start": t.forecast_start.to_string(),
+                    "forecast_finish": t.forecast_finish.to_string(),
+                });
+            }
+            task_json
         }).collect::<Vec<_>>(),
     });
 

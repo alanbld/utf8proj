@@ -29,7 +29,7 @@ use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
     Assignment, Calendar, DependencyType, Duration, Explanation, FeasibilityResult, Project,
-    Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId,
+    Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId, TaskStatus,
 };
 
 pub mod bdd;
@@ -293,6 +293,25 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
     }
 
     working_days
+}
+
+/// Add working days to a start date
+fn add_working_days(start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDate {
+    if days <= 0 {
+        return start;
+    }
+
+    let mut current = start;
+    let mut remaining = days;
+
+    while remaining > 0 {
+        current = current + TimeDelta::days(1);
+        if calendar.is_working_day(current) {
+            remaining -= 1;
+        }
+    }
+
+    current
 }
 
 /// Result of topological sort including precomputed successor map
@@ -687,6 +706,27 @@ impl Scheduler for CpmSolver {
                 })
                 .collect();
 
+            // Progress tracking calculations
+            let task = node.task;
+            let percent_complete = task.effective_percent_complete();
+            let remaining = task.remaining_duration();
+            let status = task.derived_status();
+
+            // Forecast start: use actual_start if available, otherwise planned start
+            let forecast_start = task.actual_start.unwrap_or(start_date);
+
+            // Forecast finish: based on forecast_start + remaining_duration
+            // If task is complete, use actual_finish or finish_date
+            let forecast_finish = if status == TaskStatus::Complete {
+                task.actual_finish.unwrap_or(finish_date)
+            } else if remaining.minutes > 0 {
+                // Add remaining working days to forecast_start
+                let remaining_days = remaining.as_days().ceil() as i64;
+                add_working_days(forecast_start, remaining_days - 1, &calendar)
+            } else {
+                forecast_start // Milestone or complete
+            };
+
             scheduled_tasks.insert(
                 id.clone(),
                 ScheduledTask {
@@ -709,6 +749,12 @@ impl Scheduler for CpmSolver {
                     } else {
                         working_day_cache.get(node.late_finish)
                     },
+                    // Progress tracking fields
+                    forecast_start,
+                    forecast_finish,
+                    remaining_duration: remaining,
+                    percent_complete,
+                    status,
                 },
             );
         }

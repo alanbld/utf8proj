@@ -391,7 +391,7 @@ impl Default for BddConflictAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use utf8proj_core::{Duration, Resource, ScheduledTask, Task};
+    use utf8proj_core::{Duration, Resource, ScheduledTask, Task, TaskStatus};
 
     fn make_project_with_resource_conflict() -> (Project, Schedule) {
         let mut project = Project::new("Conflict Test");
@@ -445,6 +445,11 @@ mod tests {
                 early_finish: finish,
                 late_start: start,
                 late_finish: finish,
+                forecast_start: start,
+                forecast_finish: finish,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 
@@ -468,6 +473,11 @@ mod tests {
                 early_finish: finish,
                 late_start: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
                 late_finish: NaiveDate::from_ymd_opt(2025, 1, 17).unwrap(),
+                forecast_start: start,
+                forecast_finish: finish,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 
@@ -526,6 +536,11 @@ mod tests {
                 early_finish: finish1,
                 late_start: start1,
                 late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 
@@ -549,6 +564,11 @@ mod tests {
                 early_finish: finish2,
                 late_start: start2,
                 late_finish: finish2,
+                forecast_start: start2,
+                forecast_finish: finish2,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 

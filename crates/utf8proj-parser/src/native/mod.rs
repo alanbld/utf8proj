@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use utf8proj_core::{
     Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, Resource,
-    ResourceRef, Task, TaskConstraint, TimeRange,
+    ResourceRef, Task, TaskConstraint, TaskStatus, TimeRange,
 };
 
 use crate::ParseError;
@@ -161,6 +161,18 @@ fn parse_day(pair: Pair<Rule>) -> u8 {
         "fri" => 5,
         "sat" => 6,
         _ => 1, // Default to Monday
+    }
+}
+
+fn parse_status(pair: Pair<Rule>) -> TaskStatus {
+    match pair.as_str() {
+        "not_started" => TaskStatus::NotStarted,
+        "in_progress" => TaskStatus::InProgress,
+        "complete" => TaskStatus::Complete,
+        "blocked" => TaskStatus::Blocked,
+        "at_risk" => TaskStatus::AtRisk,
+        "on_hold" => TaskStatus::OnHold,
+        _ => TaskStatus::NotStarted, // Default
     }
 }
 
@@ -600,6 +612,18 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
         Rule::task_payment => {
             let num_pair = inner.into_inner().next().unwrap();
             task.attributes.insert("payment".to_string(), num_pair.as_str().to_string());
+        }
+        Rule::task_actual_start => {
+            let date_pair = inner.into_inner().next().unwrap();
+            task.actual_start = Some(parse_date(date_pair)?);
+        }
+        Rule::task_actual_finish => {
+            let date_pair = inner.into_inner().next().unwrap();
+            task.actual_finish = Some(parse_date(date_pair)?);
+        }
+        Rule::task_status => {
+            let status_pair = inner.into_inner().next().unwrap();
+            task.status = Some(parse_status(status_pair));
         }
         _ => {}
     }
@@ -1450,5 +1474,63 @@ task a "Task A" {
         let project = parse(input).expect("Failed to parse task payment");
         let task = &project.tasks[0];
         assert_eq!(task.attributes.get("payment").map(|s| s.as_str()), Some("5000"));
+    }
+
+    #[test]
+    fn parse_task_with_progress_tracking() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task design "Design Phase" {
+    duration: 10d
+    complete: 60%
+    actual_start: 2026-01-15
+    status: in_progress
+}
+
+task done "Completed Task" {
+    duration: 5d
+    complete: 100%
+    actual_start: 2026-01-01
+    actual_finish: 2026-01-08
+    status: complete
+}
+"#;
+        let project = parse(input).expect("Failed to parse progress tracking");
+
+        // Check first task
+        let task1 = &project.tasks[0];
+        assert!((task1.complete.unwrap() - 60.0).abs() < 0.01);
+        assert_eq!(task1.actual_start, Some(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap()));
+        assert!(task1.actual_finish.is_none());
+        assert_eq!(task1.status, Some(TaskStatus::InProgress));
+
+        // Check second task
+        let task2 = &project.tasks[1];
+        assert!((task2.complete.unwrap() - 100.0).abs() < 0.01);
+        assert_eq!(task2.actual_start, Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()));
+        assert_eq!(task2.actual_finish, Some(NaiveDate::from_ymd_opt(2026, 1, 8).unwrap()));
+        assert_eq!(task2.status, Some(TaskStatus::Complete));
+    }
+
+    #[test]
+    fn parse_all_status_values() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+task a "Not Started" { duration: 1d status: not_started }
+task b "In Progress" { duration: 1d status: in_progress }
+task c "Complete" { duration: 1d status: complete }
+task d "Blocked" { duration: 1d status: blocked }
+task e "At Risk" { duration: 1d status: at_risk }
+task f "On Hold" { duration: 1d status: on_hold }
+"#;
+        let project = parse(input).expect("Failed to parse all status values");
+
+        assert_eq!(project.tasks[0].status, Some(TaskStatus::NotStarted));
+        assert_eq!(project.tasks[1].status, Some(TaskStatus::InProgress));
+        assert_eq!(project.tasks[2].status, Some(TaskStatus::Complete));
+        assert_eq!(project.tasks[3].status, Some(TaskStatus::Blocked));
+        assert_eq!(project.tasks[4].status, Some(TaskStatus::AtRisk));
+        assert_eq!(project.tasks[5].status, Some(TaskStatus::OnHold));
     }
 }

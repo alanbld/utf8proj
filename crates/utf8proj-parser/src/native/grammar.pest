@@ -133,6 +133,9 @@ task_attr = {
     task_constraint |
     task_milestone |
     task_complete |
+    task_actual_start |
+    task_actual_finish |
+    task_status |
     task_note |
     task_tag |
     task_cost |
@@ -152,10 +155,23 @@ task_assign = { "assign" ~ ":" ~ resource_ref_list }
 task_priority = { "priority" ~ ":" ~ integer }
 task_milestone = { "milestone" ~ ":" ~ boolean }
 task_complete = { "complete" ~ ":" ~ percentage }
+task_actual_start = { "actual_start" ~ ":" ~ date }
+task_actual_finish = { "actual_finish" ~ ":" ~ date }
+task_status = { "status" ~ ":" ~ status_keyword }
 task_note = { "note" ~ ":" ~ string }
 task_tag = { "tag" ~ ":" ~ identifier_list }
 task_cost = { "cost" ~ ":" ~ number }
 task_payment = { "payment" ~ ":" ~ number }
+
+// Task status keywords
+status_keyword = {
+    "not_started" |
+    "in_progress" |
+    "complete" |
+    "blocked" |
+    "at_risk" |
+    "on_hold"
+}
 
 // Dependencies
 dependency_list = { dependency ~ ("," ~ dependency)* }

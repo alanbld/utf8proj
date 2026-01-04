@@ -229,6 +229,12 @@ pub struct Task {
     pub children: Vec<Task>,
     /// Completion percentage (for tracking)
     pub complete: Option<f32>,
+    /// Actual start date (when work actually began)
+    pub actual_start: Option<NaiveDate>,
+    /// Actual finish date (when work actually completed)
+    pub actual_finish: Option<NaiveDate>,
+    /// Task status for progress tracking
+    pub status: Option<TaskStatus>,
     /// Custom attributes
     pub attributes: HashMap<String, String>,
 }
@@ -249,6 +255,9 @@ impl Task {
             milestone: false,
             children: Vec::new(),
             complete: None,
+            actual_start: None,
+            actual_finish: None,
+            status: None,
             attributes: HashMap::new(),
         }
     }
@@ -332,6 +341,70 @@ impl Task {
     pub fn is_summary(&self) -> bool {
         !self.children.is_empty()
     }
+
+    // ========================================================================
+    // Progress Tracking Methods
+    // ========================================================================
+
+    /// Calculate remaining duration based on completion percentage.
+    /// Uses linear interpolation: remaining = original × (1 - complete/100)
+    pub fn remaining_duration(&self) -> Duration {
+        let original = self.duration.or(self.effort).unwrap_or(Duration::zero());
+        let pct = self.effective_percent_complete() as f64;
+        let remaining_minutes = (original.minutes as f64 * (1.0 - pct / 100.0)).round() as i64;
+        Duration::minutes(remaining_minutes.max(0))
+    }
+
+    /// Get effective completion percentage as u8 (0-100).
+    /// Returns 0 if not set, clamped to 0-100 range.
+    pub fn effective_percent_complete(&self) -> u8 {
+        self.complete
+            .map(|c| c.clamp(0.0, 100.0) as u8)
+            .unwrap_or(0)
+    }
+
+    /// Derive task status from actual dates and completion.
+    /// Returns explicit status if set, otherwise derives from data.
+    pub fn derived_status(&self) -> TaskStatus {
+        // Use explicit status if set
+        if let Some(ref status) = self.status {
+            return status.clone();
+        }
+
+        // Derive from actual data
+        let pct = self.effective_percent_complete();
+        if pct >= 100 || self.actual_finish.is_some() {
+            TaskStatus::Complete
+        } else if pct > 0 || self.actual_start.is_some() {
+            TaskStatus::InProgress
+        } else {
+            TaskStatus::NotStarted
+        }
+    }
+
+    /// Set the completion percentage (builder pattern)
+    pub fn complete(mut self, pct: f32) -> Self {
+        self.complete = Some(pct);
+        self
+    }
+
+    /// Set the actual start date (builder pattern)
+    pub fn actual_start(mut self, date: NaiveDate) -> Self {
+        self.actual_start = Some(date);
+        self
+    }
+
+    /// Set the actual finish date (builder pattern)
+    pub fn actual_finish(mut self, date: NaiveDate) -> Self {
+        self.actual_finish = Some(date);
+        self
+    }
+
+    /// Set the task status (builder pattern)
+    pub fn with_status(mut self, status: TaskStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
 }
 
 /// Task dependency with type and lag
@@ -357,6 +430,31 @@ pub enum DependencyType {
     FinishToFinish,
     /// Start-to-Finish: successor finishes when predecessor starts
     StartToFinish,
+}
+
+/// Task status for progress tracking
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskStatus {
+    #[default]
+    NotStarted,
+    InProgress,
+    Complete,
+    Blocked,
+    AtRisk,
+    OnHold,
+}
+
+impl std::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskStatus::NotStarted => write!(f, "Not Started"),
+            TaskStatus::InProgress => write!(f, "In Progress"),
+            TaskStatus::Complete => write!(f, "Complete"),
+            TaskStatus::Blocked => write!(f, "Blocked"),
+            TaskStatus::AtRisk => write!(f, "At Risk"),
+            TaskStatus::OnHold => write!(f, "On Hold"),
+        }
+    }
 }
 
 /// Reference to a resource with allocation units
@@ -603,6 +701,55 @@ pub struct ScheduledTask {
     pub late_start: NaiveDate,
     /// Late finish date
     pub late_finish: NaiveDate,
+
+    // ========================================================================
+    // Progress Tracking Fields
+    // ========================================================================
+
+    /// Forecast start (actual_start if available, otherwise planned start)
+    pub forecast_start: NaiveDate,
+    /// Forecast finish date (calculated based on progress)
+    pub forecast_finish: NaiveDate,
+    /// Remaining duration based on progress
+    pub remaining_duration: Duration,
+    /// Completion percentage (0-100)
+    pub percent_complete: u8,
+    /// Current task status
+    pub status: TaskStatus,
+}
+
+impl ScheduledTask {
+    /// Create a test ScheduledTask with default progress tracking fields.
+    /// Useful for unit tests that don't need progress data.
+    #[cfg(test)]
+    pub fn test_new(
+        task_id: impl Into<String>,
+        start: NaiveDate,
+        finish: NaiveDate,
+        duration: Duration,
+        slack: Duration,
+        is_critical: bool,
+    ) -> Self {
+        let task_id = task_id.into();
+        Self {
+            task_id,
+            start,
+            finish,
+            duration,
+            assignments: Vec::new(),
+            slack,
+            is_critical,
+            early_start: start,
+            early_finish: finish,
+            late_start: start,
+            late_finish: finish,
+            forecast_start: start,
+            forecast_finish: finish,
+            remaining_duration: duration,
+            percent_complete: 0,
+            status: TaskStatus::NotStarted,
+        }
+    }
 }
 
 /// Resource assignment for a specific period
@@ -1058,5 +1205,135 @@ mod tests {
         assert_eq!(task.assigned.len(), 1);
         assert_eq!(task.assigned[0].resource_id, "dev");
         assert_eq!(task.assigned[0].units, 0.75);
+    }
+
+    // ========================================================================
+    // Progress Tracking Tests
+    // ========================================================================
+
+    #[test]
+    fn remaining_duration_linear_interpolation() {
+        // 10-day task at 60% complete → 4 days remaining
+        let task = Task::new("task")
+            .duration(Duration::days(10))
+            .complete(60.0);
+
+        let remaining = task.remaining_duration();
+        assert_eq!(remaining.as_days(), 4.0);
+    }
+
+    #[test]
+    fn remaining_duration_zero_complete() {
+        let task = Task::new("task")
+            .duration(Duration::days(10));
+
+        let remaining = task.remaining_duration();
+        assert_eq!(remaining.as_days(), 10.0);
+    }
+
+    #[test]
+    fn remaining_duration_fully_complete() {
+        let task = Task::new("task")
+            .duration(Duration::days(10))
+            .complete(100.0);
+
+        let remaining = task.remaining_duration();
+        assert_eq!(remaining.as_days(), 0.0);
+    }
+
+    #[test]
+    fn remaining_duration_uses_effort_if_no_duration() {
+        let task = Task::new("task")
+            .effort(Duration::days(20))
+            .complete(50.0);
+
+        let remaining = task.remaining_duration();
+        assert_eq!(remaining.as_days(), 10.0);
+    }
+
+    #[test]
+    fn effective_percent_complete_default() {
+        let task = Task::new("task");
+        assert_eq!(task.effective_percent_complete(), 0);
+    }
+
+    #[test]
+    fn effective_percent_complete_clamped() {
+        // Clamp above 100
+        let task = Task::new("task").complete(150.0);
+        assert_eq!(task.effective_percent_complete(), 100);
+
+        // Clamp below 0
+        let task = Task::new("task").complete(-10.0);
+        assert_eq!(task.effective_percent_complete(), 0);
+    }
+
+    #[test]
+    fn derived_status_not_started() {
+        let task = Task::new("task");
+        assert_eq!(task.derived_status(), TaskStatus::NotStarted);
+    }
+
+    #[test]
+    fn derived_status_in_progress_from_percent() {
+        let task = Task::new("task").complete(50.0);
+        assert_eq!(task.derived_status(), TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn derived_status_in_progress_from_actual_start() {
+        let task = Task::new("task")
+            .actual_start(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap());
+        assert_eq!(task.derived_status(), TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn derived_status_complete_from_percent() {
+        let task = Task::new("task").complete(100.0);
+        assert_eq!(task.derived_status(), TaskStatus::Complete);
+    }
+
+    #[test]
+    fn derived_status_complete_from_actual_finish() {
+        let task = Task::new("task")
+            .actual_finish(NaiveDate::from_ymd_opt(2026, 1, 20).unwrap());
+        assert_eq!(task.derived_status(), TaskStatus::Complete);
+    }
+
+    #[test]
+    fn derived_status_explicit_overrides() {
+        // Even with 100% complete, explicit status takes precedence
+        let task = Task::new("task")
+            .complete(100.0)
+            .with_status(TaskStatus::Blocked);
+        assert_eq!(task.derived_status(), TaskStatus::Blocked);
+    }
+
+    #[test]
+    fn task_status_display() {
+        assert_eq!(format!("{}", TaskStatus::NotStarted), "Not Started");
+        assert_eq!(format!("{}", TaskStatus::InProgress), "In Progress");
+        assert_eq!(format!("{}", TaskStatus::Complete), "Complete");
+        assert_eq!(format!("{}", TaskStatus::Blocked), "Blocked");
+        assert_eq!(format!("{}", TaskStatus::AtRisk), "At Risk");
+        assert_eq!(format!("{}", TaskStatus::OnHold), "On Hold");
+    }
+
+    #[test]
+    fn task_builder_with_progress_fields() {
+        let date_start = NaiveDate::from_ymd_opt(2026, 1, 15).unwrap();
+        let date_finish = NaiveDate::from_ymd_opt(2026, 1, 20).unwrap();
+
+        let task = Task::new("task")
+            .duration(Duration::days(5))
+            .complete(75.0)
+            .actual_start(date_start)
+            .actual_finish(date_finish)
+            .with_status(TaskStatus::Complete);
+
+        assert_eq!(task.complete, Some(75.0));
+        assert_eq!(task.actual_start, Some(date_start));
+        assert_eq!(task.actual_finish, Some(date_finish));
+        assert_eq!(task.status, Some(TaskStatus::Complete));
     }
 }

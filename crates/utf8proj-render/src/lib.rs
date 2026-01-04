@@ -546,7 +546,7 @@ mod tests {
     use super::*;
     use chrono::NaiveDate;
     use std::collections::HashMap;
-    use utf8proj_core::{Duration, Schedule, ScheduledTask};
+    use utf8proj_core::{Duration, Schedule, ScheduledTask, TaskStatus};
 
     fn create_test_project() -> Project {
         let mut project = Project::new("Test Project");
@@ -568,37 +568,51 @@ mod tests {
     fn create_test_schedule() -> Schedule {
         let mut tasks = HashMap::new();
 
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         tasks.insert(
             "task1".to_string(),
             ScheduledTask {
                 task_id: "task1".to_string(),
-                start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-                finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                start: start1,
+                finish: finish1,
                 duration: Duration::days(3),
                 assignments: vec![],
                 slack: Duration::zero(),
                 is_critical: true,
-                early_start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-                early_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                late_start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
-                late_finish: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(3),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 
+        let start2 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish2 = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
         tasks.insert(
             "task2".to_string(),
             ScheduledTask {
                 task_id: "task2".to_string(),
-                start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                finish: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+                start: start2,
+                finish: finish2,
                 duration: Duration::days(5),
                 assignments: vec![],
                 slack: Duration::zero(),
                 is_critical: true,
-                early_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                early_finish: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
-                late_start: NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                late_finish: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+                early_start: start2,
+                early_finish: finish2,
+                late_start: start2,
+                late_finish: finish2,
+                forecast_start: start2,
+                forecast_finish: finish2,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
             },
         );
 
