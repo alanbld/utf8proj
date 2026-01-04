@@ -673,4 +673,54 @@ mod tests {
 
         assert!(graph.get_task("nonexistent").is_none());
     }
+
+    #[test]
+    fn test_relative_sibling_leaf_resolution() {
+        // Tests lines 344-354: relative sibling resolution using container prefix
+        // Task b depends on "a" by simple ID - resolved via qualified path
+        let tasks = vec![
+            Task::new("container")
+                .child(Task::new("a").duration(Duration::days(1)))
+                .child(Task::new("b").duration(Duration::days(1)).depends_on("a")),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        let b = graph.get_task("b").unwrap();
+        // The dependency "a" should be resolved to the sibling "a" via container.a
+        assert_eq!(b.dependencies.len(), 1);
+        assert_eq!(b.dependencies[0].predecessor, "a");
+    }
+
+    #[test]
+    fn test_relative_sibling_container_resolution() {
+        // Tests lines 360-363: relative sibling container resolution
+        // Task in one sub-container depends on sibling sub-container
+        let tasks = vec![
+            Task::new("parent")
+                .child(
+                    Task::new("sub1")
+                        .child(Task::new("a").duration(Duration::days(1)))
+                )
+                .child(
+                    Task::new("sub2")
+                        .child(Task::new("b").duration(Duration::days(1)).depends_on("sub1"))
+                ),
+        ];
+
+        let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
+
+        // b should depend on a (the leaf under sub1)
+        let b = graph.get_task("b").unwrap();
+        assert!(!b.dependencies.is_empty(), "b should have dependencies on sub1's leaves");
+    }
+
+    #[test]
+    fn test_no_duration_no_effort_task() {
+        // Tests line 297: task with neither duration nor effort returns 0
+        let task = Task::new("summary");
+
+        let duration = compute_duration_days(&task);
+        assert_eq!(duration, 0);
+    }
 }

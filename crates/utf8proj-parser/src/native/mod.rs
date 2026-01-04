@@ -1404,4 +1404,51 @@ calendar "Seven Days" {
         assert!(cal.working_days.contains(&0)); // Sunday
         assert_eq!(cal.working_days.len(), 7);
     }
+
+    #[test]
+    fn parse_calendar_default_working_days() {
+        // Line 253: calendar with no working_days gets default Mon-Fri
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+calendar "Default Hours" {
+    working_hours: 08:00-17:00
+}
+"#;
+        let project = parse(input).expect("Failed to parse calendar with default days");
+        let cal = &project.calendars[0];
+        // Should default to Mon-Fri (1-5)
+        assert_eq!(cal.working_days, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn parse_nested_milestone_in_task() {
+        // Lines 464-465: milestone nested inside a task
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+task phase "Phase" {
+    task work "Work" { duration: 5d }
+    milestone done "Done" { }
+}
+"#;
+        let project = parse(input).expect("Failed to parse nested milestone");
+        let phase = &project.tasks[0];
+        assert_eq!(phase.children.len(), 2);
+        // The milestone should be the second child
+        assert!(phase.children[1].milestone);
+    }
+
+    #[test]
+    fn parse_task_payment() {
+        // Lines 601-602: task payment attribute
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+task a "Task A" {
+    duration: 5d
+    payment: 5000
+}
+"#;
+        let project = parse(input).expect("Failed to parse task payment");
+        let task = &project.tasks[0];
+        assert_eq!(task.attributes.get("payment").map(|s| s.as_str()), Some("5000"));
+    }
 }

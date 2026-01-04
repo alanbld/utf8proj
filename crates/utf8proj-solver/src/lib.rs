@@ -1160,4 +1160,39 @@ mod tests {
         assert_eq!(schedule.tasks["phase1"].duration.as_days(), 5.0);
         assert_eq!(schedule.tasks["phase2"].duration.as_days(), 10.0);
     }
+
+    #[test]
+    fn solver_default() {
+        let solver = CpmSolver::default();
+        assert!(!solver.resource_leveling);
+    }
+
+    #[test]
+    fn explain_nonexistent_task() {
+        let project = make_test_project();
+        let solver = CpmSolver::new();
+
+        let explanation = solver.explain(&project, &"nonexistent".to_string());
+        assert_eq!(explanation.task_id, "nonexistent");
+        assert!(explanation.reason.contains("not found"));
+    }
+
+    #[test]
+    fn feasibility_check_circular_dependency() {
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Circular");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(1)).depends_on("c"),
+            Task::new("b").effort(Duration::days(1)).depends_on("a"),
+            Task::new("c").effort(Duration::days(1)).depends_on("b"),
+        ];
+
+        let solver = CpmSolver::new();
+        let result = solver.is_feasible(&project);
+
+        assert!(!result.feasible);
+        assert!(!result.conflicts.is_empty());
+    }
 }

@@ -88,12 +88,19 @@ fn parse_project_decl(pair: pest::iterators::Pair<Rule>, project: &mut Project) 
     // project body (attributes)
     if let Some(body) = inner.next() {
         for attr in body.into_inner() {
-            match attr.as_rule() {
+            // Unwrap project_attr to get the actual attribute
+            let actual_attr = if attr.as_rule() == Rule::project_attr {
+                attr.into_inner().next().unwrap()
+            } else {
+                attr
+            };
+
+            match actual_attr.as_rule() {
                 Rule::timezone_attr => {
                     // Could store timezone
                 }
                 Rule::currency_attr => {
-                    let mut inner = attr.into_inner();
+                    let mut inner = actual_attr.into_inner();
                     if let Some(currency) = inner.next() {
                         project.currency = parse_string(currency.as_str());
                     }
@@ -123,9 +130,16 @@ fn parse_resource_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Resou
     // Parse optional resource body
     if let Some(body) = inner.next() {
         for attr in body.into_inner() {
-            match attr.as_rule() {
+            // Unwrap resource_attr to get the actual attribute
+            let actual_attr = if attr.as_rule() == Rule::resource_attr {
+                attr.into_inner().next().unwrap()
+            } else {
+                attr
+            };
+
+            match actual_attr.as_rule() {
                 Rule::efficiency_attr => {
-                    let mut inner = attr.into_inner();
+                    let mut inner = actual_attr.into_inner();
                     if let Some(num) = inner.next() {
                         resource.efficiency = num.as_str().parse().unwrap_or(1.0);
                     }
@@ -578,5 +592,71 @@ mod tests {
         let project = parse(input).unwrap();
         // Task should be parsed with start constraint
         assert!(!project.tasks.is_empty());
+    }
+
+    #[test]
+    fn parse_project_currency() {
+        // Lines 96-98: currency attribute
+        let input = r#"
+            project test "Test" 2025-01-01 - 2025-12-31 {
+                currency "EUR"
+            }
+        "#;
+
+        let project = parse(input).unwrap();
+        assert_eq!(project.currency, "EUR");
+    }
+
+    #[test]
+    fn parse_resource_efficiency() {
+        // Lines 128-130: efficiency attribute
+        let input = r#"
+            project test "Test" 2025-01-01 - 2025-12-31 {}
+            resource dev "Developer" {
+                efficiency 0.8
+            }
+        "#;
+
+        let project = parse(input).unwrap();
+        assert_eq!(project.resources.len(), 1);
+        assert!((project.resources[0].efficiency - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn parse_dependency_onstart() {
+        // Line 229: onstart dependency marker (SS)
+        let input = r#"
+            project test "Test" 2025-01-01 - 2025-12-31 {}
+            task t1 "Task 1" { duration 5d }
+            task t2 "Task 2" {
+                duration 3d
+                depends t1 { onstart }
+            }
+        "#;
+
+        let project = parse(input).unwrap();
+        let t2 = &project.tasks[1];
+        assert!(!t2.depends.is_empty());
+        // onstart creates SS dependency
+        assert_eq!(t2.depends[0].dep_type, utf8proj_core::DependencyType::StartToStart);
+    }
+
+    #[test]
+    fn parse_dependency_onend() {
+        // Line 230: onend dependency marker (FF)
+        let input = r#"
+            project test "Test" 2025-01-01 - 2025-12-31 {}
+            task t1 "Task 1" { duration 5d }
+            task t2 "Task 2" {
+                duration 3d
+                depends t1 { onend }
+            }
+        "#;
+
+        let project = parse(input).unwrap();
+        let t2 = &project.tasks[1];
+        assert!(!t2.depends.is_empty());
+        // onend creates FF dependency
+        assert_eq!(t2.depends[0].dep_type, utf8proj_core::DependencyType::FinishToFinish);
     }
 }

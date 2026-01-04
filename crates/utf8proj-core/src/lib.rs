@@ -1014,4 +1014,49 @@ mod tests {
         assert!(milestone.milestone);
         assert_eq!(milestone.duration, Some(Duration::zero()));
     }
+
+    #[test]
+    fn depends_on_creates_fs_dependency() {
+        let task = Task::new("task").depends_on("pred");
+
+        assert_eq!(task.depends.len(), 1);
+        let dep = &task.depends[0];
+        assert_eq!(dep.predecessor, "pred");
+        assert_eq!(dep.dep_type, DependencyType::FinishToStart);
+        assert!(dep.lag.is_none());
+    }
+
+    #[test]
+    fn with_dependency_preserves_all_fields() {
+        let dep = Dependency {
+            predecessor: "other".into(),
+            dep_type: DependencyType::StartToStart,
+            lag: Some(Duration::days(2)),
+        };
+        let task = Task::new("task").with_dependency(dep);
+
+        assert_eq!(task.depends.len(), 1);
+        let d = &task.depends[0];
+        assert_eq!(d.predecessor, "other");
+        assert_eq!(d.dep_type, DependencyType::StartToStart);
+        assert_eq!(d.lag, Some(Duration::days(2)));
+    }
+
+    #[test]
+    fn assign_sets_full_allocation() {
+        let task = Task::new("task").assign("dev");
+
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "dev");
+        assert_eq!(task.assigned[0].units, 1.0);
+    }
+
+    #[test]
+    fn assign_with_units_sets_custom_allocation() {
+        let task = Task::new("task").assign_with_units("dev", 0.75);
+
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "dev");
+        assert_eq!(task.assigned[0].units, 0.75);
+    }
 }

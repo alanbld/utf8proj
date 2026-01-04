@@ -712,4 +712,105 @@ mod tests {
         );
         assert!(result.new_project_end > schedule.project_end);
     }
+
+    #[test]
+    fn add_working_days_zero_or_negative() {
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Zero days returns start (line 461)
+        assert_eq!(add_working_days(start, 0, &calendar), start);
+
+        // Negative days also returns start (line 461)
+        assert_eq!(add_working_days(start, -5, &calendar), start);
+    }
+
+    #[test]
+    fn count_working_days_end_before_start() {
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let end = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // end < start returns 0 (line 480)
+        assert_eq!(count_working_days(start, end, &calendar), 0);
+
+        // end == start also returns 0 (line 480)
+        assert_eq!(count_working_days(start, start, &calendar), 0);
+    }
+
+    #[test]
+    fn shift_candidate_ordering_critical_vs_non_critical() {
+        // Test line 224: when one is critical and other is not
+        let critical = ShiftCandidate {
+            task_id: "critical_task".into(),
+            priority: 100,
+            slack_days: 0,
+            is_critical: true,
+        };
+
+        let non_critical = ShiftCandidate {
+            task_id: "non_critical_task".into(),
+            priority: 100,
+            slack_days: 0,
+            is_critical: false,
+        };
+
+        // Non-critical should be preferred (Greater) over critical (line 224-225)
+        assert!(non_critical > critical);
+        assert!(critical < non_critical);
+    }
+
+    #[test]
+    fn overallocated_periods_multiple_consecutive_days() {
+        // Tests lines 86-93: continuing overallocation period with new tasks
+        let mut timeline = ResourceTimeline::new("dev".into(), 1.0);
+        let day1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let day2 = NaiveDate::from_ymd_opt(2025, 1, 7).unwrap();
+        let day3 = NaiveDate::from_ymd_opt(2025, 1, 8).unwrap();
+
+        // Day 1: task1 + task2 overallocated
+        timeline.add_usage(&"task1".into(), day1, day1, 0.7);
+        timeline.add_usage(&"task2".into(), day1, day1, 0.7);
+
+        // Day 2: task1 + task3 overallocated (different set of tasks)
+        timeline.add_usage(&"task1".into(), day2, day2, 0.7);
+        timeline.add_usage(&"task3".into(), day2, day2, 0.7);
+
+        // Day 3: not overallocated
+        timeline.add_usage(&"task1".into(), day3, day3, 0.3);
+
+        let periods = timeline.overallocated_periods();
+
+        // Should be one period spanning day1-day2
+        assert_eq!(periods.len(), 1);
+        assert_eq!(periods[0].start, day1);
+        assert_eq!(periods[0].end, day2);
+        // Line 91: task3 should be added to involved_tasks
+        assert!(periods[0].involved_tasks.contains(&"task1".to_string()));
+        assert!(periods[0].involved_tasks.contains(&"task2".to_string()));
+        assert!(periods[0].involved_tasks.contains(&"task3".to_string()));
+    }
+
+    #[test]
+    fn overallocated_periods_non_consecutive_creates_multiple() {
+        // Tests line 97: pushing completed period when non-consecutive overallocation starts
+        let mut timeline = ResourceTimeline::new("dev".into(), 1.0);
+        let day1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+        let day3 = NaiveDate::from_ymd_opt(2025, 1, 8).unwrap(); // Wednesday
+
+        // Day 1: overallocated
+        timeline.add_usage(&"task1".into(), day1, day1, 1.5);
+
+        // Day 3 (gap on day 2): overallocated again
+        timeline.add_usage(&"task2".into(), day3, day3, 1.5);
+
+        let periods = timeline.overallocated_periods();
+
+        // Should create two separate periods (line 97 pushes first period)
+        assert_eq!(periods.len(), 2);
+        assert_eq!(periods[0].start, day1);
+        assert_eq!(periods[0].end, day1);
+        assert_eq!(periods[1].start, day3);
+        assert_eq!(periods[1].end, day3);
+    }
 }

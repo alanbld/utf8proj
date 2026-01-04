@@ -646,4 +646,24 @@ mod tests {
         assert!(analysis.is_valid);
         assert!(analysis.conflicts.is_empty());
     }
+
+    #[test]
+    fn analyzer_default() {
+        // Tests lines 386-387: Default impl
+        let analyzer = BddConflictAnalyzer::default();
+        assert_eq!(analyzer.max_days, 365);
+    }
+
+    #[test]
+    fn find_optimal_resolution_no_conflict() {
+        // Tests line 309: when is_valid is true, return empty vec
+        let (project, schedule) = make_project_no_conflict();
+        let analyzer = BddConflictAnalyzer::new();
+
+        let resolution = analyzer.find_optimal_resolution(&project, &schedule);
+
+        assert!(resolution.is_some());
+        assert!(resolution.unwrap().is_empty(), "No shifts needed for valid schedule");
+    }
+
 }
