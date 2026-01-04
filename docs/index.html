@@ -153,9 +153,20 @@
         .task-item.critical {
             border-left: 3px solid var(--critical);
         }
-        
+
         .task-item.complete {
             opacity: 0.6;
+        }
+
+        .task-item.container {
+            border: 2px solid var(--accent);
+            background: linear-gradient(135deg, var(--primary) 0%, rgba(233, 69, 96, 0.15) 100%);
+        }
+
+        .derived-marker {
+            font-size: 0.65rem;
+            color: var(--warning);
+            margin-left: 0.25rem;
         }
         
         .task-name {
@@ -212,7 +223,7 @@
         /* Project Info */
         .project-info {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 1rem;
             margin-bottom: 1rem;
         }
@@ -411,6 +422,7 @@
         
         <div class="demo-selector">
             <button class="demo-btn active" data-demo="simple">Simple Demo</button>
+            <button class="demo-btn" data-demo="hierarchical">Hierarchical</button>
             <button class="demo-btn" data-demo="software">Software Project</button>
             <button class="demo-btn" data-demo="crm">CRM Migration</button>
             <button class="demo-btn" onclick="openEditor()">Edit Source</button>
@@ -432,6 +444,10 @@
             <div class="info-card">
                 <div class="info-label">Critical Path</div>
                 <div class="info-value" id="info-critical">-</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">Overall Progress</div>
+                <div class="info-value" id="info-progress">-</div>
             </div>
         </div>
         
@@ -509,6 +525,64 @@ task test "Testing" {
 task deploy "Deployment" {
     duration: 2d
     depends: test
+}`,
+
+            hierarchical: `project "Product Launch" {
+    start: 2026-01-06
+}
+
+task planning "Planning Phase" {
+    task research "Market Research" {
+        duration: 5d
+        complete: 100%
+    }
+    task requirements "Requirements" {
+        duration: 3d
+        complete: 80%
+        depends: research
+    }
+    task design "UX Design" {
+        duration: 4d
+        complete: 50%
+        depends: requirements
+    }
+}
+
+task development "Development Phase" {
+    depends: planning
+
+    task backend "Backend Services" {
+        duration: 10d
+        complete: 60%
+    }
+    task frontend "Frontend App" {
+        duration: 8d
+        complete: 40%
+    }
+    task integration "Integration" {
+        duration: 3d
+        complete: 0%
+        depends: backend, frontend
+    }
+}
+
+task testing "Testing Phase" {
+    depends: development
+
+    task unit "Unit Tests" {
+        duration: 3d
+        complete: 0%
+    }
+    task e2e "E2E Tests" {
+        duration: 4d
+        complete: 0%
+        depends: unit
+    }
+}
+
+task launch "Launch" {
+    milestone: true
+    depends: testing
 }`,
 
             software: `project "Software Release v2.0" {
@@ -685,7 +759,8 @@ task cutover "Go-Live Cutover" {
             document.getElementById('info-duration').textContent = p.duration_days + ' days';
             document.getElementById('info-tasks').textContent = scheduleResult.tasks.length;
             document.getElementById('info-critical').textContent = scheduleResult.critical_path.length + ' tasks';
-            
+            document.getElementById('info-progress').textContent = (p.overall_progress || 0) + '%';
+
             document.getElementById('gantt-dates').textContent = `${p.start} to ${p.end}`;
         }
         
@@ -706,20 +781,31 @@ task cutover "Go-Live Cutover" {
                 div.className = 'task-item';
                 if (task.is_critical) div.classList.add('critical');
                 if (task.percent_complete === 100) div.classList.add('complete');
-                
+                if (task.is_container) div.classList.add('container');
+
+                // Show derived progress for containers
+                const progressValue = task.derived_progress !== null && task.derived_progress !== undefined
+                    ? task.derived_progress
+                    : task.percent_complete;
+                const derivedMarker = task.is_container && task.derived_progress !== null
+                    ? '<span class="derived-marker">(derived)</span>'
+                    : '';
+                const containerIcon = task.is_container ? '📁 ' : '';
+
                 div.innerHTML = `
-                    <div class="task-name" title="${task.id}">${task.id}</div>
+                    <div class="task-name" title="${task.id}${task.is_container ? ' [' + task.child_count + ' children]' : ''}">${containerIcon}${task.id}${derivedMarker}</div>
                     <div class="task-progress">
-                        <input type="number" 
-                               class="progress-input" 
-                               min="0" 
-                               max="100" 
-                               value="${task.percent_complete}"
-                               data-task-id="${task.id}">%
+                        <input type="number"
+                               class="progress-input"
+                               min="0"
+                               max="100"
+                               value="${progressValue}"
+                               data-task-id="${task.id}"
+                               ${task.is_container ? 'disabled title="Container progress is derived from children"' : ''}>%
                     </div>
                     <div class="task-status ${task.status.toLowerCase().replace('_', '-')}">${task.status}</div>
                 `;
-                
+
                 container.appendChild(div);
             }
             
@@ -852,8 +938,35 @@ task cutover "Go-Live Cutover" {
                     ctx.strokeStyle = '#fff';
                     ctx.lineWidth = 2;
                     ctx.stroke();
+                } else if (task.is_container) {
+                    // Container task - draw with bracket style
+                    const bracketHeight = 8;
+                    ctx.strokeStyle = task.is_critical ? '#e94560' : '#e94560';
+                    ctx.lineWidth = 3;
+
+                    // Top line
+                    ctx.beginPath();
+                    ctx.moveTo(barX, y - bracketHeight);
+                    ctx.lineTo(barX, y);
+                    ctx.lineTo(barX + barWidth, y);
+                    ctx.lineTo(barX + barWidth, y - bracketHeight);
+                    ctx.stroke();
+
+                    // Progress indicator (small bar below)
+                    const effectiveProgress = task.derived_progress !== null ? task.derived_progress : task.percent_complete;
+                    if (effectiveProgress > 0) {
+                        const progressWidth = barWidth * (effectiveProgress / 100);
+                        ctx.fillStyle = task.is_critical ? '#e94560' : '#fbbf24';
+                        ctx.fillRect(barX, y + 2, progressWidth, 4);
+                    }
+
+                    // Progress label
+                    ctx.fillStyle = '#fbbf24';
+                    ctx.font = 'bold 10px monospace';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(effectiveProgress + '%', barX + barWidth + 5, y + 4);
                 } else {
-                    // Background bar
+                    // Regular task - background bar
                     ctx.fillStyle = task.is_critical ? '#4a1a2a' : '#1a3a5c';
                     ctx.fillRect(barX, barY, barWidth, barHeight);
 

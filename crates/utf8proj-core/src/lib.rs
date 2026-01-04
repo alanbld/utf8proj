@@ -388,6 +388,90 @@ impl Task {
         self
     }
 
+    /// Check if this task is a container (has children)
+    pub fn is_container(&self) -> bool {
+        !self.children.is_empty()
+    }
+
+    /// Calculate container progress as weighted average of children by duration.
+    /// Returns None if not a container or if no children have duration.
+    /// Formula: Σ(child.percent_complete × child.duration) / Σ(child.duration)
+    pub fn container_progress(&self) -> Option<u8> {
+        if self.children.is_empty() {
+            return None;
+        }
+
+        let (total_weighted, total_duration) = self.calculate_weighted_progress();
+
+        if total_duration == 0 {
+            return None;
+        }
+
+        Some((total_weighted as f64 / total_duration as f64).round() as u8)
+    }
+
+    /// Helper to recursively calculate weighted progress from all descendants.
+    /// Returns (weighted_sum, total_duration_minutes)
+    fn calculate_weighted_progress(&self) -> (i64, i64) {
+        let mut total_weighted: i64 = 0;
+        let mut total_duration: i64 = 0;
+
+        for child in &self.children {
+            if child.is_container() {
+                // Recursively get progress from nested containers
+                let (child_weighted, child_duration) = child.calculate_weighted_progress();
+                total_weighted += child_weighted;
+                total_duration += child_duration;
+            } else {
+                // Leaf task - use its duration and progress
+                let duration = child.duration.or(child.effort).unwrap_or(Duration::zero());
+                let duration_mins = duration.minutes;
+                let pct = child.effective_percent_complete() as i64;
+
+                total_weighted += pct * duration_mins;
+                total_duration += duration_mins;
+            }
+        }
+
+        (total_weighted, total_duration)
+    }
+
+    /// Get the effective progress for this task, considering container rollup.
+    /// For containers: returns derived progress from children (unless manually overridden).
+    /// For leaf tasks: returns the explicit completion percentage.
+    pub fn effective_progress(&self) -> u8 {
+        // If manual override is set, use it
+        if let Some(pct) = self.complete {
+            return pct.clamp(0.0, 100.0) as u8;
+        }
+
+        // For containers, derive from children
+        if let Some(derived) = self.container_progress() {
+            return derived;
+        }
+
+        // Default to 0
+        0
+    }
+
+    /// Check if container progress significantly differs from manual override.
+    /// Returns Some((manual, derived)) if mismatch > threshold, None otherwise.
+    pub fn progress_mismatch(&self, threshold: u8) -> Option<(u8, u8)> {
+        if !self.is_container() {
+            return None;
+        }
+
+        let manual = self.complete.map(|c| c.clamp(0.0, 100.0) as u8)?;
+        let derived = self.container_progress()?;
+
+        let diff = (manual as i16 - derived as i16).unsigned_abs() as u8;
+        if diff > threshold {
+            Some((manual, derived))
+        } else {
+            None
+        }
+    }
+
     /// Set the actual start date (builder pattern)
     pub fn actual_start(mut self, date: NaiveDate) -> Self {
         self.actual_start = Some(date);
@@ -1335,5 +1419,120 @@ mod tests {
         assert_eq!(task.actual_start, Some(date_start));
         assert_eq!(task.actual_finish, Some(date_finish));
         assert_eq!(task.status, Some(TaskStatus::Complete));
+    }
+
+    // ========================================================================
+    // Container Progress Tests
+    // ========================================================================
+
+    #[test]
+    fn container_progress_weighted_average() {
+        // Container with 3 children of different durations and progress
+        // Backend: 20d @ 60%, Frontend: 15d @ 30%, Testing: 10d @ 0%
+        // Expected: (20*60 + 15*30 + 10*0) / (20+15+10) = 1650/45 = 36.67 ≈ 37%
+        let container = Task::new("development")
+            .child(Task::new("backend").duration(Duration::days(20)).complete(60.0))
+            .child(Task::new("frontend").duration(Duration::days(15)).complete(30.0))
+            .child(Task::new("testing").duration(Duration::days(10)));
+
+        assert!(container.is_container());
+        assert_eq!(container.container_progress(), Some(37));
+    }
+
+    #[test]
+    fn container_progress_empty_container() {
+        let container = Task::new("empty");
+        assert!(!container.is_container());
+        assert_eq!(container.container_progress(), None);
+    }
+
+    #[test]
+    fn container_progress_all_complete() {
+        let container = Task::new("done")
+            .child(Task::new("a").duration(Duration::days(5)).complete(100.0))
+            .child(Task::new("b").duration(Duration::days(5)).complete(100.0));
+
+        assert_eq!(container.container_progress(), Some(100));
+    }
+
+    #[test]
+    fn container_progress_none_started() {
+        let container = Task::new("pending")
+            .child(Task::new("a").duration(Duration::days(5)))
+            .child(Task::new("b").duration(Duration::days(5)));
+
+        assert_eq!(container.container_progress(), Some(0));
+    }
+
+    #[test]
+    fn container_progress_nested_containers() {
+        // Nested structure:
+        // project
+        // ├── phase1 (container)
+        // │   ├── task_a: 10d @ 100%
+        // │   └── task_b: 10d @ 50%
+        // └── phase2 (container)
+        //     └── task_c: 20d @ 25%
+        //
+        // Phase1: (10*100 + 10*50) / 20 = 75%
+        // Total: (10*100 + 10*50 + 20*25) / 40 = 2000/40 = 50%
+        let project = Task::new("project")
+            .child(
+                Task::new("phase1")
+                    .child(Task::new("task_a").duration(Duration::days(10)).complete(100.0))
+                    .child(Task::new("task_b").duration(Duration::days(10)).complete(50.0)),
+            )
+            .child(
+                Task::new("phase2")
+                    .child(Task::new("task_c").duration(Duration::days(20)).complete(25.0)),
+            );
+
+        // Check nested container progress
+        let phase1 = &project.children[0];
+        assert_eq!(phase1.container_progress(), Some(75));
+
+        // Check top-level container progress (flattens all leaves)
+        assert_eq!(project.container_progress(), Some(50));
+    }
+
+    #[test]
+    fn container_progress_effective_with_override() {
+        // Container with explicit progress set (manual override)
+        let container = Task::new("dev")
+            .complete(80.0) // Manual override
+            .child(Task::new("a").duration(Duration::days(10)).complete(50.0))
+            .child(Task::new("b").duration(Duration::days(10)).complete(50.0));
+
+        // Derived would be 50%, but manual override is 80%
+        assert_eq!(container.container_progress(), Some(50));
+        assert_eq!(container.effective_progress(), 80); // Uses override
+    }
+
+    #[test]
+    fn container_progress_mismatch_detection() {
+        let container = Task::new("dev")
+            .complete(80.0) // Claims 80%
+            .child(Task::new("a").duration(Duration::days(10)).complete(30.0))
+            .child(Task::new("b").duration(Duration::days(10)).complete(30.0));
+
+        // Derived is 30%, claimed is 80% - 50% mismatch
+        let mismatch = container.progress_mismatch(20);
+        assert!(mismatch.is_some());
+        let (manual, derived) = mismatch.unwrap();
+        assert_eq!(manual, 80);
+        assert_eq!(derived, 30);
+
+        // No mismatch if threshold is high
+        assert!(container.progress_mismatch(60).is_none());
+    }
+
+    #[test]
+    fn container_progress_uses_effort_fallback() {
+        // When duration not set, should use effort
+        let container = Task::new("dev")
+            .child(Task::new("a").effort(Duration::days(5)).complete(100.0))
+            .child(Task::new("b").effort(Duration::days(5)).complete(0.0));
+
+        assert_eq!(container.container_progress(), Some(50));
     }
 }

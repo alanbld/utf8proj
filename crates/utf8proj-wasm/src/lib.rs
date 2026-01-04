@@ -58,6 +58,32 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
         None
     }
 
+    // Calculate overall project progress from all tasks
+    fn calculate_overall_progress(tasks: &[utf8proj_core::Task]) -> u8 {
+        fn collect_leaf_progress(tasks: &[utf8proj_core::Task]) -> (i64, i64) {
+            let mut total_weighted: i64 = 0;
+            let mut total_duration: i64 = 0;
+            for task in tasks {
+                if task.is_container() {
+                    let (w, d) = collect_leaf_progress(&task.children);
+                    total_weighted += w;
+                    total_duration += d;
+                } else {
+                    let dur = task.duration.or(task.effort)
+                        .unwrap_or(utf8proj_core::Duration::zero()).minutes;
+                    let pct = task.effective_percent_complete() as i64;
+                    total_weighted += pct * dur;
+                    total_duration += dur;
+                }
+            }
+            (total_weighted, total_duration)
+        }
+        let (weighted, duration) = collect_leaf_progress(tasks);
+        if duration == 0 { 0 } else { (weighted as f64 / duration as f64).round() as u8 }
+    }
+
+    let overall_progress = calculate_overall_progress(&project.tasks);
+
     // Convert to JSON-friendly structure
     let result = ScheduleResult {
         project: ProjectInfo {
@@ -65,6 +91,7 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             start: project.start.to_string(),
             end: schedule.project_end.to_string(),
             duration_days: schedule.project_duration.as_days() as i64,
+            overall_progress,
         },
         critical_path: schedule.critical_path.clone(),
         tasks: schedule
@@ -72,12 +99,15 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             .values()
             .map(|t| {
                 let orig_task = find_task(&project.tasks, &t.task_id);
-                let (is_milestone, dependencies) = match orig_task {
+                let (is_milestone, is_container, child_count, derived_progress, dependencies) = match orig_task {
                     Some(task) => (
                         task.milestone,
+                        task.is_container(),
+                        task.children.len(),
+                        task.container_progress(),
                         task.depends.iter().map(|d| d.predecessor.clone()).collect(),
                     ),
-                    None => (false, vec![]),
+                    None => (false, false, 0, None, vec![]),
                 };
                 TaskInfo {
                     id: t.task_id.clone(),
@@ -88,7 +118,10 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                     slack_days: t.slack.as_days() as i64,
                     is_critical: t.is_critical,
                     is_milestone,
+                    is_container,
+                    child_count,
                     percent_complete: t.percent_complete,
+                    derived_progress,
                     status: format!("{}", t.status),
                     remaining_days: t.remaining_duration.as_days() as i64,
                     forecast_start: t.forecast_start.to_string(),
@@ -184,6 +217,7 @@ struct ProjectInfo {
     start: String,
     end: String,
     duration_days: i64,
+    overall_progress: u8,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -196,7 +230,10 @@ struct TaskInfo {
     slack_days: i64,
     is_critical: bool,
     is_milestone: bool,
+    is_container: bool,
+    child_count: usize,
     percent_complete: u8,
+    derived_progress: Option<u8>,
     status: String,
     remaining_days: i64,
     forecast_start: String,
