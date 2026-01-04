@@ -8,6 +8,8 @@
 
 utf8proj is a modern project scheduling library and CLI written in Rust. Define your projects in a simple text format, and utf8proj will compute schedules, identify critical paths, and generate Gantt charts.
 
+**[Try the Interactive Demo →](https://alanbld.github.io/utf8proj/)** - No installation required, runs in your browser via WebAssembly.
+
 ## Features
 
 - 📝 **Text-based DSL** - Version control friendly, diff-able project definitions
