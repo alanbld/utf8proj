@@ -560,7 +560,7 @@ task staging "Staging Deploy" {
 }
 
 task release "Production Release" {
-    duration: 1d
+    milestone: true
     depends: staging
 }`,
 
@@ -617,7 +617,7 @@ task training "User Training" {
 }
 
 task cutover "Go-Live Cutover" {
-    duration: 2d
+    milestone: true
     depends: training
 }`
         };
@@ -749,100 +749,182 @@ task cutover "Go-Live Cutover" {
             const canvas = document.getElementById('gantt-canvas');
             const ctx = canvas.getContext('2d');
             const wrapper = canvas.parentElement;
-            
-            const tasks = [...scheduleResult.tasks].sort((a, b) => 
+
+            const tasks = [...scheduleResult.tasks].sort((a, b) =>
                 new Date(a.start) - new Date(b.start)
             );
-            
+
+            // Build task index for dependency lookup
+            const taskIndex = {};
+            tasks.forEach((task, i) => taskIndex[task.id] = i);
+
             // Dimensions
             const rowHeight = 32;
             const labelWidth = 140;
             const padding = 10;
             const headerHeight = 40;
-            
+
             // Calculate date range
             const startDate = new Date(scheduleResult.project.start);
             const endDate = new Date(scheduleResult.project.end);
             const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-            
+
             // Set canvas size
             const dayWidth = Math.max(20, Math.min(40, (wrapper.clientWidth - labelWidth - padding * 2) / totalDays));
             const chartWidth = totalDays * dayWidth;
             const height = headerHeight + tasks.length * rowHeight + padding * 2;
-            
+
             canvas.width = labelWidth + chartWidth + padding * 2;
             canvas.height = height;
-            
+
             // Clear
             ctx.fillStyle = '#16213e';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
+
             // Draw header
             ctx.fillStyle = '#0f3460';
             ctx.fillRect(0, 0, canvas.width, headerHeight);
-            
+
             // Draw date labels
             ctx.fillStyle = '#a0a0a0';
             ctx.font = '10px monospace';
             ctx.textAlign = 'center';
-            
+
             for (let i = 0; i <= totalDays; i += Math.ceil(totalDays / 10)) {
                 const date = new Date(startDate);
                 date.setDate(date.getDate() + i);
                 const x = labelWidth + i * dayWidth;
                 ctx.fillText(formatDate(date), x, headerHeight - 8);
             }
-            
+
+            // Store task positions for dependency arrows
+            const taskPositions = [];
+
             // Draw tasks
             for (let i = 0; i < tasks.length; i++) {
                 const task = tasks[i];
                 const y = headerHeight + i * rowHeight + rowHeight / 2;
-                
+
                 // Row background (alternate)
                 if (i % 2 === 0) {
                     ctx.fillStyle = 'rgba(15, 52, 96, 0.3)';
                     ctx.fillRect(0, headerHeight + i * rowHeight, canvas.width, rowHeight);
                 }
-                
+
                 // Task label
-                ctx.fillStyle = '#eaeaea';
-                ctx.font = '11px monospace';
+                ctx.fillStyle = task.is_milestone ? '#fbbf24' : '#eaeaea';
+                ctx.font = task.is_milestone ? 'bold 11px monospace' : '11px monospace';
                 ctx.textAlign = 'left';
-                ctx.fillText(truncate(task.id, 16), padding, y + 4);
-                
-                // Task bar
+                ctx.fillText(truncate(task.id, 16) + (task.is_milestone ? ' ◆' : ''), padding, y + 4);
+
+                // Task bar position
                 const taskStart = new Date(task.start);
                 const taskEnd = new Date(task.finish);
                 const startOffset = (taskStart - startDate) / (1000 * 60 * 60 * 24);
                 const duration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24) + 1;
-                
+
                 const barX = labelWidth + startOffset * dayWidth;
-                const barWidth = duration * dayWidth;
+                const barWidth = Math.max(duration * dayWidth, dayWidth); // Min 1 day width
                 const barHeight = 18;
                 const barY = y - barHeight / 2;
-                
-                // Background bar
-                ctx.fillStyle = task.is_critical ? '#4a1a2a' : '#1a3a5c';
-                ctx.fillRect(barX, barY, barWidth, barHeight);
-                
-                // Progress bar
-                if (task.percent_complete > 0) {
-                    const progressWidth = barWidth * (task.percent_complete / 100);
-                    ctx.fillStyle = task.is_critical ? '#e94560' : '#4ade80';
-                    ctx.fillRect(barX, barY, progressWidth, barHeight);
+
+                // Store position for dependency arrows
+                taskPositions.push({
+                    id: task.id,
+                    x: barX,
+                    y: y,
+                    width: barWidth,
+                    endX: barX + barWidth
+                });
+
+                if (task.is_milestone) {
+                    // Draw diamond for milestone
+                    const size = 12;
+                    const cx = barX + barWidth / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, y - size);
+                    ctx.lineTo(cx + size, y);
+                    ctx.lineTo(cx, y + size);
+                    ctx.lineTo(cx - size, y);
+                    ctx.closePath();
+                    ctx.fillStyle = task.is_critical ? '#e94560' : '#fbbf24';
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else {
+                    // Background bar
+                    ctx.fillStyle = task.is_critical ? '#4a1a2a' : '#1a3a5c';
+                    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+                    // Progress bar
+                    if (task.percent_complete > 0) {
+                        const progressWidth = barWidth * (task.percent_complete / 100);
+                        ctx.fillStyle = task.is_critical ? '#e94560' : '#4ade80';
+                        ctx.fillRect(barX, barY, progressWidth, barHeight);
+                    }
+
+                    // Border
+                    ctx.strokeStyle = task.is_critical ? '#e94560' : '#3b82f6';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+                    // Percent label
+                    if (barWidth > 30) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = '10px monospace';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(task.percent_complete + '%', barX + barWidth / 2, y + 3);
+                    }
                 }
-                
-                // Border
-                ctx.strokeStyle = task.is_critical ? '#e94560' : '#3b82f6';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(barX, barY, barWidth, barHeight);
-                
-                // Percent label
-                if (barWidth > 30) {
-                    ctx.fillStyle = '#fff';
-                    ctx.font = '10px monospace';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(task.percent_complete + '%', barX + barWidth / 2, y + 3);
+            }
+
+            // Draw dependency arrows
+            ctx.strokeStyle = 'rgba(100, 150, 200, 0.6)';
+            ctx.fillStyle = 'rgba(100, 150, 200, 0.8)';
+            ctx.lineWidth = 1.5;
+
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                if (!task.dependencies || task.dependencies.length === 0) continue;
+
+                const toPos = taskPositions[i];
+
+                for (const depId of task.dependencies) {
+                    const fromIdx = taskIndex[depId];
+                    if (fromIdx === undefined) continue;
+
+                    const fromPos = taskPositions[fromIdx];
+
+                    // Draw arrow from end of predecessor to start of successor
+                    const fromX = fromPos.endX;
+                    const fromY = fromPos.y;
+                    const toX = toPos.x;
+                    const toY = toPos.y;
+
+                    ctx.beginPath();
+
+                    if (Math.abs(fromY - toY) < 5) {
+                        // Same row - straight line
+                        ctx.moveTo(fromX, fromY);
+                        ctx.lineTo(toX - 5, toY);
+                    } else {
+                        // Different rows - L-shaped connector
+                        const midX = fromX + 10;
+                        ctx.moveTo(fromX, fromY);
+                        ctx.lineTo(midX, fromY);
+                        ctx.lineTo(midX, toY);
+                        ctx.lineTo(toX - 5, toY);
+                    }
+                    ctx.stroke();
+
+                    // Arrow head
+                    ctx.beginPath();
+                    ctx.moveTo(toX, toY);
+                    ctx.lineTo(toX - 6, toY - 4);
+                    ctx.lineTo(toX - 6, toY + 4);
+                    ctx.closePath();
+                    ctx.fill();
                 }
             }
         }

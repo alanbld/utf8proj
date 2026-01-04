@@ -45,6 +45,19 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
         .schedule(&project)
         .map_err(|e| JsValue::from_str(&format!("Scheduling error: {}", e)))?;
 
+    // Build task lookup for dependencies and milestone info
+    fn find_task<'a>(tasks: &'a [utf8proj_core::Task], id: &str) -> Option<&'a utf8proj_core::Task> {
+        for task in tasks {
+            if task.id == id {
+                return Some(task);
+            }
+            if let Some(found) = find_task(&task.children, id) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     // Convert to JSON-friendly structure
     let result = ScheduleResult {
         project: ProjectInfo {
@@ -57,19 +70,31 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
         tasks: schedule
             .tasks
             .values()
-            .map(|t| TaskInfo {
-                id: t.task_id.clone(),
-                name: t.task_id.clone(),
-                start: t.start.to_string(),
-                finish: t.finish.to_string(),
-                duration_days: t.duration.as_days() as i64,
-                slack_days: t.slack.as_days() as i64,
-                is_critical: t.is_critical,
-                percent_complete: t.percent_complete,
-                status: format!("{}", t.status),
-                remaining_days: t.remaining_duration.as_days() as i64,
-                forecast_start: t.forecast_start.to_string(),
-                forecast_finish: t.forecast_finish.to_string(),
+            .map(|t| {
+                let orig_task = find_task(&project.tasks, &t.task_id);
+                let (is_milestone, dependencies) = match orig_task {
+                    Some(task) => (
+                        task.milestone,
+                        task.depends.iter().map(|d| d.predecessor.clone()).collect(),
+                    ),
+                    None => (false, vec![]),
+                };
+                TaskInfo {
+                    id: t.task_id.clone(),
+                    name: t.task_id.clone(),
+                    start: t.start.to_string(),
+                    finish: t.finish.to_string(),
+                    duration_days: t.duration.as_days() as i64,
+                    slack_days: t.slack.as_days() as i64,
+                    is_critical: t.is_critical,
+                    is_milestone,
+                    percent_complete: t.percent_complete,
+                    status: format!("{}", t.status),
+                    remaining_days: t.remaining_duration.as_days() as i64,
+                    forecast_start: t.forecast_start.to_string(),
+                    forecast_finish: t.forecast_finish.to_string(),
+                    dependencies,
+                }
             })
             .collect(),
     };
@@ -170,11 +195,13 @@ struct TaskInfo {
     duration_days: i64,
     slack_days: i64,
     is_critical: bool,
+    is_milestone: bool,
     percent_complete: u8,
     status: String,
     remaining_days: i64,
     forecast_start: String,
     forecast_finish: String,
+    dependencies: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
