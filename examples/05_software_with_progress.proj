@@ -1,0 +1,158 @@
+# Software Release v2.0 - Progress Tracking Example
+# This shows a real-world software project with mixed progress states
+
+project "Backend API v2.0" {
+    start: 2026-01-15
+    currency: EUR
+    status_date: 2026-03-01  # Progress as of March 1st
+}
+
+resource pm "Project Manager" { rate: 850/day }
+resource backend "Backend Team" { rate: 800/day, capacity: 2 }
+resource frontend "Frontend Team" { rate: 750/day, capacity: 2 }
+resource qa "QA Engineer" { rate: 600/day }
+
+# ═════════════════════════════════════════════════════════════
+# PHASE 1: PLANNING & DESIGN (COMPLETE)
+# ═════════════════════════════════════════════════════════════
+
+task planning "Planning & Design" {
+    
+    task requirements "Requirements Gathering" {
+        effort: 5d
+        assign: pm, backend
+        
+        complete: 100%
+        actual_start: 2026-01-15
+        actual_finish: 2026-01-22
+        status: complete
+    }
+    
+    task architecture "Architecture Design" {
+        effort: 8d
+        assign: backend
+        depends: requirements
+        
+        complete: 100%
+        actual_start: 2026-01-23
+        actual_finish: 2026-02-03
+        status: complete
+    }
+    
+    task design_review "Design Review Milestone" {
+        milestone: true
+        depends: architecture
+        
+        complete: 100%
+        actual_finish: 2026-02-04
+        status: complete
+    }
+}
+
+# ═════════════════════════════════════════════════════════════
+# PHASE 2: DEVELOPMENT (IN PROGRESS - 65% COMPLETE)
+# ═════════════════════════════════════════════════════════════
+
+task development "Development Phase" {
+    depends: planning.design_review
+    
+    task backend_api "Backend API Implementation" {
+        effort: 20d
+        assign: backend
+        priority: 900
+        
+        complete: 65%
+        actual_start: 2026-02-05
+        status: in_progress
+        
+        task auth "Authentication Module" {
+            effort: 6d
+            complete: 90%
+            actual_start: 2026-02-05
+            status: in_progress
+        }
+        
+        task data "Data Access Layer" {
+            effort: 8d
+            complete: 100%
+            actual_start: 2026-02-05
+            actual_finish: 2026-02-15
+            status: complete
+        }
+        
+        task business "Business Logic" {
+            effort: 6d
+            depends: auth, data
+            complete: 20%
+            actual_start: 2026-02-25
+            status: at_risk  # Dependency on external service delayed
+        }
+    }
+    
+    task frontend_ui "Frontend UI" {
+        effort: 15d
+        assign: frontend
+        depends: backend_api.auth
+        
+        complete: 0%
+        status: blocked  # Waiting on auth module completion
+    }
+    
+    task integration "Integration Testing" {
+        effort: 5d
+        assign: qa, backend
+        depends: backend_api, frontend_ui
+        
+        complete: 0%
+        status: not_started
+    }
+}
+
+# ═════════════════════════════════════════════════════════════
+# PHASE 3: TESTING & DEPLOYMENT (NOT STARTED)
+# ═════════════════════════════════════════════════════════════
+
+task testing "Testing & QA" {
+    depends: development.integration
+    
+    task qa_testing "QA Test Execution" {
+        effort: 8d
+        assign: qa
+        status: not_started
+    }
+    
+    task performance "Performance Testing" {
+        effort: 3d
+        assign: qa, backend
+        depends: qa_testing
+        status: not_started
+    }
+    
+    task uat "User Acceptance Testing" {
+        effort: 5d
+        assign: pm
+        depends: qa_testing
+        status: not_started
+        must_finish_on: 2026-04-15  # Hard deadline
+    }
+}
+
+task deployment "Deployment" {
+    depends: testing.uat
+    
+    task staging "Deploy to Staging" {
+        duration: 1d
+        assign: backend
+        milestone: true
+        status: not_started
+    }
+    
+    task production "Production Deployment" {
+        duration: 1d
+        assign: backend, pm
+        depends: staging
+        milestone: true
+        must_finish_on: 2026-04-20  # Release deadline
+        status: not_started
+    }
+}

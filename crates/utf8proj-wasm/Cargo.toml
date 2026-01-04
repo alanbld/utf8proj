@@ -1,36 +1,33 @@
 [package]
 name = "utf8proj-wasm"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-repository.workspace = true
+version = "0.1.0"
+edition = "2021"
 description = "WebAssembly bindings for utf8proj scheduling engine"
-keywords = ["wasm", "scheduling", "gantt", "webassembly"]
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["console_error_panic_hook"]
+
 [dependencies]
-utf8proj-core.workspace = true
-utf8proj-parser.workspace = true
-utf8proj-solver.workspace = true
-utf8proj-render.workspace = true
+utf8proj-core = { path = "../utf8proj-core" }
+utf8proj-parser = { path = "../utf8proj-parser" }
+utf8proj-solver = { path = "../utf8proj-solver" }
 
-wasm-bindgen.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde-wasm-bindgen.workspace = true
-console_error_panic_hook.workspace = true
-js-sys.workspace = true
-getrandom.workspace = true
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+console_error_panic_hook = { version = "0.1", optional = true }
+getrandom = { version = "0.2", features = ["js"] }
 
-[dependencies.web-sys]
-workspace = true
-features = ["console"]
-
-[lints]
-workspace = true
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[profile.release]
+opt-level = "s"
+lto = true

@@ -32,3 +32,5 @@ examples/scripts/
 
 # Tutorial source files
 tutor_ideas.zip
+.claude/
+files_read.zip

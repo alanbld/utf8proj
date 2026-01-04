@@ -1,0 +1,45 @@
+# Simple Progress Tracking Example
+
+project "Website Redesign" {
+    start: 2026-01-01
+    status_date: 2026-01-15  # "As of" reporting date
+}
+
+# Completed phase
+task planning "Planning Phase" {
+    duration: 5d
+    complete: 100%
+    actual_start: 2026-01-01
+    actual_finish: 2026-01-08
+    status: complete
+}
+
+# In-progress phase
+task design "Design Phase" {
+    duration: 10d
+    complete: 60%
+    actual_start: 2026-01-06
+    status: in_progress
+    depends: planning
+}
+
+# Not yet started
+task development "Development Phase" {
+    duration: 20d
+    complete: 0%
+    status: not_started
+    depends: design
+}
+
+task testing "Testing & QA" {
+    duration: 8d
+    status: not_started
+    depends: development
+}
+
+# Blocked task
+task deployment "Deployment" {
+    duration: 2d
+    status: blocked  # Waiting on infrastructure
+    depends: testing
+}
