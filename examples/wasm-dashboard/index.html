@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>utf8proj - Project Dashboard</title>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --primary: #0f3460;
+            --accent: #e94560;
+            --text: #eaeaea;
+            --text-dim: #a0a0a0;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --critical: #e94560;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid var(--primary);
+            margin-bottom: 1rem;
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .status {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+        }
+        
+        .status-dot.loading {
+            background: var(--warning);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 1rem;
+            height: calc(100vh - 120px);
+        }
+        
+        @media (max-width: 900px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+        }
+        
+        .panel {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--primary);
+        }
+        
+        .panel-title {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+        }
+        
+        /* File Upload */
+        .upload-zone {
+            border: 2px dashed var(--primary);
+            border-radius: 8px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1rem;
+        }
+        
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent);
+            background: rgba(233, 69, 96, 0.1);
+        }
+        
+        .upload-zone input {
+            display: none;
+        }
+        
+        /* Task List */
+        .task-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .task-item {
+            display: grid;
+            grid-template-columns: 1fr 60px 60px;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            background: var(--primary);
+            align-items: center;
+        }
+        
+        .task-item.critical {
+            border-left: 3px solid var(--critical);
+        }
+        
+        .task-item.complete {
+            opacity: 0.6;
+        }
+        
+        .task-name {
+            font-size: 0.875rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .task-progress {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .progress-input {
+            width: 40px;
+            background: var(--bg);
+            border: 1px solid var(--primary);
+            border-radius: 4px;
+            color: var(--text);
+            padding: 0.25rem;
+            text-align: center;
+            font-family: inherit;
+            font-size: 0.75rem;
+        }
+        
+        .progress-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .task-status {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-align: right;
+        }
+        
+        .task-status.in-progress { color: var(--warning); }
+        .task-status.complete { color: var(--success); }
+        .task-status.blocked { color: var(--critical); }
+        
+        /* Gantt Chart */
+        .gantt-wrapper {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+        }
+        
+        #gantt-canvas {
+            display: block;
+        }
+        
+        /* Project Info */
+        .project-info {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        @media (max-width: 600px) {
+            .project-info {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        .info-card {
+            background: var(--primary);
+            padding: 0.75rem;
+            border-radius: 4px;
+        }
+        
+        .info-label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 0.25rem;
+        }
+        
+        .info-value {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+        
+        /* Demo Selector */
+        .demo-selector {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        
+        .demo-btn {
+            background: var(--primary);
+            border: 1px solid var(--primary);
+            color: var(--text);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        
+        .demo-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .demo-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        /* Editor Modal */
+        .editor-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .editor-modal.open {
+            display: flex;
+        }
+        
+        .editor-content {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 1rem;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        
+        .editor-textarea {
+            flex: 1;
+            min-height: 400px;
+            background: var(--bg);
+            border: 1px solid var(--primary);
+            border-radius: 4px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.875rem;
+            padding: 1rem;
+            resize: none;
+        }
+        
+        .editor-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .editor-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        
+        .btn {
+            background: var(--primary);
+            border: none;
+            color: var(--text);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+        }
+        
+        .btn:hover {
+            opacity: 0.9;
+        }
+        
+        /* Loading */
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(26, 26, 46, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--primary);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        /* Error Toast */
+        .toast {
+            position: fixed;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--critical);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            z-index: 200;
+            animation: slideUp 0.3s ease;
+        }
+        
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>utf8proj Dashboard</h1>
+            <div class="status">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Loading WASM...</span>
+            </div>
+        </header>
+        
+        <div class="demo-selector">
+            <button class="demo-btn active" data-demo="simple">Simple Demo</button>
+            <button class="demo-btn" data-demo="software">Software Project</button>
+            <button class="demo-btn" data-demo="crm">CRM Migration</button>
+            <button class="demo-btn" onclick="openEditor()">Edit Source</button>
+        </div>
+        
+        <div class="project-info" id="project-info">
+            <div class="info-card">
+                <div class="info-label">Project</div>
+                <div class="info-value" id="info-name">-</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">Duration</div>
+                <div class="info-value" id="info-duration">-</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">Tasks</div>
+                <div class="info-value" id="info-tasks">-</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">Critical Path</div>
+                <div class="info-value" id="info-critical">-</div>
+            </div>
+        </div>
+        
+        <div class="main-grid">
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">Tasks</span>
+                    <span id="task-count">0 tasks</span>
+                </div>
+                
+                <div class="upload-zone" id="upload-zone">
+                    <input type="file" id="file-input" accept=".proj,.tjp">
+                    <p>Drop .proj file here or click to upload</p>
+                </div>
+                
+                <div class="task-list" id="task-list"></div>
+            </div>
+            
+            <div class="panel" style="position: relative;">
+                <div class="panel-header">
+                    <span class="panel-title">Gantt Chart</span>
+                    <span id="gantt-dates">-</span>
+                </div>
+                <div class="gantt-wrapper">
+                    <canvas id="gantt-canvas"></canvas>
+                </div>
+                <div class="loading-overlay hidden" id="loading-overlay">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Editor Modal -->
+    <div class="editor-modal" id="editor-modal">
+        <div class="editor-content">
+            <div class="editor-header">
+                <span class="panel-title">Project Source</span>
+                <button class="btn" onclick="closeEditor()">Close</button>
+            </div>
+            <textarea class="editor-textarea" id="editor-textarea"></textarea>
+            <div class="editor-actions">
+                <button class="btn" onclick="closeEditor()">Cancel</button>
+                <button class="btn btn-primary" onclick="applyEditorChanges()">Apply & Schedule</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { schedule, update_task_progress, get_project_info } from './pkg/utf8proj_wasm.js';
+        
+        // Demo projects
+        const DEMOS = {
+            simple: `project "Simple Demo" {
+    start: 2026-01-06
+}
+
+task design "Design Phase" {
+    duration: 5d
+    complete: 80%
+    status: in_progress
+}
+
+task develop "Development" {
+    duration: 10d
+    complete: 30%
+    depends: design
+}
+
+task test "Testing" {
+    duration: 3d
+    depends: develop
+}
+
+task deploy "Deployment" {
+    duration: 2d
+    depends: test
+}`,
+
+            software: `project "Software Release v2.0" {
+    start: 2026-01-06
+}
+
+task requirements "Requirements Analysis" {
+    duration: 5d
+    complete: 100%
+    status: complete
+}
+
+task arch "Architecture Design" {
+    duration: 8d
+    complete: 75%
+    depends: requirements
+}
+
+task backend "Backend Development" {
+    duration: 15d
+    complete: 40%
+    depends: arch
+}
+
+task frontend "Frontend Development" {
+    duration: 12d
+    complete: 25%
+    depends: arch
+}
+
+task api "API Integration" {
+    duration: 5d
+    depends: backend, frontend
+}
+
+task testing "QA Testing" {
+    duration: 8d
+    depends: api
+}
+
+task docs "Documentation" {
+    duration: 4d
+    depends: api
+}
+
+task staging "Staging Deploy" {
+    duration: 2d
+    depends: testing, docs
+}
+
+task release "Production Release" {
+    duration: 1d
+    depends: staging
+}`,
+
+            crm: `project "CRM Migration" {
+    start: 2026-01-13
+}
+
+task audit "Data Audit" {
+    duration: 3d
+    complete: 100%
+    status: complete
+}
+
+task mapping "Field Mapping" {
+    duration: 5d
+    complete: 100%
+    depends: audit
+}
+
+task etl "ETL Pipeline" {
+    duration: 8d
+    complete: 60%
+    depends: mapping
+}
+
+task validation "Data Validation" {
+    duration: 4d
+    depends: etl
+}
+
+task contacts "Migrate Contacts" {
+    duration: 3d
+    depends: validation
+}
+
+task deals "Migrate Deals" {
+    duration: 4d
+    depends: validation
+}
+
+task activities "Migrate Activities" {
+    duration: 5d
+    depends: contacts, deals
+}
+
+task integrations "Setup Integrations" {
+    duration: 6d
+    depends: activities
+}
+
+task training "User Training" {
+    duration: 3d
+    depends: integrations
+}
+
+task cutover "Go-Live Cutover" {
+    duration: 2d
+    depends: training
+}`
+        };
+        
+        let currentSource = DEMOS.simple;
+        let scheduleResult = null;
+        let wasmReady = false;
+        
+        // Initialize WASM
+        async function initWasm() {
+            try {
+                await init();
+                wasmReady = true;
+                document.getElementById('status-dot').classList.remove('loading');
+                document.getElementById('status-text').textContent = 'Ready';
+                
+                // Load initial demo
+                runSchedule(currentSource);
+            } catch (e) {
+                showError('Failed to load WASM: ' + e.message);
+            }
+        }
+        
+        // Run scheduler
+        function runSchedule(source) {
+            if (!wasmReady) return;
+            
+            const loading = document.getElementById('loading-overlay');
+            loading.classList.remove('hidden');
+            
+            // Use setTimeout to allow UI update
+            setTimeout(() => {
+                try {
+                    const startTime = performance.now();
+                    const resultJson = schedule(source);
+                    const elapsed = performance.now() - startTime;
+                    
+                    scheduleResult = JSON.parse(resultJson);
+                    currentSource = source;
+                    
+                    document.getElementById('status-text').textContent = `Scheduled in ${elapsed.toFixed(0)}ms`;
+                    
+                    updateUI();
+                } catch (e) {
+                    showError(e.message || e);
+                } finally {
+                    loading.classList.add('hidden');
+                }
+            }, 10);
+        }
+        
+        // Update all UI elements
+        function updateUI() {
+            if (!scheduleResult) return;
+            
+            updateProjectInfo();
+            updateTaskList();
+            renderGantt();
+        }
+        
+        // Update project info cards
+        function updateProjectInfo() {
+            const p = scheduleResult.project;
+            document.getElementById('info-name').textContent = p.name;
+            document.getElementById('info-duration').textContent = p.duration_days + ' days';
+            document.getElementById('info-tasks').textContent = scheduleResult.tasks.length;
+            document.getElementById('info-critical').textContent = scheduleResult.critical_path.length + ' tasks';
+            
+            document.getElementById('gantt-dates').textContent = `${p.start} to ${p.end}`;
+        }
+        
+        // Update task list
+        function updateTaskList() {
+            const container = document.getElementById('task-list');
+            container.innerHTML = '';
+            
+            // Sort by start date
+            const tasks = [...scheduleResult.tasks].sort((a, b) => 
+                new Date(a.start) - new Date(b.start)
+            );
+            
+            document.getElementById('task-count').textContent = tasks.length + ' tasks';
+            
+            for (const task of tasks) {
+                const div = document.createElement('div');
+                div.className = 'task-item';
+                if (task.is_critical) div.classList.add('critical');
+                if (task.percent_complete === 100) div.classList.add('complete');
+                
+                div.innerHTML = `
+                    <div class="task-name" title="${task.id}">${task.id}</div>
+                    <div class="task-progress">
+                        <input type="number" 
+                               class="progress-input" 
+                               min="0" 
+                               max="100" 
+                               value="${task.percent_complete}"
+                               data-task-id="${task.id}">%
+                    </div>
+                    <div class="task-status ${task.status.toLowerCase().replace('_', '-')}">${task.status}</div>
+                `;
+                
+                container.appendChild(div);
+            }
+            
+            // Add event listeners to progress inputs
+            container.querySelectorAll('.progress-input').forEach(input => {
+                input.addEventListener('change', handleProgressChange);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.target.blur();
+                    }
+                });
+            });
+        }
+        
+        // Handle progress change
+        function handleProgressChange(e) {
+            const taskId = e.target.dataset.taskId;
+            const newPercent = parseInt(e.target.value) || 0;
+            
+            // Update source and re-schedule
+            const updatedSource = update_task_progress(currentSource, taskId, Math.min(100, Math.max(0, newPercent)));
+            runSchedule(updatedSource);
+        }
+        
+        // Render Gantt chart
+        function renderGantt() {
+            const canvas = document.getElementById('gantt-canvas');
+            const ctx = canvas.getContext('2d');
+            const wrapper = canvas.parentElement;
+            
+            const tasks = [...scheduleResult.tasks].sort((a, b) => 
+                new Date(a.start) - new Date(b.start)
+            );
+            
+            // Dimensions
+            const rowHeight = 32;
+            const labelWidth = 140;
+            const padding = 10;
+            const headerHeight = 40;
+            
+            // Calculate date range
+            const startDate = new Date(scheduleResult.project.start);
+            const endDate = new Date(scheduleResult.project.end);
+            const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            
+            // Set canvas size
+            const dayWidth = Math.max(20, Math.min(40, (wrapper.clientWidth - labelWidth - padding * 2) / totalDays));
+            const chartWidth = totalDays * dayWidth;
+            const height = headerHeight + tasks.length * rowHeight + padding * 2;
+            
+            canvas.width = labelWidth + chartWidth + padding * 2;
+            canvas.height = height;
+            
+            // Clear
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw header
+            ctx.fillStyle = '#0f3460';
+            ctx.fillRect(0, 0, canvas.width, headerHeight);
+            
+            // Draw date labels
+            ctx.fillStyle = '#a0a0a0';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            
+            for (let i = 0; i <= totalDays; i += Math.ceil(totalDays / 10)) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + i);
+                const x = labelWidth + i * dayWidth;
+                ctx.fillText(formatDate(date), x, headerHeight - 8);
+            }
+            
+            // Draw tasks
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                const y = headerHeight + i * rowHeight + rowHeight / 2;
+                
+                // Row background (alternate)
+                if (i % 2 === 0) {
+                    ctx.fillStyle = 'rgba(15, 52, 96, 0.3)';
+                    ctx.fillRect(0, headerHeight + i * rowHeight, canvas.width, rowHeight);
+                }
+                
+                // Task label
+                ctx.fillStyle = '#eaeaea';
+                ctx.font = '11px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(truncate(task.id, 16), padding, y + 4);
+                
+                // Task bar
+                const taskStart = new Date(task.start);
+                const taskEnd = new Date(task.finish);
+                const startOffset = (taskStart - startDate) / (1000 * 60 * 60 * 24);
+                const duration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24) + 1;
+                
+                const barX = labelWidth + startOffset * dayWidth;
+                const barWidth = duration * dayWidth;
+                const barHeight = 18;
+                const barY = y - barHeight / 2;
+                
+                // Background bar
+                ctx.fillStyle = task.is_critical ? '#4a1a2a' : '#1a3a5c';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+                
+                // Progress bar
+                if (task.percent_complete > 0) {
+                    const progressWidth = barWidth * (task.percent_complete / 100);
+                    ctx.fillStyle = task.is_critical ? '#e94560' : '#4ade80';
+                    ctx.fillRect(barX, barY, progressWidth, barHeight);
+                }
+                
+                // Border
+                ctx.strokeStyle = task.is_critical ? '#e94560' : '#3b82f6';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(barX, barY, barWidth, barHeight);
+                
+                // Percent label
+                if (barWidth > 30) {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = '10px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(task.percent_complete + '%', barX + barWidth / 2, y + 3);
+                }
+            }
+        }
+        
+        function formatDate(date) {
+            return date.toISOString().split('T')[0].slice(5); // MM-DD
+        }
+        
+        function truncate(str, max) {
+            return str.length > max ? str.slice(0, max - 2) + '..' : str;
+        }
+        
+        // File upload handling
+        function setupUpload() {
+            const zone = document.getElementById('upload-zone');
+            const input = document.getElementById('file-input');
+            
+            zone.addEventListener('click', () => input.click());
+            
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.classList.add('dragover');
+            });
+            
+            zone.addEventListener('dragleave', () => {
+                zone.classList.remove('dragover');
+            });
+            
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                
+                const file = e.dataTransfer.files[0];
+                if (file) loadFile(file);
+            });
+            
+            input.addEventListener('change', () => {
+                const file = input.files[0];
+                if (file) loadFile(file);
+            });
+        }
+        
+        function loadFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target.result;
+                runSchedule(content);
+                
+                // Deselect demo buttons
+                document.querySelectorAll('.demo-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+            };
+            reader.readAsText(file);
+        }
+        
+        // Demo selector
+        function setupDemoSelector() {
+            document.querySelectorAll('.demo-btn[data-demo]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const demo = btn.dataset.demo;
+                    if (DEMOS[demo]) {
+                        document.querySelectorAll('.demo-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        runSchedule(DEMOS[demo]);
+                    }
+                });
+            });
+        }
+        
+        // Editor
+        window.openEditor = function() {
+            document.getElementById('editor-textarea').value = currentSource;
+            document.getElementById('editor-modal').classList.add('open');
+        };
+        
+        window.closeEditor = function() {
+            document.getElementById('editor-modal').classList.remove('open');
+        };
+        
+        window.applyEditorChanges = function() {
+            const source = document.getElementById('editor-textarea').value;
+            closeEditor();
+            runSchedule(source);
+            
+            document.querySelectorAll('.demo-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+        };
+        
+        // Toast notifications
+        function showError(message) {
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => toast.remove(), 4000);
+        }
+        
+        // Window resize handler
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (scheduleResult) renderGantt();
+            }, 100);
+        });
+        
+        // Initialize
+        setupUpload();
+        setupDemoSelector();
+        initWasm();
+    </script>
+</body>
+</html>
