@@ -47,39 +47,39 @@ playground/             # Browser-based playground
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-04)
+## Test Coverage (as of 2026-01-05)
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
+| utf8proj-render/mermaid | 111/111 | 100.0% |
 | utf8proj-parser/lib | 13/13 | 100.0% |
-| utf8proj-solver/lib | 277/280 | 98.9% |
-| utf8proj-solver/leveling | 192/196 | 98.0% |
+| utf8proj-render/lib | 243/245 | 99.2% |
+| utf8proj-solver/lib | 299/302 | 99.0% |
+| utf8proj-core | 205/209 | 98.1% |
+| utf8proj-render/gantt | 273/278 | 98.2% |
 | utf8proj-render/excel | 421/432 | 97.5% |
-| utf8proj-parser/native | 345/353 | 97.7% |
 | utf8proj-solver/bdd | 108/111 | 97.3% |
-| utf8proj-core | 127/131 | 96.9% |
+| utf8proj-parser/native | 365/376 | 97.1% |
+| utf8proj-solver/leveling | 190/196 | 96.9% |
 | utf8proj-parser/tjp | 152/157 | 96.8% |
+| utf8proj-render/plantuml | 115/119 | 96.6% |
 | utf8proj-solver/dag | 136/142 | 95.8% |
 | utf8proj-solver/cpm | 78/83 | 94.0% |
-| utf8proj-render/gantt | 255/278 | 91.7% |
-| utf8proj-render/plantuml | 109/119 | 91.6% |
-| utf8proj-render/lib | 223/245 | 91.0% |
-| utf8proj-render/mermaid | 96/111 | 86.5% |
-| utf8proj-cli | 143/446 | 32.1% |
-| utf8proj-wasm | 18/121 | 14.9% |
-| **Overall** | **2750/3275** | **83.97%** |
+| utf8proj-wasm | 74/81 | 91.4% |
+| utf8proj-cli | 143/466 | 30.7% |
+| **Overall** | **2985/3380** | **88.31%** |
 
-**All core business logic components achieve 90%+ coverage** (excluding CLI and WASM).
+**All core business logic components achieve 90%+ coverage** (excluding CLI).
 
-**Tests:** 290+ passing, 1 ignored (render doctest)
+**Tests:** 400+ passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 60 unit + 27 hierarchical + 8 correctness + 12 leveling = 107 tests
-- utf8proj-render: 62 unit + 5 integration = 67 tests
-- utf8proj-parser: 53 unit + 19 integration = 72 tests
-- utf8proj-core: 14 tests + 1 doc-test
+- utf8proj-solver: 79 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress = 130 tests
+- utf8proj-render: 80 unit + 25 integration = 105 tests
+- utf8proj-parser: 69 unit + 19 integration = 88 tests
+- utf8proj-core: 48 tests + 1 doc-test
 - utf8proj-cli: 10 tests
-- utf8proj-wasm: 8 tests
+- utf8proj-wasm: 15 tests
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
@@ -289,7 +289,15 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **PMI-Compliant Effort Scheduling** (`crates/utf8proj-solver/src/lib.rs`)
+1. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+   - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
+   - Added `trait` declaration with description and rate_multiplier
+   - Added rate range block syntax (min/max/currency) for profiles and resources
+   - Added quantified assignment syntax: `assign: developer * 2`
+   - Extended resource_ref to support both percentage (@50%) and quantity (*N)
+   - Full RFC in `docs/rfc/RFC-0001-PROGRESSIVE-RESOURCE-REFINEMENT.md`
+
+2. **PMI-Compliant Effort Scheduling** (`crates/utf8proj-solver/src/lib.rs`)
    - Fixed effort-to-duration calculation: `Duration = Effort / Total_Resource_Units`
    - Added `Task::assign_with_units()` for partial allocations
    - 7 new tests for effort-driven scheduling scenarios
