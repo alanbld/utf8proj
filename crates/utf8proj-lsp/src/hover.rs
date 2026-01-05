@@ -277,6 +277,15 @@ fn find_task_by_id<'a>(tasks: &'a [Task], id: &str) -> Option<&'a Task> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
+    use utf8proj_core::{
+        Dependency, DependencyType, Duration, Money, RateRange, Resource, ResourceProfile,
+        ResourceRate, ResourceRef, Trait,
+    };
+
+    // =========================================================================
+    // get_word_at_position tests
+    // =========================================================================
 
     #[test]
     fn get_word_at_position_basic() {
@@ -312,5 +321,527 @@ mod tests {
 
         let word = get_word_at_position(text, pos);
         assert_eq!(word, None);
+    }
+
+    #[test]
+    fn get_word_at_position_multiline() {
+        let text = "line one\nline two\nline three";
+        let pos = Position::new(1, 5); // "two"
+
+        let word = get_word_at_position(text, pos);
+        assert_eq!(word, Some("two".to_string()));
+    }
+
+    #[test]
+    fn get_word_at_position_out_of_bounds_line() {
+        let text = "single line";
+        let pos = Position::new(5, 0); // Line doesn't exist
+
+        let word = get_word_at_position(text, pos);
+        assert_eq!(word, None);
+    }
+
+    #[test]
+    fn get_word_at_position_out_of_bounds_column() {
+        let text = "short";
+        let pos = Position::new(0, 100); // Column beyond line length
+
+        let word = get_word_at_position(text, pos);
+        assert_eq!(word, None);
+    }
+
+    #[test]
+    fn get_word_at_position_at_space() {
+        let text = "hello world";
+        let pos = Position::new(0, 5); // At space between words
+
+        // When at a space, the word finder looks back and finds "hello"
+        let word = get_word_at_position(text, pos);
+        assert_eq!(word, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn get_word_at_position_multiple_spaces() {
+        let text = "hello   world";
+        let pos = Position::new(0, 7); // In the middle of spaces
+
+        // Multiple spaces - should return None since no word at position
+        let word = get_word_at_position(text, pos);
+        assert_eq!(word, None);
+    }
+
+    // =========================================================================
+    // Helper to create test projects
+    // =========================================================================
+
+    fn make_test_project() -> Project {
+        let mut project = Project::new("Test Project");
+
+        // Add a trait
+        project.traits.push(
+            Trait::new("senior")
+                .description("Senior level expertise")
+                .rate_multiplier(1.5),
+        );
+
+        // Add profiles with various configurations
+        let mut developer = ResourceProfile::new("developer");
+        developer.rate = Some(ResourceRate::Range(RateRange {
+            min: dec!(100),
+            max: dec!(200),
+            currency: None,
+        }));
+        project.profiles.push(developer);
+
+        let mut senior_dev = ResourceProfile::new("senior_dev");
+        senior_dev.specializes = Some("developer".to_string());
+        senior_dev.traits = vec!["senior".to_string()];
+        senior_dev.skills = vec!["rust".to_string(), "python".to_string()];
+        project.profiles.push(senior_dev);
+
+        let mut fixed_rate_dev = ResourceProfile::new("fixed_rate_dev");
+        fixed_rate_dev.rate = Some(ResourceRate::Fixed(Money::new(dec!(150), "USD")));
+        project.profiles.push(fixed_rate_dev);
+
+        project.profiles.push(ResourceProfile::new("no_rate_profile"));
+
+        let mut unknown_trait_profile = ResourceProfile::new("unknown_trait_profile");
+        unknown_trait_profile.traits = vec!["nonexistent".to_string()];
+        project.profiles.push(unknown_trait_profile);
+
+        // Add resources
+        let mut alice = Resource::new("alice");
+        alice.name = "Alice Smith".to_string();
+        alice.rate = Some(Money::new(dec!(120), "USD"));
+        alice.capacity = 0.8;
+        alice.efficiency = 1.2;
+        project.resources.push(alice);
+
+        project.resources.push(Resource::new("bob"));
+
+        // Add tasks
+        let mut task1 = Task::new("task1");
+        task1.name = "First Task".to_string();
+        task1.duration = Some(Duration::days(5));
+        task1.effort = Some(Duration::days(10));
+        task1.assigned = vec![
+            ResourceRef {
+                resource_id: "alice".to_string(),
+                units: 1.0,
+            },
+            ResourceRef {
+                resource_id: "bob".to_string(),
+                units: 0.5,
+            },
+        ];
+        task1.depends = vec![Dependency {
+            predecessor: "task0".to_string(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+        task1.complete = Some(0.5);
+        project.tasks.push(task1);
+
+        let mut milestone1 = Task::new("milestone1");
+        milestone1.milestone = true;
+        project.tasks.push(milestone1);
+
+        let mut container = Task::new("container");
+        container.name = "Container Task".to_string();
+        let mut child1 = Task::new("child1");
+        child1.duration = Some(Duration::days(3));
+        container.children = vec![child1, Task::new("child2")];
+        project.tasks.push(container);
+
+        project.tasks.push(Task::new("simple"));
+
+        project
+    }
+
+    // =========================================================================
+    // hover_for_profile tests
+    // =========================================================================
+
+    #[test]
+    fn hover_profile_with_range_rate() {
+        let project = make_test_project();
+        let profile = project.get_profile("developer").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Profile: developer**"));
+        assert!(content.contains("Rate: $100 - $200/day"));
+        assert!(content.contains("expected:"));
+    }
+
+    #[test]
+    fn hover_profile_with_fixed_rate() {
+        let project = make_test_project();
+        let profile = project.get_profile("fixed_rate_dev").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Profile: fixed_rate_dev**"));
+        assert!(content.contains("Rate: $150/day"));
+    }
+
+    #[test]
+    fn hover_profile_with_specialization() {
+        let project = make_test_project();
+        let profile = project.get_profile("senior_dev").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Profile: senior_dev**"));
+        assert!(content.contains("Specializes:"));
+        assert!(content.contains("senior_dev"));
+        assert!(content.contains("developer"));
+    }
+
+    #[test]
+    fn hover_profile_with_traits() {
+        let project = make_test_project();
+        let profile = project.get_profile("senior_dev").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Traits: senior (1.5x)"));
+    }
+
+    #[test]
+    fn hover_profile_with_unknown_trait() {
+        let project = make_test_project();
+        let profile = project.get_profile("unknown_trait_profile").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("nonexistent (unknown)"));
+    }
+
+    #[test]
+    fn hover_profile_with_skills() {
+        let project = make_test_project();
+        let profile = project.get_profile("senior_dev").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Skills: rust, python"));
+    }
+
+    #[test]
+    fn hover_profile_no_rate() {
+        let project = make_test_project();
+        let profile = project.get_profile("no_rate_profile").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Rate: *not defined*"));
+    }
+
+    #[test]
+    fn hover_profile_inherited_rate() {
+        let project = make_test_project();
+        let profile = project.get_profile("senior_dev").unwrap();
+
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        // senior_dev inherits from developer which has a range rate
+        assert!(content.contains("Rate (inherited):"));
+        assert!(content.contains("from developer"));
+    }
+
+    // =========================================================================
+    // hover_for_resource tests
+    // =========================================================================
+
+    #[test]
+    fn hover_resource_full() {
+        let project = make_test_project();
+        let resource = project.get_resource("alice").unwrap();
+
+        let hover = hover_for_resource(resource);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Resource: alice**"));
+        assert!(content.contains("Name: Alice Smith"));
+        assert!(content.contains("Rate: $120/day"));
+        assert!(content.contains("Capacity: 80%"));
+        assert!(content.contains("Efficiency: 120%"));
+    }
+
+    #[test]
+    fn hover_resource_minimal() {
+        let project = make_test_project();
+        let resource = project.get_resource("bob").unwrap();
+
+        let hover = hover_for_resource(resource);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Resource: bob**"));
+        // Name same as ID - should not show Name line
+        assert!(!content.contains("Name:"));
+        // Default capacity/efficiency - should not show
+        assert!(!content.contains("Capacity:"));
+        assert!(!content.contains("Efficiency:"));
+    }
+
+    // =========================================================================
+    // hover_for_task tests
+    // =========================================================================
+
+    #[test]
+    fn hover_task_full() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "task1").unwrap();
+
+        let hover = hover_for_task(task);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Task: task1**"));
+        assert!(content.contains("Name: First Task"));
+        assert!(content.contains("Duration: 5 days"));
+        assert!(content.contains("Effort: 10 days"));
+        assert!(content.contains("Assigned: alice, bob@50%"));
+        assert!(content.contains("Depends on: task0"));
+        assert!(content.contains("Progress: 50%"));
+    }
+
+    #[test]
+    fn hover_task_milestone() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "milestone1").unwrap();
+
+        let hover = hover_for_task(task);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Task: milestone1**"));
+        assert!(content.contains("Type: Milestone"));
+    }
+
+    #[test]
+    fn hover_task_container() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "container").unwrap();
+
+        let hover = hover_for_task(task);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Task: container**"));
+        assert!(content.contains("Name: Container Task"));
+        assert!(content.contains("Type: Container (2 children)"));
+    }
+
+    #[test]
+    fn hover_task_minimal() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "simple").unwrap();
+
+        let hover = hover_for_task(task);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Task: simple**"));
+        // Should not contain optional fields
+        assert!(!content.contains("Name:"));
+        assert!(!content.contains("Duration:"));
+        assert!(!content.contains("Effort:"));
+        assert!(!content.contains("Assigned:"));
+        assert!(!content.contains("Depends on:"));
+        assert!(!content.contains("Progress:"));
+    }
+
+    #[test]
+    fn hover_task_zero_progress_not_shown() {
+        let mut project = make_test_project();
+        let mut zero_task = Task::new("zero_progress");
+        zero_task.complete = Some(0.0);
+        project.tasks.push(zero_task);
+
+        let task = find_task_by_id(&project.tasks, "zero_progress").unwrap();
+        let hover = hover_for_task(task);
+        let content = extract_hover_content(&hover);
+
+        // 0% progress should not be shown
+        assert!(!content.contains("Progress:"));
+    }
+
+    // =========================================================================
+    // hover_for_trait tests
+    // =========================================================================
+
+    #[test]
+    fn hover_trait_with_description() {
+        let project = make_test_project();
+        let t = project.get_trait("senior").unwrap();
+
+        let hover = hover_for_trait(t);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Trait: senior**"));
+        assert!(content.contains("Senior level expertise"));
+        assert!(content.contains("Rate multiplier: 1.5x"));
+    }
+
+    #[test]
+    fn hover_trait_without_description() {
+        let t = Trait::new("simple_trait").rate_multiplier(2.0);
+
+        let hover = hover_for_trait(&t);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("**Trait: simple_trait**"));
+        assert!(content.contains("Rate multiplier: 2x"));
+        // Should not have description
+        assert_eq!(content.matches("\n\n").count(), 1); // Only one separator
+    }
+
+    // =========================================================================
+    // find_task_by_id tests
+    // =========================================================================
+
+    #[test]
+    fn find_task_top_level() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "task1");
+
+        assert!(task.is_some());
+        assert_eq!(task.unwrap().id, "task1");
+    }
+
+    #[test]
+    fn find_task_nested() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "child1");
+
+        assert!(task.is_some());
+        assert_eq!(task.unwrap().id, "child1");
+    }
+
+    #[test]
+    fn find_task_not_found() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "nonexistent");
+
+        assert!(task.is_none());
+    }
+
+    // =========================================================================
+    // get_inherited_rate tests
+    // =========================================================================
+
+    #[test]
+    fn inherited_rate_from_parent() {
+        let project = make_test_project();
+        let rate = get_inherited_rate("developer", &project);
+
+        assert!(rate.is_some());
+        assert!(rate.unwrap().contains("$100 - $200/day from developer"));
+    }
+
+    #[test]
+    fn inherited_rate_not_found() {
+        let project = make_test_project();
+        let rate = get_inherited_rate("no_rate_profile", &project);
+
+        assert!(rate.is_none());
+    }
+
+    #[test]
+    fn inherited_rate_fixed() {
+        let project = make_test_project();
+        let rate = get_inherited_rate("fixed_rate_dev", &project);
+
+        assert!(rate.is_some());
+        assert!(rate.unwrap().contains("$150/day from fixed_rate_dev"));
+    }
+
+    // =========================================================================
+    // get_hover_info integration tests
+    // =========================================================================
+
+    #[test]
+    fn hover_info_for_profile() {
+        let project = make_test_project();
+        let text = "assign: developer";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 10));
+
+        assert!(hover.is_some());
+        let content = extract_hover_content(&hover.unwrap());
+        assert!(content.contains("**Profile: developer**"));
+    }
+
+    #[test]
+    fn hover_info_for_resource() {
+        let project = make_test_project();
+        let text = "resource: alice";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 12));
+
+        assert!(hover.is_some());
+        let content = extract_hover_content(&hover.unwrap());
+        assert!(content.contains("**Resource: alice**"));
+    }
+
+    #[test]
+    fn hover_info_for_task() {
+        let project = make_test_project();
+        let text = "depends: task1";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 10));
+
+        assert!(hover.is_some());
+        let content = extract_hover_content(&hover.unwrap());
+        assert!(content.contains("**Task: task1**"));
+    }
+
+    #[test]
+    fn hover_info_for_trait() {
+        let project = make_test_project();
+        let text = "traits: senior";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 10));
+
+        assert!(hover.is_some());
+        let content = extract_hover_content(&hover.unwrap());
+        assert!(content.contains("**Trait: senior**"));
+    }
+
+    #[test]
+    fn hover_info_unknown_word() {
+        let project = make_test_project();
+        let text = "unknown_identifier";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 5));
+
+        assert!(hover.is_none());
+    }
+
+    #[test]
+    fn hover_info_empty_position() {
+        let project = make_test_project();
+        let text = "   ";
+
+        let hover = get_hover_info(&project, text, Position::new(0, 1));
+
+        assert!(hover.is_none());
+    }
+
+    // =========================================================================
+    // Helper functions
+    // =========================================================================
+
+    fn extract_hover_content(hover: &Hover) -> String {
+        match &hover.contents {
+            HoverContents::Markup(markup) => markup.value.clone(),
+            _ => String::new(),
+        }
     }
 }

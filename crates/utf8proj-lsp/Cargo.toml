@@ -32,5 +32,9 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[dev-dependencies]
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+
 [lints]
 workspace = true
