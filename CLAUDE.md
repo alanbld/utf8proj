@@ -74,14 +74,14 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 584 passing, 1 ignored (render doctest)
+**Tests:** 591 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress + 7 semantic = 153 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
 - utf8proj-core: 74 tests + 5 doc-tests = 79 tests
-- utf8proj-cli: 32 unit + 14 diagnostic snapshot + 19 exit code = 65 tests
+- utf8proj-cli: 32 unit + 14 diagnostic snapshot + 26 exit code = 72 tests
 - utf8proj-lsp: 5 diagnostic + 39 hover = 44 tests
 - utf8proj-wasm: 15 tests
 
@@ -120,18 +120,20 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 ### Usage
 
 ```bash
-# Default mode - warnings don't fail
+# Fast validation (no schedule output) - ideal for CI/pre-commit
+utf8proj check project.proj             # Exit 0 with warnings
+utf8proj check --strict project.proj    # Exit 1 with warnings
+utf8proj check --quiet --strict project.proj  # Silent, exit code only
+utf8proj check --format=json project.proj     # Machine-readable
+
+# Full scheduling with output
 utf8proj schedule project.proj          # Exit 0 with warnings
-
-# Strict mode - warnings become errors
 utf8proj schedule --strict project.proj # Exit 1 with warnings
-
-# CI mode - quiet + strict
 utf8proj schedule --quiet --strict project.proj
-
-# JSON output for tooling
 utf8proj schedule --format=json project.proj
 ```
+
+The `check` command is analogous to `cargo check`, `terraform validate`, or `tsc --noEmit` - it runs parse + semantic analysis without producing schedule output.
 
 ### Implementation Files
 
@@ -542,6 +544,11 @@ cargo tarpaulin --workspace --out Stdout --skip-clean
 
 # Build release
 cargo build --release
+
+# Validate a project (fast, no output)
+target/release/utf8proj check project.proj
+target/release/utf8proj check --strict project.proj  # warnings→errors
+target/release/utf8proj check --format=json project.proj
 
 # Schedule a project
 target/release/utf8proj schedule project.tjp
