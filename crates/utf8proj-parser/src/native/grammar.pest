@@ -11,7 +11,7 @@
 
 project_file = {
     SOI ~
-    (project_decl | calendar_decl | resource_decl | task_decl | milestone_decl | report_decl | constraint_decl)* ~
+    (project_decl | calendar_decl | resource_decl | resource_profile_decl | trait_decl | task_decl | milestone_decl | report_decl | constraint_decl)* ~
     EOI
 }
 
@@ -75,16 +75,19 @@ day = { "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" }
 // Resource Declaration
 // ============================================================================
 
-resource_decl = { 
-    "resource" ~ identifier ~ string ~ "{" ~ 
-    resource_body ~ 
-    "}" 
+resource_decl = {
+    "resource" ~ identifier ~ string? ~ "{" ~
+    resource_body ~
+    "}"
 }
 
 resource_body = { resource_attr* }
 
 resource_attr = {
+    resource_specializes |
+    resource_availability |
     resource_rate |
+    resource_rate_range |
     resource_capacity |
     resource_calendar |
     resource_efficiency |
@@ -93,7 +96,10 @@ resource_attr = {
     resource_leave
 }
 
+resource_specializes = { "specializes" ~ ":" ~ identifier }
+resource_availability = { "availability" ~ ":" ~ number }
 resource_rate = { "rate" ~ ":" ~ money }
+resource_rate_range = { "rate" ~ ":" ~ "{" ~ rate_range_body ~ "}" }
 resource_capacity = { "capacity" ~ ":" ~ number }
 resource_calendar = { "calendar" ~ ":" ~ identifier }
 resource_efficiency = { "efficiency" ~ ":" ~ number }
@@ -102,6 +108,67 @@ resource_role = { "role" ~ ":" ~ string }
 resource_leave = { "leave" ~ ":" ~ date_range }
 
 money = { number ~ "/" ~ time_unit }
+
+// ============================================================================
+// Resource Profile Declaration (RFC-0001: Progressive Resource Refinement)
+// ============================================================================
+
+resource_profile_decl = {
+    "resource_profile" ~ identifier ~ string? ~ "{" ~
+    resource_profile_body ~
+    "}"
+}
+
+resource_profile_body = { resource_profile_attr* }
+
+resource_profile_attr = {
+    profile_description |
+    profile_specializes |
+    profile_skills |
+    profile_traits |
+    profile_rate_range |
+    resource_calendar |
+    resource_efficiency
+}
+
+profile_description = { "description" ~ ":" ~ string }
+profile_specializes = { "specializes" ~ ":" ~ identifier }
+profile_skills = { "skills" ~ ":" ~ "[" ~ identifier_list ~ "]" }
+profile_traits = { "traits" ~ ":" ~ "[" ~ identifier_list ~ "]" }
+profile_rate_range = { "rate" ~ ":" ~ "{" ~ rate_range_body ~ "}" }
+
+// Rate range components (shared by resource and resource_profile)
+rate_range_body = { rate_range_attr* }
+
+rate_range_attr = {
+    rate_min |
+    rate_max |
+    rate_currency
+}
+
+rate_min = { "min" ~ ":" ~ number }
+rate_max = { "max" ~ ":" ~ number }
+rate_currency = { "currency" ~ ":" ~ identifier }
+
+// ============================================================================
+// Trait Declaration (RFC-0001: Progressive Resource Refinement)
+// ============================================================================
+
+trait_decl = {
+    "trait" ~ identifier ~ string? ~ "{" ~
+    trait_body ~
+    "}"
+}
+
+trait_body = { trait_attr* }
+
+trait_attr = {
+    trait_description |
+    trait_rate_multiplier
+}
+
+trait_description = { "description" ~ ":" ~ string }
+trait_rate_multiplier = { "rate_multiplier" ~ ":" ~ number }
 
 // ============================================================================
 // Task Declaration
@@ -189,9 +256,17 @@ dep_type = { dep_type_keyword }
 dep_type_keyword = { "FS" | "SS" | "FF" | "SF" }
 dep_percentage = { "." ~ percentage }
 
-// Resource references (supports both @50% and (50%) syntax)
+// Resource references (supports @50%, (50%), and quantified *N syntax)
 resource_ref_list = { resource_ref ~ ("," ~ resource_ref)* }
-resource_ref = { identifier ~ (("@" ~ percentage) | ("(" ~ percentage ~ ")"))? }
+resource_ref = { identifier ~ resource_ref_modifier? }
+
+resource_ref_modifier = {
+    resource_ref_quantity |
+    resource_ref_percentage
+}
+
+resource_ref_quantity = { "*" ~ integer }
+resource_ref_percentage = { ("@" ~ percentage) | ("(" ~ percentage ~ ")") }
 
 // Constraints
 task_constraint = { constraint_type ~ ":" ~ date }
@@ -388,4 +463,54 @@ NEWLINE = _{ "\r\n" | "\n" | "\r" }
 //     tasks: all
 //     resources: show
 //     critical_path: highlight
+// }
+//
+// # RFC-0001: Progressive Resource Refinement Examples
+//
+// trait senior {
+//     description: "5+ years experience"
+//     rate_multiplier: 1.3
+// }
+//
+// trait contractor {
+//     rate_multiplier: 1.2
+// }
+//
+// resource_profile developer {
+//     description: "Generic software developer"
+//     rate: {
+//         min: 450
+//         max: 700
+//         currency: USD
+//     }
+// }
+//
+// resource_profile backend_dev {
+//     specializes: developer
+//     skills: [backend, java, sql]
+//     rate: {
+//         min: 550
+//         max: 800
+//     }
+// }
+//
+// resource_profile backend_senior {
+//     specializes: backend_dev
+//     traits: [senior]
+// }
+//
+// resource alice {
+//     specializes: backend_senior
+//     availability: 0.8
+//     rate: 900/day
+// }
+//
+// task implementation "Implementation" {
+//     effort: 40d
+//     assign: developer * 2
+// }
+//
+// task backend_work "Backend Work" {
+//     effort: 20d
+//     assign: alice, backend_dev
 // }

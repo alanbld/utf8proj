@@ -705,8 +705,27 @@ fn parse_resource_ref(pair: Pair<Rule>) -> Result<ResourceRef, ParseError> {
     let mut inner = pair.into_inner();
     let resource_id = parse_identifier(inner.next().unwrap());
 
-    let units = if let Some(pct) = inner.next() {
-        parse_percentage(pct)?
+    let units: f32 = if let Some(modifier) = inner.next() {
+        // Handle resource_ref_modifier (contains either quantity or percentage)
+        match modifier.as_rule() {
+            Rule::resource_ref_modifier => {
+                let modifier_inner = modifier.into_inner().next().unwrap();
+                match modifier_inner.as_rule() {
+                    Rule::resource_ref_quantity => {
+                        // * N syntax: developer * 2
+                        let int_pair = modifier_inner.into_inner().next().unwrap();
+                        parse_integer(int_pair)? as f32
+                    }
+                    Rule::resource_ref_percentage => {
+                        // @50% or (50%) syntax
+                        let pct_pair = modifier_inner.into_inner().next().unwrap();
+                        parse_percentage(pct_pair)?
+                    }
+                    _ => 1.0,
+                }
+            }
+            _ => 1.0,
+        }
     } else {
         1.0
     };
@@ -1532,5 +1551,44 @@ task f "On Hold" { duration: 1d status: on_hold }
         assert_eq!(project.tasks[3].status, Some(TaskStatus::Blocked));
         assert_eq!(project.tasks[4].status, Some(TaskStatus::AtRisk));
         assert_eq!(project.tasks[5].status, Some(TaskStatus::OnHold));
+    }
+
+    // RFC-0001: Progressive Resource Refinement tests
+
+    #[test]
+    fn parse_quantified_assignment() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource dev "Developer" {}
+task work "Work" {
+    effort: 40d
+    assign: dev * 2
+}
+"#;
+        let project = parse(input).expect("Failed to parse quantified assignment");
+        let task = &project.tasks[0];
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "dev");
+        assert!((task.assigned[0].units - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_mixed_assignments() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+resource alice "Alice" {}
+resource bob "Bob" {}
+task work "Work" {
+    effort: 40d
+    assign: alice, bob * 3
+}
+"#;
+        let project = parse(input).expect("Failed to parse mixed assignments");
+        let task = &project.tasks[0];
+        assert_eq!(task.assigned.len(), 2);
+        assert_eq!(task.assigned[0].resource_id, "alice");
+        assert!((task.assigned[0].units - 1.0).abs() < 0.01);
+        assert_eq!(task.assigned[1].resource_id, "bob");
+        assert!((task.assigned[1].units - 3.0).abs() < 0.01);
     }
 }
