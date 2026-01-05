@@ -558,6 +558,28 @@ mod tests {
         assert!(content.contains("from developer"));
     }
 
+    #[test]
+    fn hover_profile_specializes_no_inherited_rate() {
+        let mut project = Project::new("Test");
+
+        // Parent with no rate
+        project
+            .profiles
+            .push(ResourceProfile::new("base_profile"));
+
+        // Child specializing from parent with no rate
+        let mut child = ResourceProfile::new("child_profile");
+        child.specializes = Some("base_profile".to_string());
+        project.profiles.push(child);
+
+        let profile = project.get_profile("child_profile").unwrap();
+        let hover = hover_for_profile(profile, &project);
+        let content = extract_hover_content(&hover);
+
+        // Should show "Rate: *not defined*" since parent has no rate
+        assert!(content.contains("Rate: *not defined*"));
+    }
+
     // =========================================================================
     // hover_for_resource tests
     // =========================================================================
