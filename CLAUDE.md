@@ -18,7 +18,8 @@ crates/
 │   ├── src/mermaid.rs  # MermaidJS Gantt diagram
 │   ├── src/plantuml.rs # PlantUML Gantt diagram
 │   └── src/excel.rs    # Excel costing reports with dependencies
-├── utf8proj-cli/       # Command-line interface (untested)
+├── utf8proj-cli/       # Command-line interface
+├── utf8proj-lsp/       # Language Server Protocol implementation
 └── utf8proj-wasm/      # WebAssembly bindings for browser playground
 
 playground/             # Browser-based playground
@@ -71,14 +72,15 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI).
 
-**Tests:** 520+ passing, 1 ignored (render doctest)
+**Tests:** 549 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress = 146 tests (includes 16 RFC-0001 tests)
+- utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress + 7 semantic = 153 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
-- utf8proj-parser: 79 unit + 19 integration = 98 tests (includes 10 RFC-0001 tests)
-- utf8proj-core: 74 tests + 3 doc-tests (includes 26 RFC-0001 tests)
+- utf8proj-parser: 79 unit + 19 integration = 98 tests
+- utf8proj-core: 74 tests + 3 doc-tests
 - utf8proj-cli: 32 unit + 14 diagnostic snapshot + 19 exit code = 65 tests
+- utf8proj-lsp: 5 diagnostic + 4 hover = 9 tests
 - utf8proj-wasm: 15 tests
 
 ## Diagnostic System (Compiler-Grade)
@@ -136,6 +138,68 @@ utf8proj schedule --format=json project.proj
 - `crates/utf8proj-solver/src/lib.rs` - analyze_project() emission points
 - `crates/utf8proj-cli/tests/exit_codes.rs` - 19 integration tests
 - `crates/utf8proj-cli/tests/diagnostics.rs` - 14 snapshot tests
+
+## Language Server Protocol (LSP)
+
+The `utf8proj-lsp` crate provides IDE support for `.proj` files via the Language Server Protocol.
+
+### Server Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| `textDocumentSync` | Full document sync on open/change |
+| `hoverProvider` | Contextual info for identifiers |
+| `documentSymbolProvider` | Outline of profiles, resources, tasks |
+
+### Features
+
+- **Real-time diagnostics**: Parse errors and semantic warnings as you type
+- **Hover information**:
+  - Profiles: rate range, specialization chain, traits, skills
+  - Resources: rate, capacity, efficiency
+  - Tasks: duration, effort, assignments, dependencies
+  - Traits: description, rate multiplier
+- **Document symbols**: Navigate profiles, resources, and tasks
+
+### Usage
+
+```bash
+# Build the LSP server
+cargo build --release -p utf8proj-lsp
+
+# Run (connects via stdio)
+./target/release/utf8proj-lsp
+```
+
+### Editor Integration
+
+**VS Code** (with generic LSP extension):
+```json
+{
+  "languageServerExample.serverPath": "./target/release/utf8proj-lsp",
+  "languageServerExample.fileExtensions": [".proj"]
+}
+```
+
+**Neovim** (with nvim-lspconfig):
+```lua
+require('lspconfig.configs').utf8proj = {
+  default_config = {
+    cmd = { './target/release/utf8proj-lsp' },
+    filetypes = { 'proj' },
+    root_dir = function(fname)
+      return vim.fn.getcwd()
+    end,
+  },
+}
+require('lspconfig').utf8proj.setup{}
+```
+
+### Implementation Files
+
+- `crates/utf8proj-lsp/src/main.rs` - tower-lsp server, Backend impl
+- `crates/utf8proj-lsp/src/diagnostics.rs` - Diagnostic → LSP conversion
+- `crates/utf8proj-lsp/src/hover.rs` - Hover info for profiles/resources/tasks
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
