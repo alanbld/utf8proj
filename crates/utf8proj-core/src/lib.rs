@@ -46,6 +46,12 @@ pub type ResourceId = String;
 /// Unique identifier for a calendar
 pub type CalendarId = String;
 
+/// Unique identifier for a resource profile
+pub type ProfileId = String;
+
+/// Unique identifier for a trait
+pub type TraitId = String;
+
 /// Duration in working time
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Duration {
@@ -114,6 +120,381 @@ impl Money {
 }
 
 // ============================================================================
+// RFC-0001: Progressive Resource Refinement Types
+// ============================================================================
+
+/// A trait that modifies resource rates (RFC-0001)
+///
+/// Traits are scalar modifiers, not behavioral mixins. They apply
+/// multiplicative rate adjustments (e.g., senior = 1.3x, junior = 0.8x).
+///
+/// # Example
+///
+/// ```rust
+/// use utf8proj_core::Trait;
+///
+/// let senior = Trait::new("senior")
+///     .description("5+ years experience")
+///     .rate_multiplier(1.3);
+///
+/// assert_eq!(senior.rate_multiplier, 1.3);
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Trait {
+    /// Unique identifier
+    pub id: TraitId,
+    /// Human-readable name
+    pub name: String,
+    /// Optional description
+    pub description: Option<String>,
+    /// Rate multiplier (1.0 = no change, 1.3 = 30% increase)
+    pub rate_multiplier: f64,
+}
+
+impl Trait {
+    /// Create a new trait with the given ID
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            name: id.clone(),
+            id,
+            description: None,
+            rate_multiplier: 1.0,
+        }
+    }
+
+    /// Set the trait description
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+
+    /// Set the rate multiplier
+    pub fn rate_multiplier(mut self, multiplier: f64) -> Self {
+        self.rate_multiplier = multiplier;
+        self
+    }
+}
+
+/// Rate range for abstract resource profiles (RFC-0001)
+///
+/// Represents a cost range with min/max bounds and optional currency.
+/// Used during early planning when exact rates are unknown.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RateRange {
+    /// Minimum rate (best case)
+    pub min: Decimal,
+    /// Maximum rate (worst case)
+    pub max: Decimal,
+    /// Currency (defaults to project currency if not set)
+    pub currency: Option<String>,
+}
+
+impl RateRange {
+    /// Create a new rate range
+    pub fn new(min: impl Into<Decimal>, max: impl Into<Decimal>) -> Self {
+        Self {
+            min: min.into(),
+            max: max.into(),
+            currency: None,
+        }
+    }
+
+    /// Set the currency
+    pub fn currency(mut self, currency: impl Into<String>) -> Self {
+        self.currency = Some(currency.into());
+        self
+    }
+
+    /// Calculate the expected (midpoint) rate
+    pub fn expected(&self) -> Decimal {
+        (self.min + self.max) / Decimal::from(2)
+    }
+
+    /// Calculate the spread percentage: (max - min) / expected * 100
+    pub fn spread_percent(&self) -> f64 {
+        let expected = self.expected();
+        if expected.is_zero() {
+            return 0.0;
+        }
+        let spread = self.max - self.min;
+        // Convert to f64 for percentage calculation
+        use rust_decimal::prelude::ToPrimitive;
+        (spread / expected).to_f64().unwrap_or(0.0) * 100.0
+    }
+
+    /// Check if this is a collapsed range (min == max)
+    pub fn is_collapsed(&self) -> bool {
+        self.min == self.max
+    }
+
+    /// Check if the range is inverted (min > max)
+    pub fn is_inverted(&self) -> bool {
+        self.min > self.max
+    }
+
+    /// Apply a multiplier to the range (for trait composition)
+    pub fn apply_multiplier(&self, multiplier: f64) -> Self {
+        use rust_decimal::prelude::FromPrimitive;
+        let mult = Decimal::from_f64(multiplier).unwrap_or(Decimal::ONE);
+        Self {
+            min: self.min * mult,
+            max: self.max * mult,
+            currency: self.currency.clone(),
+        }
+    }
+}
+
+/// Resource rate that can be either fixed or a range (RFC-0001)
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ResourceRate {
+    /// Fixed rate (concrete resource)
+    Fixed(Money),
+    /// Rate range (abstract profile)
+    Range(RateRange),
+}
+
+impl ResourceRate {
+    /// Get the expected rate value
+    pub fn expected(&self) -> Decimal {
+        match self {
+            ResourceRate::Fixed(money) => money.amount,
+            ResourceRate::Range(range) => range.expected(),
+        }
+    }
+
+    /// Check if this is a range (abstract)
+    pub fn is_range(&self) -> bool {
+        matches!(self, ResourceRate::Range(_))
+    }
+
+    /// Check if this is a fixed rate (concrete)
+    pub fn is_fixed(&self) -> bool {
+        matches!(self, ResourceRate::Fixed(_))
+    }
+}
+
+/// Abstract resource profile for planning (RFC-0001)
+///
+/// Represents a role or capability, not a specific person.
+/// Used during early estimation when staffing is not finalized.
+///
+/// # Example
+///
+/// ```rust
+/// use utf8proj_core::{ResourceProfile, RateRange};
+/// use rust_decimal::Decimal;
+///
+/// let backend_dev = ResourceProfile::new("backend_dev")
+///     .name("Backend Developer")
+///     .description("Server-side development")
+///     .specializes("developer")
+///     .skill("java")
+///     .skill("sql")
+///     .rate_range(RateRange::new(Decimal::from(550), Decimal::from(800)));
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceProfile {
+    /// Unique identifier
+    pub id: ProfileId,
+    /// Human-readable name
+    pub name: String,
+    /// Optional description
+    pub description: Option<String>,
+    /// Parent profile (constraint refinement, not OO inheritance)
+    pub specializes: Option<ProfileId>,
+    /// Required skills
+    pub skills: Vec<String>,
+    /// Applied traits (rate modifiers)
+    pub traits: Vec<TraitId>,
+    /// Rate (can be range or fixed)
+    pub rate: Option<ResourceRate>,
+    /// Custom calendar
+    pub calendar: Option<CalendarId>,
+    /// Efficiency factor
+    pub efficiency: Option<f32>,
+}
+
+impl ResourceProfile {
+    /// Create a new resource profile with the given ID
+    pub fn new(id: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            name: id.clone(),
+            id,
+            description: None,
+            specializes: None,
+            skills: Vec::new(),
+            traits: Vec::new(),
+            rate: None,
+            calendar: None,
+            efficiency: None,
+        }
+    }
+
+    /// Set the profile name
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the description
+    pub fn description(mut self, desc: impl Into<String>) -> Self {
+        self.description = Some(desc.into());
+        self
+    }
+
+    /// Set the parent profile (specialization)
+    pub fn specializes(mut self, parent: impl Into<String>) -> Self {
+        self.specializes = Some(parent.into());
+        self
+    }
+
+    /// Add a skill
+    pub fn skill(mut self, skill: impl Into<String>) -> Self {
+        self.skills.push(skill.into());
+        self
+    }
+
+    /// Add multiple skills
+    pub fn skills(mut self, skills: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.skills.extend(skills.into_iter().map(|s| s.into()));
+        self
+    }
+
+    /// Add a trait
+    pub fn with_trait(mut self, trait_id: impl Into<String>) -> Self {
+        self.traits.push(trait_id.into());
+        self
+    }
+
+    /// Add multiple traits
+    pub fn with_traits(mut self, traits: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.traits.extend(traits.into_iter().map(|t| t.into()));
+        self
+    }
+
+    /// Set a rate range
+    pub fn rate_range(mut self, range: RateRange) -> Self {
+        self.rate = Some(ResourceRate::Range(range));
+        self
+    }
+
+    /// Set a fixed rate
+    pub fn rate(mut self, rate: Money) -> Self {
+        self.rate = Some(ResourceRate::Fixed(rate));
+        self
+    }
+
+    /// Set the calendar
+    pub fn calendar(mut self, calendar: impl Into<String>) -> Self {
+        self.calendar = Some(calendar.into());
+        self
+    }
+
+    /// Set the efficiency factor
+    pub fn efficiency(mut self, efficiency: f32) -> Self {
+        self.efficiency = Some(efficiency);
+        self
+    }
+
+    /// Check if this profile is abstract (has no fixed rate or is a range)
+    pub fn is_abstract(&self) -> bool {
+        match &self.rate {
+            None => true,
+            Some(ResourceRate::Range(_)) => true,
+            Some(ResourceRate::Fixed(_)) => false,
+        }
+    }
+}
+
+/// Cost range for scheduled tasks (RFC-0001)
+///
+/// Represents the computed cost range for a task or project
+/// based on abstract resource assignments.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CostRange {
+    /// Minimum cost (best case)
+    pub min: Decimal,
+    /// Expected cost (based on policy)
+    pub expected: Decimal,
+    /// Maximum cost (worst case)
+    pub max: Decimal,
+    /// Currency
+    pub currency: String,
+}
+
+impl CostRange {
+    /// Create a new cost range
+    pub fn new(min: Decimal, expected: Decimal, max: Decimal, currency: impl Into<String>) -> Self {
+        Self {
+            min,
+            expected,
+            max,
+            currency: currency.into(),
+        }
+    }
+
+    /// Create a fixed (zero-spread) cost range
+    pub fn fixed(amount: Decimal, currency: impl Into<String>) -> Self {
+        Self {
+            min: amount,
+            expected: amount,
+            max: amount,
+            currency: currency.into(),
+        }
+    }
+
+    /// Calculate the spread percentage: ±((max - min) / 2 / expected) * 100
+    pub fn spread_percent(&self) -> f64 {
+        if self.expected.is_zero() {
+            return 0.0;
+        }
+        let half_spread = (self.max - self.min) / Decimal::from(2);
+        use rust_decimal::prelude::ToPrimitive;
+        (half_spread / self.expected).to_f64().unwrap_or(0.0) * 100.0
+    }
+
+    /// Check if this is a fixed cost (zero spread)
+    pub fn is_fixed(&self) -> bool {
+        self.min == self.max
+    }
+
+    /// Add two cost ranges
+    pub fn add(&self, other: &CostRange) -> Self {
+        Self {
+            min: self.min + other.min,
+            expected: self.expected + other.expected,
+            max: self.max + other.max,
+            currency: self.currency.clone(),
+        }
+    }
+}
+
+/// Policy for calculating expected cost from ranges (RFC-0001)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CostPolicy {
+    /// Use midpoint: (min + max) / 2
+    #[default]
+    Midpoint,
+    /// Use minimum (optimistic)
+    Optimistic,
+    /// Use maximum (pessimistic)
+    Pessimistic,
+}
+
+impl CostPolicy {
+    /// Calculate expected value from a range
+    pub fn expected(&self, min: Decimal, max: Decimal) -> Decimal {
+        match self {
+            CostPolicy::Midpoint => (min + max) / Decimal::from(2),
+            CostPolicy::Optimistic => min,
+            CostPolicy::Pessimistic => max,
+        }
+    }
+}
+
+// ============================================================================
 // Project
 // ============================================================================
 
@@ -142,6 +523,14 @@ pub struct Project {
     pub scenarios: Vec<Scenario>,
     /// Custom attributes (timezone, etc.)
     pub attributes: HashMap<String, String>,
+
+    // RFC-0001: Progressive Resource Refinement fields
+    /// Resource profiles (abstract roles/capabilities)
+    pub profiles: Vec<ResourceProfile>,
+    /// Trait definitions (rate modifiers)
+    pub traits: Vec<Trait>,
+    /// Policy for calculating expected cost from ranges
+    pub cost_policy: CostPolicy,
 }
 
 impl Project {
@@ -159,6 +548,9 @@ impl Project {
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
             attributes: HashMap::new(),
+            profiles: Vec::new(),
+            traits: Vec::new(),
+            cost_policy: CostPolicy::default(),
         }
     }
 
@@ -181,6 +573,16 @@ impl Project {
     /// Get a resource by ID
     pub fn get_resource(&self, id: &str) -> Option<&Resource> {
         self.resources.iter().find(|r| r.id == id)
+    }
+
+    /// Get a resource profile by ID (RFC-0001)
+    pub fn get_profile(&self, id: &str) -> Option<&ResourceProfile> {
+        self.profiles.iter().find(|p| p.id == id)
+    }
+
+    /// Get a trait by ID (RFC-0001)
+    pub fn get_trait(&self, id: &str) -> Option<&Trait> {
+        self.traits.iter().find(|t| t.id == id)
     }
 
     /// Get all leaf tasks (tasks without children)
@@ -588,6 +990,13 @@ pub struct Resource {
     pub efficiency: f32,
     /// Custom attributes
     pub attributes: HashMap<String, String>,
+
+    // RFC-0001: Progressive Resource Refinement fields
+    /// Profile that this resource specializes (constraint refinement)
+    pub specializes: Option<ProfileId>,
+    /// Availability (0.0-1.0, multiplied with calendar hours)
+    /// Separate from capacity for progressive refinement semantics
+    pub availability: Option<f32>,
 }
 
 impl Resource {
@@ -602,6 +1011,8 @@ impl Resource {
             calendar: None,
             efficiency: 1.0,
             attributes: HashMap::new(),
+            specializes: None,
+            availability: None,
         }
     }
 
@@ -627,6 +1038,31 @@ impl Resource {
     pub fn efficiency(mut self, efficiency: f32) -> Self {
         self.efficiency = efficiency;
         self
+    }
+
+    /// Set the profile this resource specializes (RFC-0001)
+    pub fn specializes(mut self, profile: impl Into<String>) -> Self {
+        self.specializes = Some(profile.into());
+        self
+    }
+
+    /// Set the availability (RFC-0001)
+    ///
+    /// Availability is multiplied with calendar hours to get effective capacity.
+    /// Example: 0.8 availability × 8h/day calendar = 6.4 effective hours/day
+    pub fn availability(mut self, availability: f32) -> Self {
+        self.availability = Some(availability);
+        self
+    }
+
+    /// Get effective availability (defaults to 1.0 if not set)
+    pub fn effective_availability(&self) -> f32 {
+        self.availability.unwrap_or(1.0)
+    }
+
+    /// Check if this resource specializes a profile
+    pub fn is_specialized(&self) -> bool {
+        self.specializes.is_some()
     }
 }
 
@@ -1054,6 +1490,9 @@ mod tests {
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
             attributes: HashMap::new(),
+            profiles: Vec::new(),
+            traits: Vec::new(),
+            cost_policy: CostPolicy::default(),
         };
 
         let leaves = project.leaf_tasks();
@@ -1103,6 +1542,9 @@ mod tests {
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
             attributes: HashMap::new(),
+            profiles: Vec::new(),
+            traits: Vec::new(),
+            cost_policy: CostPolicy::default(),
         };
 
         // Find top-level task
@@ -1142,6 +1584,9 @@ mod tests {
             calendars: vec![Calendar::default()],
             scenarios: Vec::new(),
             attributes: HashMap::new(),
+            profiles: Vec::new(),
+            traits: Vec::new(),
+            cost_policy: CostPolicy::default(),
         };
 
         let dev = project.get_resource("dev1");
@@ -1623,5 +2068,299 @@ mod tests {
         assert_eq!(st.assignments.len(), 0);
         assert_eq!(st.percent_complete, 0);
         assert_eq!(st.status, TaskStatus::NotStarted);
+    }
+
+    // ========================================================================
+    // RFC-0001: Progressive Resource Refinement Tests
+    // ========================================================================
+
+    #[test]
+    fn trait_builder() {
+        let senior = Trait::new("senior")
+            .description("5+ years experience")
+            .rate_multiplier(1.3);
+
+        assert_eq!(senior.id, "senior");
+        assert_eq!(senior.name, "senior");
+        assert_eq!(senior.description, Some("5+ years experience".into()));
+        assert_eq!(senior.rate_multiplier, 1.3);
+    }
+
+    #[test]
+    fn trait_default_multiplier() {
+        let t = Trait::new("generic");
+        assert_eq!(t.rate_multiplier, 1.0);
+    }
+
+    #[test]
+    fn rate_range_expected_midpoint() {
+        use rust_decimal::Decimal;
+        let range = RateRange::new(Decimal::from(450), Decimal::from(700));
+        assert_eq!(range.expected(), Decimal::from(575));
+    }
+
+    #[test]
+    fn rate_range_spread_percent() {
+        use rust_decimal::Decimal;
+        // Range 500-700, expected 600, spread = 200, spread% = (200/600)*100 = 33.33%
+        let range = RateRange::new(Decimal::from(500), Decimal::from(700));
+        let spread = range.spread_percent();
+        assert!((spread - 33.33).abs() < 0.1);
+    }
+
+    #[test]
+    fn rate_range_collapsed() {
+        use rust_decimal::Decimal;
+        let range = RateRange::new(Decimal::from(500), Decimal::from(500));
+        assert!(range.is_collapsed());
+        assert_eq!(range.spread_percent(), 0.0);
+    }
+
+    #[test]
+    fn rate_range_inverted() {
+        use rust_decimal::Decimal;
+        let range = RateRange::new(Decimal::from(700), Decimal::from(500));
+        assert!(range.is_inverted());
+    }
+
+    #[test]
+    fn rate_range_apply_multiplier() {
+        use rust_decimal::Decimal;
+        let range = RateRange::new(Decimal::from(500), Decimal::from(700));
+        let scaled = range.apply_multiplier(1.3);
+
+        assert_eq!(scaled.min, Decimal::from(650));
+        assert_eq!(scaled.max, Decimal::from(910));
+    }
+
+    #[test]
+    fn rate_range_with_currency() {
+        use rust_decimal::Decimal;
+        let range = RateRange::new(Decimal::from(500), Decimal::from(700))
+            .currency("EUR");
+
+        assert_eq!(range.currency, Some("EUR".into()));
+    }
+
+    #[test]
+    fn resource_rate_fixed() {
+        use rust_decimal::Decimal;
+        let rate = ResourceRate::Fixed(Money::new(Decimal::from(500), "USD"));
+
+        assert!(rate.is_fixed());
+        assert!(!rate.is_range());
+        assert_eq!(rate.expected(), Decimal::from(500));
+    }
+
+    #[test]
+    fn resource_rate_range() {
+        use rust_decimal::Decimal;
+        let rate = ResourceRate::Range(RateRange::new(Decimal::from(450), Decimal::from(700)));
+
+        assert!(rate.is_range());
+        assert!(!rate.is_fixed());
+        assert_eq!(rate.expected(), Decimal::from(575));
+    }
+
+    #[test]
+    fn resource_profile_builder() {
+        use rust_decimal::Decimal;
+        let profile = ResourceProfile::new("backend_dev")
+            .name("Backend Developer")
+            .description("Server-side development")
+            .specializes("developer")
+            .skill("java")
+            .skill("sql")
+            .rate_range(RateRange::new(Decimal::from(550), Decimal::from(800)));
+
+        assert_eq!(profile.id, "backend_dev");
+        assert_eq!(profile.name, "Backend Developer");
+        assert_eq!(profile.description, Some("Server-side development".into()));
+        assert_eq!(profile.specializes, Some("developer".into()));
+        assert_eq!(profile.skills, vec!["java", "sql"]);
+        assert!(profile.rate.is_some());
+    }
+
+    #[test]
+    fn resource_profile_with_traits() {
+        let profile = ResourceProfile::new("senior_dev")
+            .with_trait("senior")
+            .with_traits(["contractor", "remote"]);
+
+        assert_eq!(profile.traits.len(), 3);
+        assert!(profile.traits.contains(&"senior".into()));
+        assert!(profile.traits.contains(&"contractor".into()));
+        assert!(profile.traits.contains(&"remote".into()));
+    }
+
+    #[test]
+    fn resource_profile_is_abstract() {
+        use rust_decimal::Decimal;
+        // Profile with no rate is abstract
+        let no_rate = ResourceProfile::new("dev");
+        assert!(no_rate.is_abstract());
+
+        // Profile with range is abstract
+        let with_range = ResourceProfile::new("dev")
+            .rate_range(RateRange::new(Decimal::from(500), Decimal::from(700)));
+        assert!(with_range.is_abstract());
+
+        // Profile with fixed rate is concrete
+        let with_fixed = ResourceProfile::new("dev")
+            .rate(Money::new(Decimal::from(600), "USD"));
+        assert!(!with_fixed.is_abstract());
+    }
+
+    #[test]
+    fn resource_profile_skills_batch() {
+        let profile = ResourceProfile::new("dev")
+            .skills(["rust", "python", "go"]);
+
+        assert_eq!(profile.skills.len(), 3);
+        assert!(profile.skills.contains(&"rust".into()));
+    }
+
+    #[test]
+    fn cost_range_fixed() {
+        use rust_decimal::Decimal;
+        let cost = CostRange::fixed(Decimal::from(50000), "USD");
+
+        assert!(cost.is_fixed());
+        assert_eq!(cost.spread_percent(), 0.0);
+        assert_eq!(cost.min, cost.max);
+        assert_eq!(cost.expected, cost.min);
+    }
+
+    #[test]
+    fn cost_range_spread() {
+        use rust_decimal::Decimal;
+        // Cost range $40,000 - $60,000, expected $50,000
+        // Half spread = $10,000, spread% = (10000/50000)*100 = 20%
+        let cost = CostRange::new(
+            Decimal::from(40000),
+            Decimal::from(50000),
+            Decimal::from(60000),
+            "USD",
+        );
+
+        let spread = cost.spread_percent();
+        assert!((spread - 20.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn cost_range_add() {
+        use rust_decimal::Decimal;
+        let cost1 = CostRange::new(
+            Decimal::from(10000),
+            Decimal::from(15000),
+            Decimal::from(20000),
+            "USD",
+        );
+        let cost2 = CostRange::new(
+            Decimal::from(5000),
+            Decimal::from(7500),
+            Decimal::from(10000),
+            "USD",
+        );
+
+        let total = cost1.add(&cost2);
+        assert_eq!(total.min, Decimal::from(15000));
+        assert_eq!(total.expected, Decimal::from(22500));
+        assert_eq!(total.max, Decimal::from(30000));
+    }
+
+    #[test]
+    fn cost_policy_midpoint() {
+        use rust_decimal::Decimal;
+        let policy = CostPolicy::Midpoint;
+        let expected = policy.expected(Decimal::from(100), Decimal::from(200));
+        assert_eq!(expected, Decimal::from(150));
+    }
+
+    #[test]
+    fn cost_policy_optimistic() {
+        use rust_decimal::Decimal;
+        let policy = CostPolicy::Optimistic;
+        let expected = policy.expected(Decimal::from(100), Decimal::from(200));
+        assert_eq!(expected, Decimal::from(100));
+    }
+
+    #[test]
+    fn cost_policy_pessimistic() {
+        use rust_decimal::Decimal;
+        let policy = CostPolicy::Pessimistic;
+        let expected = policy.expected(Decimal::from(100), Decimal::from(200));
+        assert_eq!(expected, Decimal::from(200));
+    }
+
+    #[test]
+    fn cost_policy_default_is_midpoint() {
+        assert_eq!(CostPolicy::default(), CostPolicy::Midpoint);
+    }
+
+    #[test]
+    fn resource_specializes() {
+        let resource = Resource::new("alice")
+            .name("Alice")
+            .specializes("backend_senior")
+            .availability(0.8);
+
+        assert_eq!(resource.specializes, Some("backend_senior".into()));
+        assert_eq!(resource.availability, Some(0.8));
+        assert!(resource.is_specialized());
+    }
+
+    #[test]
+    fn resource_effective_availability() {
+        let full_time = Resource::new("dev1");
+        assert_eq!(full_time.effective_availability(), 1.0);
+
+        let part_time = Resource::new("dev2").availability(0.5);
+        assert_eq!(part_time.effective_availability(), 0.5);
+    }
+
+    #[test]
+    fn project_get_profile() {
+        use rust_decimal::Decimal;
+        let mut project = Project::new("Test");
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(500), Decimal::from(700)))
+        );
+        project.profiles.push(
+            ResourceProfile::new("designer")
+                .rate_range(RateRange::new(Decimal::from(400), Decimal::from(600)))
+        );
+
+        let dev = project.get_profile("developer");
+        assert!(dev.is_some());
+        assert_eq!(dev.unwrap().id, "developer");
+
+        let missing = project.get_profile("manager");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn project_get_trait() {
+        let mut project = Project::new("Test");
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project.traits.push(Trait::new("junior").rate_multiplier(0.8));
+
+        let senior = project.get_trait("senior");
+        assert!(senior.is_some());
+        assert_eq!(senior.unwrap().rate_multiplier, 1.3);
+
+        let missing = project.get_trait("contractor");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn project_has_rfc0001_fields() {
+        let project = Project::new("Test");
+
+        // New fields should be initialized
+        assert!(project.profiles.is_empty());
+        assert!(project.traits.is_empty());
+        assert_eq!(project.cost_policy, CostPolicy::Midpoint);
     }
 }
