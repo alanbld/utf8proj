@@ -52,35 +52,37 @@ playground/             # Browser-based playground
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
+| utf8proj-lsp/hover | 120/120 | 100.0% |
 | utf8proj-render/mermaid | 111/111 | 100.0% |
 | utf8proj-parser/lib | 13/13 | 100.0% |
 | utf8proj-render/lib | 243/245 | 99.2% |
+| utf8proj-solver/lib | 591/598 | 98.8% |
 | utf8proj-render/gantt | 273/278 | 98.2% |
 | utf8proj-render/excel | 421/432 | 97.5% |
-| utf8proj-solver/lib | 371/381 | 97.4% |
 | utf8proj-solver/bdd | 108/111 | 97.3% |
 | utf8proj-solver/leveling | 190/196 | 96.9% |
 | utf8proj-parser/tjp | 152/157 | 96.8% |
 | utf8proj-parser/native | 455/471 | 96.6% |
 | utf8proj-render/plantuml | 115/119 | 96.6% |
-| utf8proj-core | 316/328 | 96.3% |
 | utf8proj-solver/dag | 136/142 | 95.8% |
 | utf8proj-solver/cpm | 78/83 | 94.0% |
+| utf8proj-core | 408/444 | 91.9% |
 | utf8proj-wasm | 74/81 | 91.4% |
-| utf8proj-cli | 143/466 | 30.7% |
-| **Overall** | **3258/3673** | **88.70%** |
+| utf8proj-lsp/diagnostics | 28/31 | 90.3% |
+| utf8proj-cli | 271/638 | 42.5% |
+| **Overall** | **3846/4446** | **86.50%** |
 
-**All core business logic components achieve 90%+ coverage** (excluding CLI).
+**All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 549 passing, 1 ignored (render doctest)
+**Tests:** 584 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress + 7 semantic = 153 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
-- utf8proj-core: 74 tests + 3 doc-tests
+- utf8proj-core: 74 tests + 5 doc-tests = 79 tests
 - utf8proj-cli: 32 unit + 14 diagnostic snapshot + 19 exit code = 65 tests
-- utf8proj-lsp: 5 diagnostic + 4 hover = 9 tests
+- utf8proj-lsp: 5 diagnostic + 39 hover = 44 tests
 - utf8proj-wasm: 15 tests
 
 ## Diagnostic System (Compiler-Grade)
