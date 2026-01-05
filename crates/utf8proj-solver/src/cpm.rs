@@ -242,7 +242,10 @@ impl Default for CpmScheduler {
 }
 
 /// Compute the ES constraint for a successor based on dependency type
-fn compute_successor_es(edge: &DependencyEdge, pred_ef: i64, pred_es: i64, _succ_duration: i64) -> i64 {
+///
+/// For FS and SS, the constraint is directly on ES.
+/// For FF and SF, the constraint is on EF, so we convert to ES by subtracting duration.
+fn compute_successor_es(edge: &DependencyEdge, pred_ef: i64, pred_es: i64, succ_duration: i64) -> i64 {
     let lag = edge.lag_days;
 
     match edge.dep_type {
@@ -259,21 +262,25 @@ fn compute_successor_es(edge: &DependencyEdge, pred_ef: i64, pred_es: i64, _succ
         DependencyType::FinishToFinish => {
             // Successor finishes after/with predecessor finishes
             // EF(succ) >= EF(pred) + lag
+            // Since EF = ES + duration, we have:
             // ES(succ) >= EF(pred) + lag - duration(succ)
-            // We return the constraint on ES, so this affects the successor's EF
-            pred_ef + lag
+            pred_ef + lag - succ_duration
         }
         DependencyType::StartToFinish => {
             // Successor finishes after/with predecessor starts
             // EF(succ) >= ES(pred) + lag
-            // This is rare and somewhat unusual
-            pred_es + lag
+            // Since EF = ES + duration:
+            // ES(succ) >= ES(pred) + lag - duration(succ)
+            pred_es + lag - succ_duration
         }
     }
 }
 
 /// Compute the LF constraint for a predecessor based on dependency type
-fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, _pred_duration: i64) -> i64 {
+///
+/// For FS and FF, the constraint is directly on LF.
+/// For SS and SF, the constraint is on LS, so we convert to LF by adding duration.
+fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, pred_duration: i64) -> i64 {
     let lag = edge.lag_days;
 
     match edge.dep_type {
@@ -284,10 +291,10 @@ fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, _pr
         }
         DependencyType::StartToStart => {
             // Predecessor must start before successor starts
-            // But this constrains predecessor's start, not finish
-            // LF(pred) = LS(succ) - lag + duration(pred)
-            // For simplicity, we use the successor's LS as constraint
-            succ_ls - lag
+            // LS(pred) <= LS(succ) - lag
+            // Since LS = LF - duration, we have:
+            // LF(pred) <= LS(succ) - lag + duration(pred)
+            succ_ls - lag + pred_duration
         }
         DependencyType::FinishToFinish => {
             // Predecessor must finish before successor finishes
@@ -296,8 +303,10 @@ fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, _pr
         }
         DependencyType::StartToFinish => {
             // Predecessor must start before successor finishes
-            // This affects predecessor's start
-            succ_lf - lag
+            // LS(pred) <= LF(succ) - lag
+            // Since LS = LF - duration:
+            // LF(pred) <= LF(succ) - lag + duration(pred)
+            succ_lf - lag + pred_duration
         }
     }
 }

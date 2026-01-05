@@ -1328,13 +1328,63 @@ impl Scheduler for CpmSolver {
             // Get successors from precomputed map (O(1) lookup instead of O(n) scan)
             let successors = successors_map.get(id);
 
-            // LF = min(LS of all successors), or project_end if no successors
+            // LF = min(constraint from each successor), or project_end if no successors
+            // The constraint depends on the dependency type:
+            //   FS: LF(pred) <= LS(succ) - lag
+            //   SS: LF(pred) <= LS(succ) - lag + duration(pred)
+            //   FF: LF(pred) <= LF(succ) - lag
+            //   SF: LF(pred) <= LF(succ) - lag + duration(pred)
             let lf = match successors {
-                Some(succs) if !succs.is_empty() => succs
-                    .iter()
-                    .filter_map(|s| nodes.get(s).map(|n| n.late_start))
-                    .min()
-                    .unwrap_or(project_end_days),
+                Some(succs) if !succs.is_empty() => {
+                    let mut min_lf = project_end_days;
+                    for succ_id in succs {
+                        if let Some(succ_node) = nodes.get(succ_id) {
+                            // Find the dependency type from successor's depends list
+                            let succ_task = task_map.get(succ_id);
+                            let dep_info = succ_task.and_then(|t| {
+                                t.depends.iter().find(|d| {
+                                    // Check if this dependency refers to current task
+                                    let resolved = resolve_dependency_path(
+                                        &d.predecessor,
+                                        succ_id,
+                                        &context_map,
+                                        &task_map,
+                                    );
+                                    resolved.as_ref() == Some(id)
+                                })
+                            });
+
+                            let constraint_lf = if let Some(dep) = dep_info {
+                                let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
+                                match dep.dep_type {
+                                    DependencyType::FinishToStart => {
+                                        // LF(pred) <= LS(succ) - lag
+                                        succ_node.late_start - lag
+                                    }
+                                    DependencyType::StartToStart => {
+                                        // LS(pred) <= LS(succ) - lag
+                                        // LF(pred) = LS(pred) + duration = LS(succ) - lag + duration
+                                        succ_node.late_start - lag + duration
+                                    }
+                                    DependencyType::FinishToFinish => {
+                                        // LF(pred) <= LF(succ) - lag
+                                        succ_node.late_finish - lag
+                                    }
+                                    DependencyType::StartToFinish => {
+                                        // LS(pred) <= LF(succ) - lag
+                                        // LF(pred) = LF(succ) - lag + duration
+                                        succ_node.late_finish - lag + duration
+                                    }
+                                }
+                            } else {
+                                // Default to FS behavior
+                                succ_node.late_start
+                            };
+                            min_lf = min_lf.min(constraint_lf);
+                        }
+                    }
+                    min_lf
+                }
                 _ => project_end_days,
             };
 

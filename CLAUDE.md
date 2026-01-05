@@ -74,10 +74,10 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 601 passing, 1 ignored (render doctest)
+**Tests:** 606 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 102 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress + 19 semantic = 172 tests
+- utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 12 leveling + 4 progress + 19 semantic = 177 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
 - utf8proj-core: 74 tests + 5 doc-tests = 79 tests
@@ -589,14 +589,27 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 
 **Tests Added:** `parse_project_currency`, `parse_resource_efficiency`, `parse_dependency_onstart`, `parse_dependency_onend`
 
-### Potential Issue: CPM Algorithm with Non-FS Dependencies
-**Location:** `crates/utf8proj-solver/src/cpm.rs`
+### Fixed: CPM Backward Pass for Non-FS Dependencies (2026-01-05)
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 1331-1389)
 
-**Observation:** The backward pass for SS/FF/SF dependency types may not correctly constrain predecessors. For SS dependencies, the predecessor's late start (LS) should be constrained, but the current algorithm may incorrectly constrain late finish (LF).
+**Problem:** The backward pass was treating all dependencies as FS, computing `LF(pred) = min(LS(succ))` regardless of dependency type. This caused incorrect slack calculations for SS/FF/SF dependencies.
 
-**Status:** Identified during testing. The forward pass works correctly, but backward pass edge cases for non-FS dependencies may produce unexpected slack calculations. Tests simplified to cover code paths without asserting specific behavior.
+**Root Cause:** The `successors_map` only stored successor IDs without dependency type information, and the backward pass code used a simplified formula.
 
-**Impact:** Low - FS dependencies (the vast majority of real-world cases) work correctly.
+**Fix:** Enhanced backward pass to look up the actual dependency type from the successor task's `depends` list and apply the correct formula:
+- **FS:** `LF(pred) <= LS(succ) - lag`
+- **SS:** `LF(pred) <= LS(succ) - lag + duration(pred)`
+- **FF:** `LF(pred) <= LF(succ) - lag`
+- **SF:** `LF(pred) <= LF(succ) - lag + duration(pred)`
+
+**Tests Added:** 5 new tests in `crates/utf8proj-solver/tests/cpm_correctness.rs`:
+- `ff_forward_pass_accounts_for_successor_duration`
+- `ss_backward_pass_accounts_for_predecessor_duration`
+- `ss_with_lag_forward_pass`
+- `ff_with_lag_forward_pass`
+- `mixed_dependency_types_correct_critical_path`
+
+**Impact:** Correct slack calculations for all dependency types, enabling accurate critical path analysis for projects using SS/FF/SF dependencies.
 
 ## Remaining Work
 
