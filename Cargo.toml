@@ -9,6 +9,7 @@ members = [
     "crates/utf8proj-solver",
     "crates/utf8proj-render",
     "crates/utf8proj-cli",
+    "crates/utf8proj-lsp",
     "crates/utf8proj-wasm",
 ]
 
