@@ -1,0 +1,17 @@
+warning[W001]: task 'development' is assigned to abstract profile 'senior_developer'
+  --> h003_unused_trait.proj
+   |
+   = cost range is $130.0 - $195.0 (40% spread)
+   = hint: assign a concrete resource to lock in exact cost
+
+hint[H003]: trait 'contractor' is defined but never referenced
+  --> h003_unused_trait.proj
+   = hint: add to profile traits or remove if no longer needed
+
+info[I001]: project 'H003 Test' scheduled successfully
+   |
+   = duration: 5 days (2025-01-06 to 2025-01-10)
+   = cost: $650.0 - $975.0 (expected: $812.5)
+   = tasks: 1 (0 concrete, 1 abstract assignments)
+   = critical path: 1 tasks
+

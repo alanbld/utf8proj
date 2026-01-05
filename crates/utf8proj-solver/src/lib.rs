@@ -28,9 +28,15 @@ use chrono::{NaiveDate, TimeDelta};
 use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
-    Assignment, Calendar, DependencyType, Duration, Explanation, FeasibilityResult, Project,
-    Schedule, ScheduleError, ScheduledTask, Scheduler, Task, TaskConstraint, TaskId, TaskStatus,
+    Assignment, Calendar, CostRange, DependencyType, Duration, Explanation, FeasibilityResult,
+    Money, Project, RateRange, ResourceProfile, Schedule, ScheduleError, ScheduledTask, Scheduler,
+    Task, TaskConstraint, TaskId, TaskStatus,
+    // Diagnostics
+    Diagnostic, DiagnosticCode, DiagnosticEmitter,
 };
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use std::path::PathBuf;
 
 pub mod bdd;
 pub mod cpm;
@@ -435,6 +441,719 @@ fn topological_sort(
 }
 
 // =============================================================================
+// RFC-0001: Cost Calculation Helpers
+// =============================================================================
+
+/// Result of resolving a resource reference (could be resource or profile)
+enum ResolvedAssignment<'a> {
+    /// Concrete resource with fixed rate
+    Concrete {
+        rate: Option<&'a Money>,
+        #[allow(dead_code)]
+        resource_id: &'a str,
+    },
+    /// Abstract profile with rate range
+    Abstract {
+        rate_range: Option<RateRange>,
+        #[allow(dead_code)]
+        profile_id: &'a str,
+    },
+}
+
+/// Resolve a resource_id to either a concrete Resource or abstract ResourceProfile
+fn resolve_assignment<'a>(
+    resource_id: &'a str,
+    project: &'a Project,
+) -> ResolvedAssignment<'a> {
+    // First, check if it's a concrete resource
+    if let Some(resource) = project.get_resource(resource_id) {
+        return ResolvedAssignment::Concrete {
+            rate: resource.rate.as_ref(),
+            resource_id,
+        };
+    }
+
+    // Otherwise, check if it's a profile
+    if let Some(profile) = project.get_profile(resource_id) {
+        let rate_range = resolve_profile_rate(profile, project);
+        return ResolvedAssignment::Abstract {
+            rate_range,
+            profile_id: resource_id,
+        };
+    }
+
+    // Unknown - treat as concrete with no rate
+    ResolvedAssignment::Concrete {
+        rate: None,
+        resource_id,
+    }
+}
+
+/// Resolve the effective rate range for a profile, applying trait multipliers
+fn resolve_profile_rate(profile: &ResourceProfile, project: &Project) -> Option<RateRange> {
+    // Get base rate from profile or inherited from parent
+    let base_rate = get_profile_rate_range(profile, project)?;
+
+    // Calculate combined trait multiplier (multiplicative composition)
+    let trait_multiplier = calculate_trait_multiplier(&profile.traits, project);
+
+    // Apply multiplier to the range
+    Some(base_rate.apply_multiplier(trait_multiplier))
+}
+
+/// Get the rate range for a profile, walking up the specialization chain if needed
+fn get_profile_rate_range(profile: &ResourceProfile, project: &Project) -> Option<RateRange> {
+    // If this profile has a rate, use it
+    if let Some(ref rate) = profile.rate {
+        return match rate {
+            utf8proj_core::ResourceRate::Range(range) => Some(range.clone()),
+            utf8proj_core::ResourceRate::Fixed(money) => {
+                // Convert fixed rate to collapsed range
+                Some(RateRange::new(money.amount, money.amount))
+            }
+        };
+    }
+
+    // Otherwise, try to inherit from parent profile
+    if let Some(ref parent_id) = profile.specializes {
+        if let Some(parent) = project.get_profile(parent_id) {
+            return get_profile_rate_range(parent, project);
+        }
+    }
+
+    None
+}
+
+/// Calculate the combined trait multiplier (multiplicative)
+fn calculate_trait_multiplier(trait_ids: &[String], project: &Project) -> f64 {
+    let mut multiplier = 1.0;
+    for trait_id in trait_ids {
+        if let Some(t) = project.get_trait(trait_id) {
+            multiplier *= t.rate_multiplier;
+        }
+    }
+    multiplier
+}
+
+/// Calculate cost range for a single assignment
+fn calculate_assignment_cost(
+    resource_id: &str,
+    units: f32,
+    duration_days: i64,
+    project: &Project,
+) -> (Option<CostRange>, bool) {
+    let resolved = resolve_assignment(resource_id, project);
+
+    match resolved {
+        ResolvedAssignment::Concrete { rate, .. } => {
+            if let Some(money) = rate {
+                // Fixed cost: rate × units × days
+                let units_dec = Decimal::from_f32(units).unwrap_or(Decimal::ONE);
+                let days_dec = Decimal::from(duration_days);
+                let cost = money.amount * units_dec * days_dec;
+                let cost_range = CostRange::fixed(cost, &money.currency);
+                (Some(cost_range), false)
+            } else {
+                (None, false)
+            }
+        }
+        ResolvedAssignment::Abstract { rate_range, .. } => {
+            if let Some(range) = rate_range {
+                // Cost range: (min, expected, max) × units × days
+                let units_dec = Decimal::from_f32(units).unwrap_or(Decimal::ONE);
+                let days_dec = Decimal::from(duration_days);
+                let factor = units_dec * days_dec;
+                let min_cost = range.min * factor;
+                let max_cost = range.max * factor;
+                let expected_cost = range.expected() * factor;
+                let currency = range.currency.clone().unwrap_or_else(|| project.currency.clone());
+
+                let cost_range = CostRange::new(min_cost, expected_cost, max_cost, currency);
+                (Some(cost_range), true)
+            } else {
+                (None, true)
+            }
+        }
+    }
+}
+
+/// Aggregate cost ranges from multiple assignments
+fn aggregate_cost_ranges(ranges: &[CostRange]) -> Option<CostRange> {
+    if ranges.is_empty() {
+        return None;
+    }
+
+    let mut total = ranges[0].clone();
+    for range in &ranges[1..] {
+        total = total.add(range);
+    }
+    Some(total)
+}
+
+// =============================================================================
+// Diagnostic Analysis
+// =============================================================================
+
+/// Configuration for diagnostic analysis
+#[derive(Debug, Clone)]
+pub struct AnalysisConfig {
+    /// Source file path for diagnostic locations
+    pub file: Option<PathBuf>,
+    /// Cost spread threshold for W002 (percentage, default 50)
+    pub cost_spread_threshold: f64,
+}
+
+impl Default for AnalysisConfig {
+    fn default() -> Self {
+        Self {
+            file: None,
+            cost_spread_threshold: 50.0,
+        }
+    }
+}
+
+impl AnalysisConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_file(mut self, file: impl Into<PathBuf>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
+
+    pub fn with_cost_spread_threshold(mut self, threshold: f64) -> Self {
+        self.cost_spread_threshold = threshold;
+        self
+    }
+}
+
+/// Analyze a project and emit diagnostics
+///
+/// This function performs semantic analysis on a project and emits
+/// diagnostics for issues like abstract assignments, unused profiles, etc.
+///
+/// Call this after parsing but before or during scheduling.
+pub fn analyze_project(
+    project: &Project,
+    schedule: Option<&Schedule>,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // E001: Circular specialization
+    check_circular_specialization(project, config, emitter);
+
+    // W003: Unknown traits (check before E002 since it affects rate resolution)
+    check_unknown_traits(project, config, emitter);
+
+    // E002: Profile without rate (cost-bearing)
+    check_profiles_without_rate(project, config, emitter);
+
+    // Collect assignment info for task-level diagnostics
+    let assignments_info = collect_assignment_info(project);
+
+    // W001: Abstract assignments
+    check_abstract_assignments(project, &assignments_info, config, emitter);
+
+    // H001: Mixed abstraction level
+    check_mixed_abstraction(project, &assignments_info, config, emitter);
+
+    // W002: Wide cost range (requires schedule)
+    if let Some(sched) = schedule {
+        check_wide_cost_ranges(project, sched, config, emitter);
+    }
+
+    // H002: Unused profiles
+    check_unused_profiles(project, &assignments_info, config, emitter);
+
+    // H003: Unused traits
+    check_unused_traits(project, config, emitter);
+
+    // I001: Project cost summary (requires schedule)
+    if let Some(sched) = schedule {
+        emit_project_summary(project, sched, &assignments_info, config, emitter);
+    }
+}
+
+/// Info about assignments in the project
+struct AssignmentInfo {
+    /// Map from resource/profile ID to list of (task_id, is_abstract)
+    assignments: HashMap<String, Vec<(String, bool)>>,
+    /// Set of profile IDs that are used in assignments
+    used_profiles: std::collections::HashSet<String>,
+    /// Set of trait IDs that are referenced by profiles
+    used_traits: std::collections::HashSet<String>,
+    /// Tasks with abstract assignments
+    tasks_with_abstract: Vec<String>,
+    /// Tasks with mixed (concrete + abstract) assignments
+    tasks_with_mixed: Vec<String>,
+}
+
+fn collect_assignment_info(project: &Project) -> AssignmentInfo {
+    let mut info = AssignmentInfo {
+        assignments: HashMap::new(),
+        used_profiles: std::collections::HashSet::new(),
+        used_traits: std::collections::HashSet::new(),
+        tasks_with_abstract: Vec::new(),
+        tasks_with_mixed: Vec::new(),
+    };
+
+    // Collect all traits referenced by profiles
+    for profile in &project.profiles {
+        for trait_id in &profile.traits {
+            info.used_traits.insert(trait_id.clone());
+        }
+    }
+
+    // Collect assignments from all tasks (flattened)
+    fn collect_from_tasks(
+        tasks: &[Task],
+        prefix: &str,
+        project: &Project,
+        info: &mut AssignmentInfo,
+    ) {
+        for task in tasks {
+            let qualified_id = if prefix.is_empty() {
+                task.id.clone()
+            } else {
+                format!("{}.{}", prefix, task.id)
+            };
+
+            let mut has_concrete = false;
+            let mut has_abstract = false;
+
+            for res_ref in &task.assigned {
+                let is_abstract = project.get_profile(&res_ref.resource_id).is_some();
+
+                if is_abstract {
+                    has_abstract = true;
+                    info.used_profiles.insert(res_ref.resource_id.clone());
+                } else {
+                    has_concrete = true;
+                }
+
+                info.assignments
+                    .entry(res_ref.resource_id.clone())
+                    .or_default()
+                    .push((qualified_id.clone(), is_abstract));
+            }
+
+            if has_abstract {
+                info.tasks_with_abstract.push(qualified_id.clone());
+            }
+            if has_concrete && has_abstract {
+                info.tasks_with_mixed.push(qualified_id.clone());
+            }
+
+            // Recurse into children
+            if !task.children.is_empty() {
+                collect_from_tasks(&task.children, &qualified_id, project, info);
+            }
+        }
+    }
+
+    collect_from_tasks(&project.tasks, "", project, &mut info);
+    info
+}
+
+/// E001: Check for circular specialization in profile inheritance
+fn check_circular_specialization(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for profile in &project.profiles {
+        if let Some(cycle) = detect_specialization_cycle(profile, project) {
+            let cycle_str = cycle.join(" -> ");
+            emitter.emit(
+                Diagnostic::error(
+                    DiagnosticCode::E001CircularSpecialization,
+                    format!("circular specialization detected: {}", cycle_str),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!("cycle: {}", cycle_str))
+                .with_hint("remove one specialization to break the cycle"),
+            );
+        }
+    }
+}
+
+/// Detect if a profile's specialization chain contains a cycle
+fn detect_specialization_cycle(profile: &ResourceProfile, project: &Project) -> Option<Vec<String>> {
+    let mut visited = std::collections::HashSet::new();
+    let mut path = Vec::new();
+    let mut current = Some(profile);
+
+    while let Some(p) = current {
+        if visited.contains(&p.id) {
+            // Found a cycle - extract the cycle portion
+            let cycle_start = path.iter().position(|id| id == &p.id).unwrap();
+            let mut cycle: Vec<String> = path[cycle_start..].to_vec();
+            cycle.push(p.id.clone());
+            return Some(cycle);
+        }
+
+        visited.insert(p.id.clone());
+        path.push(p.id.clone());
+
+        current = p.specializes.as_ref().and_then(|s| project.get_profile(s));
+    }
+
+    None
+}
+
+/// W003: Check for unknown trait references
+fn check_unknown_traits(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let defined_traits: std::collections::HashSet<_> =
+        project.traits.iter().map(|t| t.id.as_str()).collect();
+
+    for profile in &project.profiles {
+        for trait_id in &profile.traits {
+            if !defined_traits.contains(trait_id.as_str()) {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::W003UnknownTrait,
+                        format!(
+                            "profile '{}' references unknown trait '{}'",
+                            profile.id, trait_id
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("unknown traits are ignored (multiplier = 1.0)")
+                    .with_hint("define the trait or remove the reference"),
+                );
+            }
+        }
+    }
+}
+
+/// E002: Check for profiles without rate that are used in assignments
+fn check_profiles_without_rate(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // First, collect which profiles are actually assigned to tasks
+    let mut assigned_profiles: HashMap<String, Vec<String>> = HashMap::new();
+
+    fn collect_assignments(tasks: &[Task], prefix: &str, map: &mut HashMap<String, Vec<String>>) {
+        for task in tasks {
+            let qualified_id = if prefix.is_empty() {
+                task.id.clone()
+            } else {
+                format!("{}.{}", prefix, task.id)
+            };
+
+            for res_ref in &task.assigned {
+                map.entry(res_ref.resource_id.clone())
+                    .or_default()
+                    .push(qualified_id.clone());
+            }
+
+            if !task.children.is_empty() {
+                collect_assignments(&task.children, &qualified_id, map);
+            }
+        }
+    }
+
+    collect_assignments(&project.tasks, "", &mut assigned_profiles);
+
+    // Check each profile
+    for profile in &project.profiles {
+        // Skip profiles that aren't assigned
+        let tasks = match assigned_profiles.get(&profile.id) {
+            Some(t) if !t.is_empty() => t,
+            _ => continue,
+        };
+
+        // Check if profile has a rate (directly or inherited)
+        let has_rate = get_profile_rate_range(profile, project).is_some();
+
+        if !has_rate {
+            let task_list = if tasks.len() <= 3 {
+                tasks.join(", ")
+            } else {
+                format!("{}, ... ({} tasks)", tasks[..2].join(", "), tasks.len())
+            };
+
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::E002ProfileWithoutRate,
+                    format!(
+                        "profile '{}' has no rate defined but is assigned to tasks",
+                        profile.id
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!("cost calculations will be incomplete for: {}", task_list))
+                .with_hint("add 'rate:' or 'rate_range:' block, or specialize from a profile with rate"),
+            );
+        }
+    }
+}
+
+/// W001: Check for abstract assignments
+fn check_abstract_assignments(
+    project: &Project,
+    info: &AssignmentInfo,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // Flatten tasks to get task details
+    let mut task_map: HashMap<String, &Task> = HashMap::new();
+    flatten_tasks(&project.tasks, &mut task_map);
+
+    for task_id in &info.tasks_with_abstract {
+        if let Some(task) = task_map.get(task_id) {
+            for res_ref in &task.assigned {
+                if let Some(profile) = project.get_profile(&res_ref.resource_id) {
+                    // Calculate the cost range for this assignment
+                    let rate_range = resolve_profile_rate(profile, project);
+                    let cost_note = if let Some(range) = rate_range {
+                        let spread = range.spread_percent();
+                        format!(
+                            "cost range is ${} - ${} ({:.0}% spread)",
+                            range.min, range.max, spread
+                        )
+                    } else {
+                        "cost range is unknown (no rate defined)".to_string()
+                    };
+
+                    emitter.emit(
+                        Diagnostic::new(
+                            DiagnosticCode::W001AbstractAssignment,
+                            format!(
+                                "task '{}' is assigned to abstract profile '{}'",
+                                task_id, res_ref.resource_id
+                            ),
+                        )
+                        .with_file(config.file.clone().unwrap_or_default())
+                        .with_note(cost_note)
+                        .with_hint("assign a concrete resource to lock in exact cost"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// H001: Check for mixed abstraction level in assignments
+fn check_mixed_abstraction(
+    project: &Project,
+    info: &AssignmentInfo,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let mut task_map: HashMap<String, &Task> = HashMap::new();
+    flatten_tasks(&project.tasks, &mut task_map);
+
+    for task_id in &info.tasks_with_mixed {
+        if let Some(task) = task_map.get(task_id) {
+            let _concrete: Vec<_> = task
+                .assigned
+                .iter()
+                .filter(|r| project.get_profile(&r.resource_id).is_none())
+                .map(|r| r.resource_id.as_str())
+                .collect();
+            let abstract_: Vec<_> = task
+                .assigned
+                .iter()
+                .filter(|r| project.get_profile(&r.resource_id).is_some())
+                .map(|r| r.resource_id.as_str())
+                .collect();
+
+            if !abstract_.is_empty() {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::H001MixedAbstraction,
+                        format!("task '{}' mixes concrete and abstract assignments", task_id),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("this is valid but may indicate incomplete refinement")
+                    .with_hint(format!(
+                        "consider refining '{}' to a concrete resource",
+                        abstract_.join("', '")
+                    )),
+                );
+            }
+        }
+    }
+}
+
+/// W002: Check for wide cost ranges
+fn check_wide_cost_ranges(
+    project: &Project,
+    schedule: &Schedule,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for (task_id, scheduled_task) in &schedule.tasks {
+        if let Some(ref cost_range) = scheduled_task.cost_range {
+            let spread = cost_range.spread_percent();
+            if spread > config.cost_spread_threshold {
+                // Find contributing factors
+                let mut contributors: Vec<String> = Vec::new();
+
+                // Get task details
+                let mut task_map: HashMap<String, &Task> = HashMap::new();
+                flatten_tasks(&project.tasks, &mut task_map);
+
+                if let Some(task) = task_map.get(task_id) {
+                    for res_ref in &task.assigned {
+                        if let Some(profile) = project.get_profile(&res_ref.resource_id) {
+                            if let Some(rate) = resolve_profile_rate(profile, project) {
+                                contributors.push(format!(
+                                    "{}: ${} - ${}/day",
+                                    res_ref.resource_id, rate.min, rate.max
+                                ));
+                            }
+                            for trait_id in &profile.traits {
+                                if let Some(t) = project.get_trait(trait_id) {
+                                    if (t.rate_multiplier - 1.0).abs() > 0.01 {
+                                        contributors.push(format!(
+                                            "{} trait: {}x multiplier",
+                                            trait_id, t.rate_multiplier
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut diag = Diagnostic::new(
+                    DiagnosticCode::W002WideCostRange,
+                    format!(
+                        "task '{}' has wide cost uncertainty ({:.0}% spread)",
+                        task_id, spread
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!(
+                    "cost range: ${} - ${} (expected: ${})",
+                    cost_range.min, cost_range.max, cost_range.expected
+                ));
+
+                if !contributors.is_empty() {
+                    diag = diag.with_note(format!("contributors: {}", contributors.join(", ")));
+                }
+
+                diag = diag.with_hint("narrow the profile rate range or assign concrete resources");
+
+                emitter.emit(diag);
+            }
+        }
+    }
+}
+
+/// H002: Check for unused profiles
+fn check_unused_profiles(
+    project: &Project,
+    info: &AssignmentInfo,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for profile in &project.profiles {
+        if !info.used_profiles.contains(&profile.id) {
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::H002UnusedProfile,
+                    format!("profile '{}' is defined but never assigned", profile.id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("assign to tasks or remove if no longer needed"),
+            );
+        }
+    }
+}
+
+/// H003: Check for unused traits
+fn check_unused_traits(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // Collect all traits referenced by any profile
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for profile in &project.profiles {
+        for trait_id in &profile.traits {
+            used.insert(trait_id.clone());
+        }
+    }
+
+    for t in &project.traits {
+        if !used.contains(&t.id) {
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::H003UnusedTrait,
+                    format!("trait '{}' is defined but never referenced", t.id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("add to profile traits or remove if no longer needed"),
+            );
+        }
+    }
+}
+
+/// I001: Emit project cost summary
+fn emit_project_summary(
+    project: &Project,
+    schedule: &Schedule,
+    _info: &AssignmentInfo,
+    _config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let concrete_count = schedule
+        .tasks
+        .values()
+        .filter(|t| !t.has_abstract_assignments && !t.assignments.is_empty())
+        .count();
+    let abstract_count = schedule
+        .tasks
+        .values()
+        .filter(|t| t.has_abstract_assignments)
+        .count();
+
+    let cost_str = if let Some(ref cost) = schedule.total_cost_range {
+        if cost.is_fixed() {
+            format!("${}", cost.expected)
+        } else {
+            format!(
+                "${} - ${} (expected: ${})",
+                cost.min, cost.max, cost.expected
+            )
+        }
+    } else {
+        "unknown (no cost data)".to_string()
+    };
+
+    emitter.emit(
+        Diagnostic::new(
+            DiagnosticCode::I001ProjectCostSummary,
+            format!("project '{}' scheduled successfully", project.name),
+        )
+        .with_note(format!(
+            "duration: {} days ({} to {})",
+            schedule.project_duration.as_days() as i64,
+            project.start,
+            schedule.project_end
+        ))
+        .with_note(format!("cost: {}", cost_str))
+        .with_note(format!(
+            "tasks: {} ({} concrete, {} abstract assignments)",
+            schedule.tasks.len(),
+            concrete_count,
+            abstract_count
+        ))
+        .with_note(format!("critical path: {} tasks", schedule.critical_path.len())),
+    );
+}
+
+// =============================================================================
 // CPM Implementation
 // =============================================================================
 
@@ -451,6 +1170,7 @@ impl Scheduler for CpmSolver {
                 project_duration: Duration::zero(),
                 project_end: project.start,
                 total_cost: None,
+                total_cost_range: None,
             });
         }
 
@@ -692,19 +1412,48 @@ impl Scheduler for CpmSolver {
                 start_date // Milestone
             };
 
-            // Build assignments (simplified - one assignment per assigned resource)
-            let assignments: Vec<Assignment> = node
-                .task
-                .assigned
-                .iter()
-                .map(|res_ref| Assignment {
+            // Build assignments with RFC-0001 cost calculation
+            let mut assignments: Vec<Assignment> = Vec::new();
+            let mut task_cost_ranges: Vec<CostRange> = Vec::new();
+            let mut has_abstract = false;
+
+            for res_ref in &node.task.assigned {
+                let (cost_range, is_abstract) = calculate_assignment_cost(
+                    &res_ref.resource_id,
+                    res_ref.units,
+                    node.duration_days,
+                    project,
+                );
+
+                if is_abstract {
+                    has_abstract = true;
+                }
+
+                // Track cost ranges for aggregation
+                if let Some(ref range) = cost_range {
+                    task_cost_ranges.push(range.clone());
+                }
+
+                // For concrete assignments, extract fixed cost
+                let fixed_cost = if !is_abstract {
+                    cost_range.as_ref().map(|r| Money::new(r.expected, &r.currency))
+                } else {
+                    None
+                };
+
+                assignments.push(Assignment {
                     resource_id: res_ref.resource_id.clone(),
                     start: start_date,
                     finish: finish_date,
                     units: res_ref.units,
-                    cost: None, // Cost calculation would go here
-                })
-                .collect();
+                    cost: fixed_cost,
+                    cost_range: cost_range.clone(),
+                    is_abstract,
+                });
+            }
+
+            // Aggregate task-level cost range
+            let task_cost_range = aggregate_cost_ranges(&task_cost_ranges);
 
             // Progress tracking calculations
             let task = node.task;
@@ -755,9 +1504,19 @@ impl Scheduler for CpmSolver {
                     remaining_duration: remaining,
                     percent_complete,
                     status,
+                    // RFC-0001: Cost range fields
+                    cost_range: task_cost_range,
+                    has_abstract_assignments: has_abstract,
                 },
             );
         }
+
+        // Aggregate project-level cost ranges from all tasks
+        let all_task_cost_ranges: Vec<CostRange> = scheduled_tasks
+            .values()
+            .filter_map(|st| st.cost_range.clone())
+            .collect();
+        let total_cost_range = aggregate_cost_ranges(&all_task_cost_ranges);
 
         // Step 10: Build final schedule
         // project_end is the last working day of the project
@@ -772,7 +1531,8 @@ impl Scheduler for CpmSolver {
             critical_path,
             project_duration: Duration::days(project_end_days),
             project_end: project_end_date,
-            total_cost: None, // Cost calculation would go here
+            total_cost: None, // For fully concrete projects
+            total_cost_range, // RFC-0001: Cost range for abstract assignments
         };
 
         // Step 11: Apply resource leveling if enabled
@@ -1357,5 +2117,538 @@ mod tests {
         // Should still schedule without error
         assert!(schedule.tasks.contains_key("long_task"));
         assert_eq!(schedule.tasks["long_task"].duration, Duration::days(500));
+    }
+
+    // =============================================================================
+    // RFC-0001: Progressive Resource Refinement Tests
+    // =============================================================================
+
+    #[test]
+    fn trait_multiplier_single() {
+        use utf8proj_core::Trait;
+
+        let mut project = Project::new("Test");
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+
+        let multiplier = calculate_trait_multiplier(&["senior".to_string()], &project);
+        assert!((multiplier - 1.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn trait_multiplier_multiplicative() {
+        use utf8proj_core::Trait;
+
+        let mut project = Project::new("Test");
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project.traits.push(Trait::new("contractor").rate_multiplier(1.2));
+
+        let multiplier = calculate_trait_multiplier(
+            &["senior".to_string(), "contractor".to_string()],
+            &project,
+        );
+        // 1.3 × 1.2 = 1.56
+        assert!((multiplier - 1.56).abs() < 0.001);
+    }
+
+    #[test]
+    fn trait_multiplier_unknown_trait_ignored() {
+        use utf8proj_core::Trait;
+
+        let mut project = Project::new("Test");
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+
+        let multiplier = calculate_trait_multiplier(
+            &["senior".to_string(), "unknown".to_string()],
+            &project,
+        );
+        // Unknown trait has no effect (multiplied by 1.0 implicitly)
+        assert!((multiplier - 1.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn resolve_profile_rate_basic() {
+        let mut project = Project::new("Test");
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(50), Decimal::from(100))),
+        );
+
+        let profile = project.get_profile("developer").unwrap();
+        let rate = resolve_profile_rate(profile, &project).unwrap();
+
+        assert_eq!(rate.min, Decimal::from(50));
+        assert_eq!(rate.max, Decimal::from(100));
+    }
+
+    #[test]
+    fn resolve_profile_rate_with_trait_multiplier() {
+        use utf8proj_core::Trait;
+
+        let mut project = Project::new("Test");
+        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200)))
+                .with_trait("senior"),
+        );
+
+        let profile = project.get_profile("developer").unwrap();
+        let rate = resolve_profile_rate(profile, &project).unwrap();
+
+        // 100 × 1.5 = 150, 200 × 1.5 = 300
+        assert_eq!(rate.min, Decimal::from(150));
+        assert_eq!(rate.max, Decimal::from(300));
+    }
+
+    #[test]
+    fn resolve_profile_rate_inherited() {
+        let mut project = Project::new("Test");
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(80), Decimal::from(120))),
+        );
+        project.profiles.push(
+            ResourceProfile::new("senior_developer")
+                .specializes("developer"),
+        );
+
+        let profile = project.get_profile("senior_developer").unwrap();
+        let rate = resolve_profile_rate(profile, &project).unwrap();
+
+        // Inherits rate from parent "developer"
+        assert_eq!(rate.min, Decimal::from(80));
+        assert_eq!(rate.max, Decimal::from(120));
+    }
+
+    #[test]
+    fn resolve_assignment_concrete_resource() {
+        use utf8proj_core::Resource;
+
+        let mut project = Project::new("Test");
+        project.resources.push(
+            Resource::new("alice").rate(Money::new(Decimal::from(75), "USD")),
+        );
+
+        match resolve_assignment("alice", &project) {
+            ResolvedAssignment::Concrete { rate, resource_id } => {
+                assert_eq!(resource_id, "alice");
+                assert!(rate.is_some());
+                assert_eq!(rate.unwrap().amount, Decimal::from(75));
+            }
+            _ => panic!("Expected concrete assignment"),
+        }
+    }
+
+    #[test]
+    fn resolve_assignment_abstract_profile() {
+        let mut project = Project::new("Test");
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(60), Decimal::from(100))),
+        );
+
+        match resolve_assignment("developer", &project) {
+            ResolvedAssignment::Abstract { rate_range, profile_id } => {
+                assert_eq!(profile_id, "developer");
+                let range = rate_range.unwrap();
+                assert_eq!(range.min, Decimal::from(60));
+                assert_eq!(range.max, Decimal::from(100));
+            }
+            _ => panic!("Expected abstract assignment"),
+        }
+    }
+
+    #[test]
+    fn calculate_cost_concrete() {
+        use utf8proj_core::Resource;
+
+        let mut project = Project::new("Test");
+        project.resources.push(
+            Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")),
+        );
+
+        let (cost, is_abstract) = calculate_assignment_cost("alice", 1.0, 5, &project);
+
+        assert!(!is_abstract);
+        let cost = cost.unwrap();
+        // 100 × 1.0 × 5 = 500
+        assert_eq!(cost.min, Decimal::from(500));
+        assert_eq!(cost.max, Decimal::from(500));
+        assert_eq!(cost.expected, Decimal::from(500));
+    }
+
+    #[test]
+    fn calculate_cost_abstract() {
+        let mut project = Project::new("Test");
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(50), Decimal::from(100))),
+        );
+
+        let (cost, is_abstract) = calculate_assignment_cost("developer", 1.0, 10, &project);
+
+        assert!(is_abstract);
+        let cost = cost.unwrap();
+        // min: 50 × 1.0 × 10 = 500, max: 100 × 1.0 × 10 = 1000
+        assert_eq!(cost.min, Decimal::from(500));
+        assert_eq!(cost.max, Decimal::from(1000));
+        // expected = midpoint = 750
+        assert_eq!(cost.expected, Decimal::from(750));
+    }
+
+    #[test]
+    fn calculate_cost_with_partial_allocation() {
+        use utf8proj_core::Resource;
+
+        let mut project = Project::new("Test");
+        project.resources.push(
+            Resource::new("bob").rate(Money::new(Decimal::from(200), "EUR")),
+        );
+
+        let (cost, is_abstract) = calculate_assignment_cost("bob", 0.5, 4, &project);
+
+        assert!(!is_abstract);
+        let cost = cost.unwrap();
+        // 200 × 0.5 × 4 = 400
+        assert_eq!(cost.min, Decimal::from(400));
+        assert_eq!(cost.currency, "EUR");
+    }
+
+    #[test]
+    fn aggregate_cost_ranges_single() {
+        let ranges = vec![CostRange::fixed(Decimal::from(100), "USD")];
+        let total = aggregate_cost_ranges(&ranges).unwrap();
+
+        assert_eq!(total.min, Decimal::from(100));
+        assert_eq!(total.max, Decimal::from(100));
+    }
+
+    #[test]
+    fn aggregate_cost_ranges_multiple() {
+        let ranges = vec![
+            CostRange::new(
+                Decimal::from(100),
+                Decimal::from(150),
+                Decimal::from(200),
+                "USD".to_string(),
+            ),
+            CostRange::new(
+                Decimal::from(50),
+                Decimal::from(75),
+                Decimal::from(100),
+                "USD".to_string(),
+            ),
+        ];
+        let total = aggregate_cost_ranges(&ranges).unwrap();
+
+        assert_eq!(total.min, Decimal::from(150));
+        assert_eq!(total.expected, Decimal::from(225));
+        assert_eq!(total.max, Decimal::from(300));
+    }
+
+    #[test]
+    fn schedule_with_profile_assignment() {
+        let mut project = Project::new("RFC-0001 Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.tasks = vec![
+            Task::new("task1")
+                .duration(Duration::days(5))
+                .assign("developer"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let task = &schedule.tasks["task1"];
+        assert!(task.has_abstract_assignments);
+        assert!(task.cost_range.is_some());
+
+        let cost = task.cost_range.as_ref().unwrap();
+        // 100 × 1.0 × 5 = 500 min, 200 × 1.0 × 5 = 1000 max
+        assert_eq!(cost.min, Decimal::from(500));
+        assert_eq!(cost.max, Decimal::from(1000));
+    }
+
+    #[test]
+    fn schedule_with_concrete_assignment() {
+        use utf8proj_core::Resource;
+
+        let mut project = Project::new("Concrete Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources.push(
+            Resource::new("alice").rate(Money::new(Decimal::from(150), "USD")),
+        );
+        project.tasks = vec![
+            Task::new("task1")
+                .duration(Duration::days(4))
+                .assign("alice"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let task = &schedule.tasks["task1"];
+        assert!(!task.has_abstract_assignments);
+        assert!(task.cost_range.is_some());
+
+        let cost = task.cost_range.as_ref().unwrap();
+        // 150 × 1.0 × 4 = 600 (fixed)
+        assert_eq!(cost.min, Decimal::from(600));
+        assert_eq!(cost.max, Decimal::from(600));
+    }
+
+    #[test]
+    fn schedule_aggregates_total_cost_range() {
+        let mut project = Project::new("Aggregate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(150))),
+        );
+        project.tasks = vec![
+            Task::new("task1")
+                .duration(Duration::days(2))
+                .assign("developer"),
+            Task::new("task2")
+                .duration(Duration::days(3))
+                .assign("developer")
+                .depends_on("task1"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        assert!(schedule.total_cost_range.is_some());
+        let total = schedule.total_cost_range.as_ref().unwrap();
+        // task1: 100×2=200 min, 150×2=300 max
+        // task2: 100×3=300 min, 150×3=450 max
+        // total: 500 min, 750 max
+        assert_eq!(total.min, Decimal::from(500));
+        assert_eq!(total.max, Decimal::from(750));
+    }
+
+    // =============================================================================
+    // Diagnostic Analysis Tests
+    // =============================================================================
+
+    #[test]
+    fn analyze_detects_circular_specialization() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Cycle Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(ResourceProfile::new("a").specializes("b"));
+        project.profiles.push(ResourceProfile::new("b").specializes("c"));
+        project.profiles.push(ResourceProfile::new("c").specializes("a"));
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.has_errors());
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::E001CircularSpecialization));
+    }
+
+    #[test]
+    fn analyze_detects_unknown_trait() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Unknown Trait Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("dev")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200)))
+                .with_trait("nonexistent"),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W003UnknownTrait));
+    }
+
+    #[test]
+    fn analyze_detects_profile_without_rate() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("No Rate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(ResourceProfile::new("dev")); // No rate
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(5)).assign("dev"),
+        ];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::E002ProfileWithoutRate));
+    }
+
+    #[test]
+    fn analyze_detects_abstract_assignment() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Abstract Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(5)).assign("developer"),
+        ];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W001AbstractAssignment));
+    }
+
+    #[test]
+    fn analyze_detects_mixed_abstraction() {
+        use utf8proj_core::{CollectingEmitter, Resource};
+
+        let mut project = Project::new("Mixed Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources.push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.tasks = vec![
+            Task::new("task1")
+                .duration(Duration::days(5))
+                .assign("alice")
+                .assign("developer"),
+        ];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H001MixedAbstraction));
+    }
+
+    #[test]
+    fn analyze_detects_unused_profile() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Unused Profile Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("designer")
+                .rate_range(RateRange::new(Decimal::from(80), Decimal::from(120))),
+        );
+        // No tasks use the profile
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H002UnusedProfile));
+    }
+
+    #[test]
+    fn analyze_detects_unused_trait() {
+        use utf8proj_core::{CollectingEmitter, Trait};
+
+        let mut project = Project::new("Unused Trait Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        // No profiles use the trait
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H003UnusedTrait));
+    }
+
+    #[test]
+    fn analyze_emits_project_summary() {
+        use utf8proj_core::{CollectingEmitter, Resource};
+
+        let mut project = Project::new("Summary Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources.push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(5)).assign("alice"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::I001ProjectCostSummary));
+    }
+
+    #[test]
+    fn analyze_detects_wide_cost_range() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Wide Range Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // Rate range 50-200, expected=125, half_spread=75, spread=60% (exceeds 50%)
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(50), Decimal::from(200))),
+        );
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(10)).assign("developer"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default().with_cost_spread_threshold(50.0);
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W002WideCostRange));
+    }
+
+    #[test]
+    fn analyze_no_wide_cost_range_under_threshold() {
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Narrow Range Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // Rate range 90-110 has ~20% spread (under 50% threshold)
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(90), Decimal::from(110))),
+        );
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(10)).assign("developer"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        assert!(!emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W002WideCostRange));
+    }
+
+    #[test]
+    fn analysis_config_builder() {
+        let config = AnalysisConfig::new()
+            .with_file("test.proj")
+            .with_cost_spread_threshold(75.0);
+
+        assert_eq!(config.file, Some(PathBuf::from("test.proj")));
+        assert_eq!(config.cost_spread_threshold, 75.0);
     }
 }

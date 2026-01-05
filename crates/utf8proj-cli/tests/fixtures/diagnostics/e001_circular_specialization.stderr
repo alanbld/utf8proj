@@ -1,0 +1,40 @@
+error[E001]: circular specialization detected: developer -> senior_developer -> lead_developer -> developer
+  --> e001_circular_specialization.proj
+   |
+   = cycle: developer -> senior_developer -> lead_developer -> developer
+   = hint: remove one specialization to break the cycle
+
+error[E001]: circular specialization detected: senior_developer -> lead_developer -> developer -> senior_developer
+  --> e001_circular_specialization.proj
+   |
+   = cycle: senior_developer -> lead_developer -> developer -> senior_developer
+   = hint: remove one specialization to break the cycle
+
+error[E001]: circular specialization detected: lead_developer -> developer -> senior_developer -> lead_developer
+  --> e001_circular_specialization.proj
+   |
+   = cycle: lead_developer -> developer -> senior_developer -> lead_developer
+   = hint: remove one specialization to break the cycle
+
+warning[W001]: task 'development' is assigned to abstract profile 'developer'
+  --> e001_circular_specialization.proj
+   |
+   = cost range is $80 - $120 (40% spread)
+   = hint: assign a concrete resource to lock in exact cost
+
+hint[H002]: profile 'senior_developer' is defined but never assigned
+  --> e001_circular_specialization.proj
+   = hint: assign to tasks or remove if no longer needed
+
+hint[H002]: profile 'lead_developer' is defined but never assigned
+  --> e001_circular_specialization.proj
+   = hint: assign to tasks or remove if no longer needed
+
+info[I001]: project 'E001 Test' scheduled successfully
+   |
+   = duration: 5 days (2025-01-06 to 2025-01-10)
+   = cost: $400 - $600 (expected: $500)
+   = tasks: 1 (0 concrete, 1 abstract assignments)
+   = critical path: 1 tasks
+
+Error: aborting due to previous error(s)

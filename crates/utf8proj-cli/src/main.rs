@@ -3,6 +3,7 @@
 //! Command-line interface for parsing, scheduling, and rendering projects.
 
 mod bench;
+mod diagnostics;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -10,9 +11,11 @@ use std::fs;
 use std::io::Write;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use utf8proj_core::Scheduler;
+use utf8proj_core::{CollectingEmitter, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
-use utf8proj_solver::CpmSolver;
+use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project};
+
+use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
 
 #[derive(Parser)]
 #[command(name = "utf8proj")]
@@ -56,6 +59,14 @@ enum Commands {
         /// Show progress tracking information
         #[arg(short = 'p', long)]
         show_progress: bool,
+
+        /// Strict mode: warnings become errors, hints become warnings
+        #[arg(long)]
+        strict: bool,
+
+        /// Quiet mode: suppress all output except errors
+        #[arg(short, long)]
+        quiet: bool,
     },
 
     /// Generate a Gantt chart
@@ -123,8 +134,8 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Check { file }) => cmd_check(&file),
-        Some(Commands::Schedule { file, format, output, leveling, show_progress }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -200,6 +211,8 @@ fn cmd_schedule(
     output: Option<&std::path::Path>,
     leveling: bool,
     show_progress: bool,
+    strict: bool,
+    quiet: bool,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
@@ -228,24 +241,84 @@ fn cmd_schedule(
     let schedule = solver.schedule(&project)
         .with_context(|| "Failed to generate schedule")?;
 
-    // Format output
-    let result = match format {
-        "json" => format_json(&project, &schedule, show_progress)?,
-        "text" | _ => format_text(&project, &schedule, show_progress),
+    // Run diagnostic analysis
+    let analysis_config = AnalysisConfig::new()
+        .with_file(file);
+
+    // Collect diagnostics first, then emit in correct order
+    let mut collector = CollectingEmitter::new();
+    analyze_project(&project, Some(&schedule), &analysis_config, &mut collector);
+
+    // Configure diagnostic output
+    let diag_config = DiagnosticConfig {
+        strict,
+        quiet,
+        base_path: file.parent().map(|p| p.to_path_buf()),
     };
 
-    // Write output
-    match output {
-        Some(path) => {
-            let mut file = fs::File::create(path)
-                .with_context(|| format!("Failed to create output file '{}'", path.display()))?;
-            file.write_all(result.as_bytes())
-                .with_context(|| "Failed to write output")?;
-            println!("Schedule written to: {}", path.display());
+    // Emit diagnostics based on format
+    let has_errors = match format {
+        "json" => {
+            // For JSON, collect diagnostics and include in output
+            let mut json_emitter = JsonEmitter::new(diag_config);
+            for diag in collector.sorted() {
+                json_emitter.emit(diag.clone());
+            }
+
+            // Format output with diagnostics
+            let result = format_json_with_diagnostics(&project, &schedule, show_progress, &json_emitter)?;
+
+            // Write output
+            match output {
+                Some(path) => {
+                    let mut out_file = fs::File::create(path)
+                        .with_context(|| format!("Failed to create output file '{}'", path.display()))?;
+                    out_file.write_all(result.as_bytes())
+                        .with_context(|| "Failed to write output")?;
+                    if !quiet {
+                        eprintln!("Schedule written to: {}", path.display());
+                    }
+                }
+                None => {
+                    println!("{}", result);
+                }
+            }
+
+            json_emitter.has_errors()
         }
-        None => {
-            println!("{}", result);
+        "text" | _ => {
+            // For text, emit diagnostics to stderr
+            let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
+            for diag in collector.sorted() {
+                term_emitter.emit(diag.clone());
+            }
+
+            // Format schedule output
+            if !quiet {
+                let result = format_text(&project, &schedule, show_progress);
+
+                // Write output
+                match output {
+                    Some(path) => {
+                        let mut out_file = fs::File::create(path)
+                            .with_context(|| format!("Failed to create output file '{}'", path.display()))?;
+                        out_file.write_all(result.as_bytes())
+                            .with_context(|| "Failed to write output")?;
+                        eprintln!("Schedule written to: {}", path.display());
+                    }
+                    None => {
+                        println!("{}", result);
+                    }
+                }
+            }
+
+            term_emitter.has_errors()
         }
+    };
+
+    // Exit with error if there were errors
+    if has_errors {
+        return Err(anyhow::anyhow!("aborting due to previous error(s)"));
     }
 
     Ok(())
@@ -396,6 +469,51 @@ fn format_json(
             }
             task_json
         }).collect::<Vec<_>>(),
+    });
+
+    serde_json::to_string_pretty(&summary)
+        .with_context(|| "Failed to serialize schedule to JSON")
+}
+
+/// Format schedule as JSON with diagnostics included
+fn format_json_with_diagnostics(
+    project: &utf8proj_core::Project,
+    schedule: &utf8proj_core::Schedule,
+    show_progress: bool,
+    json_emitter: &JsonEmitter,
+) -> Result<String> {
+    // Create a summary structure for JSON output
+    let summary = serde_json::json!({
+        "diagnostics": json_emitter.to_json_value(),
+        "schedule": {
+            "project_name": project.name,
+            "start": project.start.to_string(),
+            "end": schedule.project_end.to_string(),
+            "duration_days": schedule.project_duration.as_days(),
+            "tasks": schedule.tasks.values().map(|t| {
+                let mut task_json = serde_json::json!({
+                    "id": t.task_id,
+                    "name": project.tasks.iter()
+                        .find(|task| task.id == t.task_id)
+                        .map(|task| task.name.as_str())
+                        .unwrap_or(&t.task_id),
+                    "start": t.start.to_string(),
+                    "finish": t.finish.to_string(),
+                    "duration_days": t.duration.as_days(),
+                    "is_critical": t.is_critical,
+                });
+
+                // Add progress fields if requested
+                if show_progress {
+                    task_json["progress"] = serde_json::json!({
+                        "percent_complete": t.percent_complete,
+                        "status": format!("{}", t.status),
+                        "remaining_days": t.remaining_duration.as_days(),
+                    });
+                }
+                task_json
+            }).collect::<Vec<_>>(),
+        },
     });
 
     serde_json::to_string_pretty(&summary)

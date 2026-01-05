@@ -1192,8 +1192,10 @@ pub struct Schedule {
     pub project_duration: Duration,
     /// Project end date
     pub project_end: NaiveDate,
-    /// Total project cost
+    /// Total project cost (concrete resources only)
     pub total_cost: Option<Money>,
+    /// RFC-0001: Total cost range (includes abstract profile assignments)
+    pub total_cost_range: Option<CostRange>,
 }
 
 /// A task with computed schedule information
@@ -1236,6 +1238,15 @@ pub struct ScheduledTask {
     pub percent_complete: u8,
     /// Current task status
     pub status: TaskStatus,
+
+    // ========================================================================
+    // RFC-0001: Cost Range Fields
+    // ========================================================================
+
+    /// Task cost range (aggregated from all assignments)
+    pub cost_range: Option<CostRange>,
+    /// Whether this task has any abstract (profile) assignments
+    pub has_abstract_assignments: bool,
 }
 
 impl ScheduledTask {
@@ -1268,6 +1279,8 @@ impl ScheduledTask {
             remaining_duration: duration,
             percent_complete: 0,
             status: TaskStatus::NotStarted,
+            cost_range: None,
+            has_abstract_assignments: false,
         }
     }
 }
@@ -1280,6 +1293,10 @@ pub struct Assignment {
     pub finish: NaiveDate,
     pub units: f32,
     pub cost: Option<Money>,
+    /// RFC-0001: Cost range for abstract profile assignments
+    pub cost_range: Option<CostRange>,
+    /// RFC-0001: Whether this is an abstract (profile) assignment
+    pub is_abstract: bool,
 }
 
 // ============================================================================
@@ -1423,6 +1440,394 @@ pub enum RenderError {
 
     #[error("Invalid data: {0}")]
     InvalidData(String),
+}
+
+// ============================================================================
+// Diagnostics
+// ============================================================================
+
+/// Diagnostic severity level
+///
+/// Severity determines how the diagnostic is treated by the CLI:
+/// - Error: Always fatal, blocks completion
+/// - Warning: Likely problem, becomes error in --strict mode
+/// - Hint: Suggestion, becomes warning in --strict mode
+/// - Info: Informational, unchanged in --strict mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Severity {
+    Error,
+    Warning,
+    Hint,
+    Info,
+}
+
+impl Severity {
+    /// Returns the string prefix used in diagnostic output (e.g., "error", "warning")
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Hint => "hint",
+            Severity::Info => "info",
+        }
+    }
+}
+
+impl std::fmt::Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Diagnostic code identifying the specific diagnostic type
+///
+/// Codes are stable identifiers used for:
+/// - Machine-readable output (JSON)
+/// - Documentation references
+/// - Suppression/filtering
+///
+/// Naming convention: {Severity prefix}{Number}{Description}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DiagnosticCode {
+    // Errors (E) - Cannot proceed
+    /// Circular specialization in profile inheritance chain
+    E001CircularSpecialization,
+    /// Profile has no rate and is used in cost-bearing assignments
+    E002ProfileWithoutRate,
+
+    // Warnings (W) - Likely problem
+    /// Task assigned to abstract profile instead of concrete resource
+    W001AbstractAssignment,
+    /// Task cost range spread exceeds threshold
+    W002WideCostRange,
+    /// Profile references undefined trait
+    W003UnknownTrait,
+    /// Resource leveling could not fully resolve all conflicts
+    W004ApproximateLeveling,
+
+    // Hints (H) - Suggestions
+    /// Task has both concrete and abstract assignments
+    H001MixedAbstraction,
+    /// Profile is defined but never assigned
+    H002UnusedProfile,
+    /// Trait is defined but never referenced
+    H003UnusedTrait,
+
+    // Info (I) - Informational
+    /// Project scheduling summary
+    I001ProjectCostSummary,
+    /// Refinement progress status
+    I002RefinementProgress,
+}
+
+impl DiagnosticCode {
+    /// Returns the short code string (e.g., "E001", "W002")
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DiagnosticCode::E001CircularSpecialization => "E001",
+            DiagnosticCode::E002ProfileWithoutRate => "E002",
+            DiagnosticCode::W001AbstractAssignment => "W001",
+            DiagnosticCode::W002WideCostRange => "W002",
+            DiagnosticCode::W003UnknownTrait => "W003",
+            DiagnosticCode::W004ApproximateLeveling => "W004",
+            DiagnosticCode::H001MixedAbstraction => "H001",
+            DiagnosticCode::H002UnusedProfile => "H002",
+            DiagnosticCode::H003UnusedTrait => "H003",
+            DiagnosticCode::I001ProjectCostSummary => "I001",
+            DiagnosticCode::I002RefinementProgress => "I002",
+        }
+    }
+
+    /// Returns the default severity for this diagnostic code
+    pub fn default_severity(&self) -> Severity {
+        match self {
+            DiagnosticCode::E001CircularSpecialization => Severity::Error,
+            DiagnosticCode::E002ProfileWithoutRate => Severity::Warning, // Error in strict mode
+            DiagnosticCode::W001AbstractAssignment => Severity::Warning,
+            DiagnosticCode::W002WideCostRange => Severity::Warning,
+            DiagnosticCode::W003UnknownTrait => Severity::Warning,
+            DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
+            DiagnosticCode::H001MixedAbstraction => Severity::Hint,
+            DiagnosticCode::H002UnusedProfile => Severity::Hint,
+            DiagnosticCode::H003UnusedTrait => Severity::Hint,
+            DiagnosticCode::I001ProjectCostSummary => Severity::Info,
+            DiagnosticCode::I002RefinementProgress => Severity::Info,
+        }
+    }
+
+    /// Returns the diagnostic ordering priority (lower = emitted first)
+    ///
+    /// Ordering: Errors → Cost warnings → Assignment warnings → Hints → Info
+    pub fn ordering_priority(&self) -> u8 {
+        match self {
+            // Structural errors first
+            DiagnosticCode::E001CircularSpecialization => 0,
+            DiagnosticCode::E002ProfileWithoutRate => 1,
+            // Cost-related warnings
+            DiagnosticCode::W002WideCostRange => 10,
+            DiagnosticCode::W004ApproximateLeveling => 11,
+            // Assignment-related warnings
+            DiagnosticCode::W001AbstractAssignment => 20,
+            DiagnosticCode::W003UnknownTrait => 21,
+            // Hints
+            DiagnosticCode::H001MixedAbstraction => 30,
+            DiagnosticCode::H002UnusedProfile => 31,
+            DiagnosticCode::H003UnusedTrait => 32,
+            // Info last
+            DiagnosticCode::I001ProjectCostSummary => 40,
+            DiagnosticCode::I002RefinementProgress => 41,
+        }
+    }
+}
+
+impl std::fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Source location span for diagnostic highlighting
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSpan {
+    /// Line number (1-based)
+    pub line: usize,
+    /// Column number (1-based)
+    pub column: usize,
+    /// Length of the span in characters
+    pub length: usize,
+    /// Optional label for this span
+    pub label: Option<String>,
+}
+
+impl SourceSpan {
+    pub fn new(line: usize, column: usize, length: usize) -> Self {
+        Self {
+            line,
+            column,
+            length,
+            label: None,
+        }
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+}
+
+/// A diagnostic message emitted during analysis or scheduling
+///
+/// Diagnostics are structured data representing errors, warnings, hints,
+/// or informational messages. The message text is fully rendered at
+/// emission time according to the specification in DIAGNOSTICS.md.
+///
+/// # Example
+///
+/// ```
+/// use utf8proj_core::{Diagnostic, DiagnosticCode, Severity};
+///
+/// let diagnostic = Diagnostic::new(
+///     DiagnosticCode::W001AbstractAssignment,
+///     "task 'api_dev' is assigned to abstract profile 'developer'"
+/// );
+///
+/// assert_eq!(diagnostic.severity, Severity::Warning);
+/// assert_eq!(diagnostic.code.as_str(), "W001");
+/// ```
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    /// The diagnostic code
+    pub code: DiagnosticCode,
+    /// Severity level (derived from code by default)
+    pub severity: Severity,
+    /// The primary message (fully rendered)
+    pub message: String,
+    /// Source file path (if applicable)
+    pub file: Option<std::path::PathBuf>,
+    /// Primary source span (if applicable)
+    pub span: Option<SourceSpan>,
+    /// Additional spans for related locations
+    pub secondary_spans: Vec<SourceSpan>,
+    /// Additional notes (displayed after the main message)
+    pub notes: Vec<String>,
+    /// Hints for fixing the issue
+    pub hints: Vec<String>,
+}
+
+impl Diagnostic {
+    /// Create a new diagnostic with the given code and message
+    ///
+    /// Severity is derived from the diagnostic code's default.
+    pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        Self {
+            severity: code.default_severity(),
+            code,
+            message: message.into(),
+            file: None,
+            span: None,
+            secondary_spans: Vec::new(),
+            notes: Vec::new(),
+            hints: Vec::new(),
+        }
+    }
+
+    /// Create an error diagnostic
+    pub fn error(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Error,
+            code,
+            message: message.into(),
+            file: None,
+            span: None,
+            secondary_spans: Vec::new(),
+            notes: Vec::new(),
+            hints: Vec::new(),
+        }
+    }
+
+    /// Create a warning diagnostic
+    pub fn warning(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            code,
+            message: message.into(),
+            file: None,
+            span: None,
+            secondary_spans: Vec::new(),
+            notes: Vec::new(),
+            hints: Vec::new(),
+        }
+    }
+
+    /// Set the source file
+    pub fn with_file(mut self, file: impl Into<std::path::PathBuf>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
+
+    /// Set the primary source span
+    pub fn with_span(mut self, span: SourceSpan) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    /// Add a secondary span
+    pub fn with_secondary_span(mut self, span: SourceSpan) -> Self {
+        self.secondary_spans.push(span);
+        self
+    }
+
+    /// Add a note
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+
+    /// Add a hint
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hints.push(hint.into());
+        self
+    }
+
+    /// Returns true if this is an error-level diagnostic
+    pub fn is_error(&self) -> bool {
+        self.severity == Severity::Error
+    }
+
+    /// Returns true if this is a warning-level diagnostic
+    pub fn is_warning(&self) -> bool {
+        self.severity == Severity::Warning
+    }
+}
+
+/// Trait for receiving diagnostic messages
+///
+/// Implementations handle formatting and output of diagnostics.
+/// The solver and analyzer emit diagnostics through this trait,
+/// allowing different backends (CLI, LSP, tests) to handle them.
+///
+/// # Example
+///
+/// ```
+/// use utf8proj_core::{Diagnostic, DiagnosticEmitter};
+///
+/// struct CollectingEmitter {
+///     diagnostics: Vec<Diagnostic>,
+/// }
+///
+/// impl DiagnosticEmitter for CollectingEmitter {
+///     fn emit(&mut self, diagnostic: Diagnostic) {
+///         self.diagnostics.push(diagnostic);
+///     }
+/// }
+/// ```
+pub trait DiagnosticEmitter {
+    /// Emit a diagnostic
+    fn emit(&mut self, diagnostic: Diagnostic);
+}
+
+/// A simple diagnostic emitter that collects diagnostics into a Vec
+///
+/// Useful for testing and batch processing.
+#[derive(Debug, Default)]
+pub struct CollectingEmitter {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl CollectingEmitter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns true if any errors were emitted
+    pub fn has_errors(&self) -> bool {
+        self.diagnostics.iter().any(|d| d.is_error())
+    }
+
+    /// Returns the count of errors
+    pub fn error_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.is_error()).count()
+    }
+
+    /// Returns the count of warnings
+    pub fn warning_count(&self) -> usize {
+        self.diagnostics.iter().filter(|d| d.is_warning()).count()
+    }
+
+    /// Returns diagnostics sorted by ordering priority, then by source location
+    pub fn sorted(&self) -> Vec<&Diagnostic> {
+        let mut sorted: Vec<_> = self.diagnostics.iter().collect();
+        sorted.sort_by(|a, b| {
+            // First by ordering priority
+            let priority_cmp = a.code.ordering_priority().cmp(&b.code.ordering_priority());
+            if priority_cmp != std::cmp::Ordering::Equal {
+                return priority_cmp;
+            }
+            // Then by file
+            let file_cmp = a.file.cmp(&b.file);
+            if file_cmp != std::cmp::Ordering::Equal {
+                return file_cmp;
+            }
+            // Then by line
+            let line_a = a.span.as_ref().map(|s| s.line).unwrap_or(0);
+            let line_b = b.span.as_ref().map(|s| s.line).unwrap_or(0);
+            let line_cmp = line_a.cmp(&line_b);
+            if line_cmp != std::cmp::Ordering::Equal {
+                return line_cmp;
+            }
+            // Then by column
+            let col_a = a.span.as_ref().map(|s| s.column).unwrap_or(0);
+            let col_b = b.span.as_ref().map(|s| s.column).unwrap_or(0);
+            col_a.cmp(&col_b)
+        });
+        sorted
+    }
+}
+
+impl DiagnosticEmitter for CollectingEmitter {
+    fn emit(&mut self, diagnostic: Diagnostic) {
+        self.diagnostics.push(diagnostic);
+    }
 }
 
 // ============================================================================
@@ -2362,5 +2767,171 @@ mod tests {
         assert!(project.profiles.is_empty());
         assert!(project.traits.is_empty());
         assert_eq!(project.cost_policy, CostPolicy::Midpoint);
+    }
+
+    // ========================================================================
+    // Diagnostic Tests
+    // ========================================================================
+
+    #[test]
+    fn severity_as_str() {
+        assert_eq!(Severity::Error.as_str(), "error");
+        assert_eq!(Severity::Warning.as_str(), "warning");
+        assert_eq!(Severity::Hint.as_str(), "hint");
+        assert_eq!(Severity::Info.as_str(), "info");
+    }
+
+    #[test]
+    fn severity_display() {
+        assert_eq!(format!("{}", Severity::Error), "error");
+        assert_eq!(format!("{}", Severity::Warning), "warning");
+    }
+
+    #[test]
+    fn diagnostic_code_as_str() {
+        assert_eq!(DiagnosticCode::E001CircularSpecialization.as_str(), "E001");
+        assert_eq!(DiagnosticCode::W001AbstractAssignment.as_str(), "W001");
+        assert_eq!(DiagnosticCode::H001MixedAbstraction.as_str(), "H001");
+        assert_eq!(DiagnosticCode::I001ProjectCostSummary.as_str(), "I001");
+    }
+
+    #[test]
+    fn diagnostic_code_default_severity() {
+        assert_eq!(
+            DiagnosticCode::E001CircularSpecialization.default_severity(),
+            Severity::Error
+        );
+        assert_eq!(
+            DiagnosticCode::W001AbstractAssignment.default_severity(),
+            Severity::Warning
+        );
+        assert_eq!(
+            DiagnosticCode::H001MixedAbstraction.default_severity(),
+            Severity::Hint
+        );
+        assert_eq!(
+            DiagnosticCode::I001ProjectCostSummary.default_severity(),
+            Severity::Info
+        );
+    }
+
+    #[test]
+    fn diagnostic_code_ordering_priority() {
+        // Errors come before warnings
+        assert!(
+            DiagnosticCode::E001CircularSpecialization.ordering_priority()
+                < DiagnosticCode::W001AbstractAssignment.ordering_priority()
+        );
+        // Warnings come before hints
+        assert!(
+            DiagnosticCode::W001AbstractAssignment.ordering_priority()
+                < DiagnosticCode::H001MixedAbstraction.ordering_priority()
+        );
+        // Hints come before info
+        assert!(
+            DiagnosticCode::H001MixedAbstraction.ordering_priority()
+                < DiagnosticCode::I001ProjectCostSummary.ordering_priority()
+        );
+    }
+
+    #[test]
+    fn diagnostic_new_derives_severity() {
+        let d = Diagnostic::new(
+            DiagnosticCode::W001AbstractAssignment,
+            "test message",
+        );
+        assert_eq!(d.severity, Severity::Warning);
+        assert_eq!(d.code, DiagnosticCode::W001AbstractAssignment);
+        assert_eq!(d.message, "test message");
+    }
+
+    #[test]
+    fn diagnostic_builder_pattern() {
+        let d = Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "test")
+            .with_file("test.proj")
+            .with_span(SourceSpan::new(10, 5, 15))
+            .with_note("additional info")
+            .with_hint("try this instead");
+
+        assert_eq!(d.file, Some(std::path::PathBuf::from("test.proj")));
+        assert!(d.span.is_some());
+        assert_eq!(d.span.as_ref().unwrap().line, 10);
+        assert_eq!(d.notes.len(), 1);
+        assert_eq!(d.hints.len(), 1);
+    }
+
+    #[test]
+    fn diagnostic_is_error() {
+        let error = Diagnostic::error(DiagnosticCode::E001CircularSpecialization, "cycle");
+        let warning = Diagnostic::warning(DiagnosticCode::W001AbstractAssignment, "abstract");
+
+        assert!(error.is_error());
+        assert!(!error.is_warning());
+        assert!(!warning.is_error());
+        assert!(warning.is_warning());
+    }
+
+    #[test]
+    fn source_span_with_label() {
+        let span = SourceSpan::new(5, 10, 8).with_label("here");
+        assert_eq!(span.line, 5);
+        assert_eq!(span.column, 10);
+        assert_eq!(span.length, 8);
+        assert_eq!(span.label, Some("here".to_string()));
+    }
+
+    #[test]
+    fn collecting_emitter_basic() {
+        let mut emitter = CollectingEmitter::new();
+
+        emitter.emit(Diagnostic::error(DiagnosticCode::E001CircularSpecialization, "error1"));
+        emitter.emit(Diagnostic::warning(DiagnosticCode::W001AbstractAssignment, "warn1"));
+        emitter.emit(Diagnostic::warning(DiagnosticCode::W002WideCostRange, "warn2"));
+
+        assert_eq!(emitter.diagnostics.len(), 3);
+        assert!(emitter.has_errors());
+        assert_eq!(emitter.error_count(), 1);
+        assert_eq!(emitter.warning_count(), 2);
+    }
+
+    #[test]
+    fn collecting_emitter_sorted() {
+        let mut emitter = CollectingEmitter::new();
+
+        // Emit in wrong order
+        emitter.emit(Diagnostic::new(DiagnosticCode::I001ProjectCostSummary, "info"));
+        emitter.emit(Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "warn"));
+        emitter.emit(Diagnostic::new(DiagnosticCode::E001CircularSpecialization, "error"));
+        emitter.emit(Diagnostic::new(DiagnosticCode::H001MixedAbstraction, "hint"));
+
+        let sorted = emitter.sorted();
+
+        // Should be: Error, Warning, Hint, Info
+        assert_eq!(sorted[0].code, DiagnosticCode::E001CircularSpecialization);
+        assert_eq!(sorted[1].code, DiagnosticCode::W001AbstractAssignment);
+        assert_eq!(sorted[2].code, DiagnosticCode::H001MixedAbstraction);
+        assert_eq!(sorted[3].code, DiagnosticCode::I001ProjectCostSummary);
+    }
+
+    #[test]
+    fn collecting_emitter_sorted_by_location() {
+        let mut emitter = CollectingEmitter::new();
+
+        // Same code, different locations
+        emitter.emit(
+            Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "second")
+                .with_file("a.proj")
+                .with_span(SourceSpan::new(20, 1, 5))
+        );
+        emitter.emit(
+            Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "first")
+                .with_file("a.proj")
+                .with_span(SourceSpan::new(10, 1, 5))
+        );
+
+        let sorted = emitter.sorted();
+
+        assert_eq!(sorted[0].message, "first");
+        assert_eq!(sorted[1].message, "second");
     }
 }

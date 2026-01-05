@@ -1,0 +1,13 @@
+warning[W001]: task 'data_migration' is assigned to abstract profile 'senior_contractor'
+  --> w002_wide_cost_range.proj
+   |
+   = cost range is $180.0 - $360.0 (67% spread)
+   = hint: assign a concrete resource to lock in exact cost
+
+info[I001]: project 'W002 Test' scheduled successfully
+   |
+   = duration: 10 days (2025-01-06 to 2025-01-17)
+   = cost: $1800.0 - $3600.0 (expected: $2700.0)
+   = tasks: 1 (0 concrete, 1 abstract assignments)
+   = critical path: 1 tasks
+

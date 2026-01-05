@@ -1,0 +1,19 @@
+# W001: Abstract Assignment
+# Task assigned to profile instead of concrete resource
+
+project "W001 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource_profile backend_developer "Backend Developer" {
+    rate: {
+        min: 100
+        max: 200
+    }
+}
+
+task api_development "API Development" {
+    effort: 5d
+    assign: backend_developer
+}

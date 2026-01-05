@@ -1,0 +1,25 @@
+warning[E002]: profile 'developer' has no rate defined but is assigned to tasks
+  --> e002_profile_without_rate.proj
+   |
+   = cost calculations will be incomplete for: development, testing
+   = hint: add 'rate:' or 'rate_range:' block, or specialize from a profile with rate
+
+warning[W001]: task 'development' is assigned to abstract profile 'developer'
+  --> e002_profile_without_rate.proj
+   |
+   = cost range is unknown (no rate defined)
+   = hint: assign a concrete resource to lock in exact cost
+
+warning[W001]: task 'testing' is assigned to abstract profile 'developer'
+  --> e002_profile_without_rate.proj
+   |
+   = cost range is unknown (no rate defined)
+   = hint: assign a concrete resource to lock in exact cost
+
+info[I001]: project 'E002 Test' scheduled successfully
+   |
+   = duration: 8 days (2025-01-06 to 2025-01-15)
+   = cost: unknown (no cost data)
+   = tasks: 2 (0 concrete, 2 abstract assignments)
+   = critical path: 2 tasks
+

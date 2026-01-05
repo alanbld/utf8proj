@@ -1,0 +1,36 @@
+# E001: Circular Specialization
+# Profile specialization chain contains a cycle
+
+project "E001 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource_profile developer "Developer" {
+    specializes: senior_developer
+    rate: {
+        min: 80
+        max: 120
+    }
+}
+
+resource_profile senior_developer "Senior Developer" {
+    specializes: lead_developer
+    rate: {
+        min: 100
+        max: 150
+    }
+}
+
+resource_profile lead_developer "Lead Developer" {
+    specializes: developer
+    rate: {
+        min: 120
+        max: 180
+    }
+}
+
+task development "Development" {
+    effort: 5d
+    assign: developer
+}

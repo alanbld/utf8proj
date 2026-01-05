@@ -1,0 +1,23 @@
+# E002: Profile Without Rate (Cost-Bearing)
+# Profile has no rate and is used in assignments
+
+project "E002 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+# Profile with no rate
+resource_profile developer "Developer" {
+    skills: [rust, python]
+}
+
+task development "Development" {
+    effort: 5d
+    assign: developer
+}
+
+task testing "Testing" {
+    effort: 3d
+    assign: developer
+    depends: development
+}

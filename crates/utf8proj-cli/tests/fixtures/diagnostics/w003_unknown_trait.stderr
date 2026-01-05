@@ -1,0 +1,17 @@
+warning[W003]: profile 'senior_developer' references unknown trait 'onsite'
+  --> w003_unknown_trait.proj
+   |
+   = unknown traits are ignored (multiplier = 1.0)
+   = hint: define the trait or remove the reference
+
+hint[H002]: profile 'senior_developer' is defined but never assigned
+  --> w003_unknown_trait.proj
+   = hint: assign to tasks or remove if no longer needed
+
+info[I001]: project 'W003 Test' scheduled successfully
+   |
+   = duration: 5 days (2025-01-06 to 2025-01-10)
+   = cost: $600
+   = tasks: 1 (1 concrete, 0 abstract assignments)
+   = critical path: 1 tasks
+

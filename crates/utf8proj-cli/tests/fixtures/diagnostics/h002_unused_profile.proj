@@ -1,0 +1,31 @@
+# H002: Unused Profile
+# Profile is defined but never assigned to any task
+
+project "H002 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource_profile frontend_developer "Frontend Developer" {
+    rate: {
+        min: 90
+        max: 140
+    }
+}
+
+resource_profile backend_developer "Backend Developer" {
+    rate: {
+        min: 100
+        max: 160
+    }
+}
+
+resource alice "Alice" {
+    rate: 120/day
+}
+
+# Only alice is assigned; both profiles are unused
+task development "Development" {
+    effort: 5d
+    assign: alice
+}

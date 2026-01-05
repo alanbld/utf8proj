@@ -1,0 +1,32 @@
+# I001: Project Cost Summary (Success)
+# Clean project with no warnings - only info output
+
+project "I001 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource alice "Alice" {
+    rate: 100/day
+}
+
+resource bob "Bob" {
+    rate: 120/day
+}
+
+task design "Design" {
+    effort: 5d
+    assign: alice
+}
+
+task development "Development" {
+    effort: 10d
+    assign: bob
+    depends: design
+}
+
+task testing "Testing" {
+    effort: 3d
+    assign: alice
+    depends: development
+}

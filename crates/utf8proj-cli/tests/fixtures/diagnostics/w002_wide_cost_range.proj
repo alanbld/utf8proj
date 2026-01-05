@@ -1,0 +1,30 @@
+# W002: Wide Cost Range
+# Task has cost spread exceeding 50% threshold
+
+project "W002 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+trait senior {
+    description: "Senior level"
+    rate_multiplier: 1.5
+}
+
+trait contractor {
+    description: "External contractor"
+    rate_multiplier: 1.2
+}
+
+resource_profile senior_contractor "Senior Contractor" {
+    traits: [senior, contractor]
+    rate: {
+        min: 100
+        max: 200
+    }
+}
+
+task data_migration "Data Migration" {
+    effort: 10d
+    assign: senior_contractor
+}

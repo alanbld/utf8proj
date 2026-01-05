@@ -1,0 +1,23 @@
+# H001: Mixed Abstraction Level
+# Task has both concrete and abstract assignments
+
+project "H001 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource_profile qa_engineer "QA Engineer" {
+    rate: {
+        min: 80
+        max: 120
+    }
+}
+
+resource alice "Alice" {
+    rate: 100/day
+}
+
+task integration_testing "Integration Testing" {
+    effort: 10d
+    assign: alice, qa_engineer
+}
