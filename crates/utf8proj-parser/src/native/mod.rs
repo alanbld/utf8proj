@@ -8,8 +8,9 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 use utf8proj_core::{
-    Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, Resource,
-    ResourceRef, Task, TaskConstraint, TaskStatus, TimeRange,
+    Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, RateRange,
+    Resource, ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus,
+    TimeRange, Trait,
 };
 
 use crate::ParseError;
@@ -47,6 +48,14 @@ pub fn parse(input: &str) -> Result<Project, ParseError> {
             Rule::resource_decl => {
                 let resource = parse_resource_decl(pair)?;
                 project.resources.push(resource);
+            }
+            Rule::resource_profile_decl => {
+                let profile = parse_resource_profile_decl(pair)?;
+                project.profiles.push(profile);
+            }
+            Rule::trait_decl => {
+                let trait_def = parse_trait_decl(pair)?;
+                project.traits.push(trait_def);
             }
             Rule::task_decl => {
                 let task = parse_task_decl(pair)?;
@@ -404,6 +413,16 @@ fn parse_resource_attr(pair: Pair<Rule>, resource: &mut Resource) -> Result<(), 
             let money = parse_money(money_pair)?;
             resource.rate = Some(money);
         }
+        Rule::resource_rate_range => {
+            // RFC-0001: Resources can also have rate ranges
+            let rate_range = parse_rate_range(inner)?;
+            // Store as attribute for now, since Resource.rate is Money not ResourceRate
+            resource.attributes.insert("rate_min".to_string(), rate_range.min.to_string());
+            resource.attributes.insert("rate_max".to_string(), rate_range.max.to_string());
+            if let Some(curr) = rate_range.currency {
+                resource.attributes.insert("rate_currency".to_string(), curr);
+            }
+        }
         Rule::resource_capacity => {
             let num_pair = inner.into_inner().next().unwrap();
             resource.capacity = parse_number(num_pair)? as f32;
@@ -415,6 +434,16 @@ fn parse_resource_attr(pair: Pair<Rule>, resource: &mut Resource) -> Result<(), 
         Rule::resource_efficiency => {
             let num_pair = inner.into_inner().next().unwrap();
             resource.efficiency = parse_number(num_pair)? as f32;
+        }
+        Rule::resource_specializes => {
+            // RFC-0001: Resource specializes a profile
+            let id_pair = inner.into_inner().next().unwrap();
+            resource.specializes = Some(parse_identifier(id_pair));
+        }
+        Rule::resource_availability => {
+            // RFC-0001: Resource availability
+            let num_pair = inner.into_inner().next().unwrap();
+            resource.availability = Some(parse_number(num_pair)? as f32);
         }
         Rule::resource_email => {
             let str_pair = inner.into_inner().next().unwrap();
@@ -450,6 +479,175 @@ fn parse_money(pair: Pair<Rule>) -> Result<Money, ParseError> {
         amount,
         currency: format!("/{}", time_unit), // Store rate type for now
     })
+}
+
+// =============================================================================
+// RFC-0001: Trait Declaration Parser
+// =============================================================================
+
+fn parse_trait_decl(pair: Pair<Rule>) -> Result<Trait, ParseError> {
+    let mut inner = pair.into_inner();
+    let id = parse_identifier(inner.next().unwrap());
+
+    let mut trait_def = Trait::new(&id);
+
+    // Optional name (string)
+    if let Some(next) = inner.peek() {
+        if next.as_rule() == Rule::string {
+            trait_def.name = parse_string(inner.next().unwrap());
+        }
+    }
+
+    // Parse body
+    if let Some(body) = inner.next() {
+        if body.as_rule() == Rule::trait_body {
+            for attr in body.into_inner() {
+                if attr.as_rule() == Rule::trait_attr {
+                    parse_trait_attr(attr, &mut trait_def)?;
+                }
+            }
+        }
+    }
+
+    Ok(trait_def)
+}
+
+fn parse_trait_attr(pair: Pair<Rule>, trait_def: &mut Trait) -> Result<(), ParseError> {
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::trait_description => {
+            let str_pair = inner.into_inner().next().unwrap();
+            trait_def.description = Some(parse_string(str_pair));
+        }
+        Rule::trait_rate_multiplier => {
+            let num_pair = inner.into_inner().next().unwrap();
+            trait_def.rate_multiplier = parse_number(num_pair)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// =============================================================================
+// RFC-0001: Resource Profile Declaration Parser
+// =============================================================================
+
+fn parse_resource_profile_decl(pair: Pair<Rule>) -> Result<ResourceProfile, ParseError> {
+    let mut inner = pair.into_inner();
+    let id = parse_identifier(inner.next().unwrap());
+
+    let mut profile = ResourceProfile::new(&id);
+
+    // Optional name (string)
+    if let Some(next) = inner.peek() {
+        if next.as_rule() == Rule::string {
+            profile.name = parse_string(inner.next().unwrap());
+        }
+    }
+
+    // Parse body
+    if let Some(body) = inner.next() {
+        if body.as_rule() == Rule::resource_profile_body {
+            for attr in body.into_inner() {
+                if attr.as_rule() == Rule::resource_profile_attr {
+                    parse_resource_profile_attr(attr, &mut profile)?;
+                }
+            }
+        }
+    }
+
+    Ok(profile)
+}
+
+fn parse_resource_profile_attr(pair: Pair<Rule>, profile: &mut ResourceProfile) -> Result<(), ParseError> {
+    let inner = pair.into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::profile_description => {
+            let str_pair = inner.into_inner().next().unwrap();
+            profile.description = Some(parse_string(str_pair));
+        }
+        Rule::profile_specializes => {
+            let id_pair = inner.into_inner().next().unwrap();
+            profile.specializes = Some(parse_identifier(id_pair));
+        }
+        Rule::profile_skills => {
+            for id_list in inner.into_inner() {
+                if id_list.as_rule() == Rule::identifier_list {
+                    for skill in id_list.into_inner() {
+                        profile.skills.push(parse_identifier(skill));
+                    }
+                }
+            }
+        }
+        Rule::profile_traits => {
+            for id_list in inner.into_inner() {
+                if id_list.as_rule() == Rule::identifier_list {
+                    for trait_id in id_list.into_inner() {
+                        profile.traits.push(parse_identifier(trait_id));
+                    }
+                }
+            }
+        }
+        Rule::profile_rate_range => {
+            let rate_range = parse_rate_range(inner)?;
+            profile.rate = Some(ResourceRate::Range(rate_range));
+        }
+        Rule::resource_calendar => {
+            let id_pair = inner.into_inner().next().unwrap();
+            profile.calendar = Some(parse_identifier(id_pair));
+        }
+        Rule::resource_efficiency => {
+            let num_pair = inner.into_inner().next().unwrap();
+            profile.efficiency = Some(parse_number(num_pair)? as f32);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn parse_rate_range(pair: Pair<Rule>) -> Result<RateRange, ParseError> {
+    let mut min: Option<Decimal> = None;
+    let mut max: Option<Decimal> = None;
+    let mut currency: Option<String> = None;
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::rate_range_body {
+            for attr in inner.into_inner() {
+                if attr.as_rule() == Rule::rate_range_attr {
+                    let attr_inner = attr.into_inner().next().unwrap();
+                    match attr_inner.as_rule() {
+                        Rule::rate_min => {
+                            let num_pair = attr_inner.into_inner().next().unwrap();
+                            let value = Decimal::from_str(num_pair.as_str())
+                                .map_err(|_| ParseError::InvalidValue(format!("Invalid rate min: {}", num_pair.as_str())))?;
+                            min = Some(value);
+                        }
+                        Rule::rate_max => {
+                            let num_pair = attr_inner.into_inner().next().unwrap();
+                            let value = Decimal::from_str(num_pair.as_str())
+                                .map_err(|_| ParseError::InvalidValue(format!("Invalid rate max: {}", num_pair.as_str())))?;
+                            max = Some(value);
+                        }
+                        Rule::rate_currency => {
+                            let id_pair = attr_inner.into_inner().next().unwrap();
+                            currency = Some(parse_identifier(id_pair));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    let min_val = min.unwrap_or(Decimal::ZERO);
+    let max_val = max.unwrap_or(min_val);
+
+    let mut range = RateRange::new(min_val, max_val);
+    if let Some(curr) = currency {
+        range.currency = Some(curr);
+    }
+
+    Ok(range)
 }
 
 // =============================================================================
@@ -1590,5 +1788,278 @@ task work "Work" {
         assert!((task.assigned[0].units - 1.0).abs() < 0.01);
         assert_eq!(task.assigned[1].resource_id, "bob");
         assert!((task.assigned[1].units - 3.0).abs() < 0.01);
+    }
+
+    // =========================================================================
+    // RFC-0001: Progressive Resource Refinement Parser Tests
+    // =========================================================================
+
+    #[test]
+    fn parse_trait_declaration() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+trait senior "Senior" {
+    description: "5+ years experience"
+    rate_multiplier: 1.3
+}
+"#;
+        let project = parse(input).expect("Failed to parse trait declaration");
+        assert_eq!(project.traits.len(), 1);
+
+        let t = &project.traits[0];
+        assert_eq!(t.id, "senior");
+        assert_eq!(t.name, "Senior");
+        assert_eq!(t.description, Some("5+ years experience".into()));
+        assert!((t.rate_multiplier - 1.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_trait_without_name() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+trait junior {
+    rate_multiplier: 0.8
+}
+"#;
+        let project = parse(input).expect("Failed to parse trait without name");
+        let t = &project.traits[0];
+        assert_eq!(t.id, "junior");
+        assert_eq!(t.name, "junior"); // Defaults to id
+        assert!((t.rate_multiplier - 0.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_resource_profile_basic() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource_profile developer "Developer" {
+    description: "Generic software developer"
+    rate: {
+        min: 450
+        max: 700
+        currency: USD
+    }
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource profile");
+        assert_eq!(project.profiles.len(), 1);
+
+        let profile = &project.profiles[0];
+        assert_eq!(profile.id, "developer");
+        assert_eq!(profile.name, "Developer");
+        assert_eq!(profile.description, Some("Generic software developer".into()));
+
+        // Check rate range
+        assert!(profile.rate.is_some());
+        if let Some(utf8proj_core::ResourceRate::Range(range)) = &profile.rate {
+            assert_eq!(range.min, Decimal::from(450));
+            assert_eq!(range.max, Decimal::from(700));
+            assert_eq!(range.currency, Some("USD".into()));
+        } else {
+            panic!("Expected rate range");
+        }
+    }
+
+    #[test]
+    fn parse_resource_profile_with_specialization() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource_profile developer {
+    rate: { min: 450 max: 700 }
+}
+
+resource_profile backend_dev "Backend Developer" {
+    specializes: developer
+    skills: [java, sql, kubernetes]
+    rate: { min: 550 max: 800 }
+}
+"#;
+        let project = parse(input).expect("Failed to parse profile specialization");
+        assert_eq!(project.profiles.len(), 2);
+
+        let backend = &project.profiles[1];
+        assert_eq!(backend.id, "backend_dev");
+        assert_eq!(backend.specializes, Some("developer".into()));
+        assert_eq!(backend.skills, vec!["java", "sql", "kubernetes"]);
+    }
+
+    #[test]
+    fn parse_resource_profile_with_traits() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+trait senior { rate_multiplier: 1.3 }
+
+resource_profile senior_dev "Senior Developer" {
+    traits: [senior]
+    rate: { min: 700 max: 1000 }
+}
+"#;
+        let project = parse(input).expect("Failed to parse profile with traits");
+        let profile = &project.profiles[0];
+        assert_eq!(profile.traits, vec!["senior"]);
+    }
+
+    #[test]
+    fn parse_resource_profile_with_calendar() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+calendar "Part Time" { working_hours: 09:00-13:00 }
+
+resource_profile part_time_dev {
+    calendar: part_time
+    efficiency: 0.9
+    rate: { min: 300 max: 500 }
+}
+"#;
+        let project = parse(input).expect("Failed to parse profile with calendar");
+        let profile = &project.profiles[0];
+        assert_eq!(profile.calendar, Some("part_time".into()));
+        assert!((profile.efficiency.unwrap() - 0.9).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_resource_with_specializes() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource_profile developer {
+    rate: { min: 500 max: 700 }
+}
+
+resource alice "Alice" {
+    specializes: developer
+    availability: 0.8
+    rate: 650/day
+}
+"#;
+        let project = parse(input).expect("Failed to parse resource with specializes");
+        let resource = &project.resources[0];
+        assert_eq!(resource.id, "alice");
+        assert_eq!(resource.specializes, Some("developer".into()));
+        assert_eq!(resource.availability, Some(0.8));
+    }
+
+    #[test]
+    fn parse_full_rfc0001_example() {
+        let input = r#"
+project "RFC-0001 Example" { start: 2025-01-01 }
+
+# Define traits
+trait senior {
+    description: "5+ years experience"
+    rate_multiplier: 1.3
+}
+
+trait contractor {
+    rate_multiplier: 1.2
+}
+
+# Define resource profiles (abstract roles)
+resource_profile developer "Generic Developer" {
+    description: "Software developer"
+    rate: {
+        min: 450
+        max: 700
+        currency: USD
+    }
+}
+
+resource_profile backend_dev "Backend Developer" {
+    specializes: developer
+    skills: [java, sql]
+    rate: { min: 550 max: 800 }
+}
+
+resource_profile senior_backend {
+    specializes: backend_dev
+    traits: [senior]
+}
+
+# Concrete resources that specialize profiles
+resource alice "Alice" {
+    specializes: senior_backend
+    availability: 0.8
+    rate: 900/day
+}
+
+resource bob "Bob" {
+    specializes: backend_dev
+    rate: 600/day
+}
+
+# Tasks can assign profiles or resources
+task implementation "Implementation" {
+    effort: 40d
+    assign: developer * 2
+}
+
+task backend_work "Backend Work" {
+    effort: 20d
+    assign: alice, backend_dev
+}
+"#;
+        let project = parse(input).expect("Failed to parse full RFC-0001 example");
+
+        // Check traits
+        assert_eq!(project.traits.len(), 2);
+        assert_eq!(project.traits[0].id, "senior");
+        assert!((project.traits[0].rate_multiplier - 1.3).abs() < 0.01);
+
+        // Check profiles
+        assert_eq!(project.profiles.len(), 3);
+        assert_eq!(project.profiles[0].id, "developer");
+        assert_eq!(project.profiles[1].id, "backend_dev");
+        assert_eq!(project.profiles[1].specializes, Some("developer".into()));
+        assert_eq!(project.profiles[2].id, "senior_backend");
+        assert_eq!(project.profiles[2].traits, vec!["senior"]);
+
+        // Check resources
+        assert_eq!(project.resources.len(), 2);
+        assert_eq!(project.resources[0].specializes, Some("senior_backend".into()));
+        assert_eq!(project.resources[0].availability, Some(0.8));
+        assert_eq!(project.resources[1].specializes, Some("backend_dev".into()));
+
+        // Check tasks
+        assert_eq!(project.tasks.len(), 2);
+        assert_eq!(project.tasks[0].assigned[0].resource_id, "developer");
+        assert!((project.tasks[0].assigned[0].units - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_multiple_traits() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+trait senior { rate_multiplier: 1.3 }
+trait remote { rate_multiplier: 0.95 }
+trait contractor { rate_multiplier: 1.2 }
+"#;
+        let project = parse(input).expect("Failed to parse multiple traits");
+        assert_eq!(project.traits.len(), 3);
+    }
+
+    #[test]
+    fn parse_profile_only_rate_min() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+resource_profile intern {
+    rate: { min: 200 }
+}
+"#;
+        let project = parse(input).expect("Failed to parse profile with only min");
+        let profile = &project.profiles[0];
+        if let Some(utf8proj_core::ResourceRate::Range(range)) = &profile.rate {
+            assert_eq!(range.min, Decimal::from(200));
+            assert_eq!(range.max, Decimal::from(200)); // Defaults to min
+        } else {
+            panic!("Expected rate range");
+        }
     }
 }
