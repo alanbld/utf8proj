@@ -291,4 +291,309 @@ task a "Task A" {
         let updated = update_task_progress(project, "a", 75.0);
         assert!(updated.contains("complete: 75%"));
     }
+
+    // Note: Circular dependency test skipped because JsValue errors don't work in native test mode.
+    // This is tested via the solver module directly.
+
+    #[test]
+    fn test_schedule_with_slack() {
+        let project = r#"
+project "Slack Test" {
+    start: 2026-01-06
+}
+
+task critical "Critical Path" {
+    duration: 10d
+}
+
+task short "Short Task" {
+    duration: 2d
+}
+
+task end "End" {
+    duration: 1d
+    depends: critical, short
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule with slack");
+        assert!(result.contains("slack_days"));
+        // short task should have slack
+        assert!(result.contains("is_critical"));
+    }
+
+    #[test]
+    fn test_schedule_nested_tasks() {
+        let project = r#"
+project "Nested" {
+    start: 2026-01-06
+}
+
+task phase1 "Phase 1" {
+    task a "Task A" {
+        duration: 3d
+        complete: 100%
+    }
+    task b "Task B" {
+        duration: 2d
+        complete: 50%
+        depends: a
+    }
+}
+
+task phase2 "Phase 2" {
+    task c "Task C" {
+        duration: 4d
+        depends: phase1.b
+    }
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule nested tasks");
+        // Check JSON contains nested task info
+        assert!(result.contains("phase1"));
+        assert!(result.contains("is_container"));
+    }
+
+    #[test]
+    fn test_schedule_with_milestones() {
+        let project = r#"
+project "Milestones" {
+    start: 2026-01-06
+}
+
+task dev "Development" {
+    duration: 10d
+    complete: 50%
+}
+
+task release "Release" {
+    milestone: true
+    depends: dev
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule with milestones");
+        assert!(result.contains("is_milestone"));
+        assert!(result.contains("true"));
+    }
+
+    #[test]
+    fn test_schedule_overall_progress() {
+        let project = r#"
+project "Progress" {
+    start: 2026-01-06
+}
+
+task a "Task A" {
+    duration: 10d
+    complete: 100%
+}
+
+task b "Task B" {
+    duration: 10d
+    complete: 0%
+}
+"#;
+
+        let result = schedule(project).expect("Should calculate progress");
+        // Overall progress should be 50% (weighted average)
+        assert!(result.contains("overall_progress"));
+        assert!(result.contains("50"));
+    }
+
+    #[test]
+    fn test_schedule_container_progress() {
+        let project = r#"
+project "Container Progress" {
+    start: 2026-01-06
+}
+
+task container "Container" {
+    task child1 "Child 1" {
+        duration: 5d
+        complete: 100%
+    }
+    task child2 "Child 2" {
+        duration: 5d
+        complete: 0%
+    }
+}
+"#;
+
+        let result = schedule(project).expect("Should calculate container progress");
+        assert!(result.contains("derived_progress"));
+    }
+
+    #[test]
+    fn test_get_project_info() {
+        let project = r#"
+project "Info Test" {
+    start: 2026-01-06
+}
+
+task a "Task A" {
+    duration: 5d
+}
+
+task b "Task B" {
+    duration: 3d
+}
+"#;
+
+        let result = get_project_info(project).expect("Should get project info");
+        assert!(result.contains("Info Test"));
+        assert!(result.contains("task_count"));
+        assert!(result.contains("2"));
+    }
+
+    #[test]
+    fn test_get_project_info_with_resources() {
+        let project = r#"
+project "Resource Test" {
+    start: 2026-01-06
+}
+
+resource dev "Developer" {}
+resource qa "QA" {}
+
+task a "Task A" {
+    duration: 5d
+    assign: dev
+}
+"#;
+
+        let result = get_project_info(project).expect("Should get project info");
+        assert!(result.contains("resource_count"));
+        assert!(result.contains("2"));
+    }
+
+    #[test]
+    fn test_update_task_progress_insert() {
+        // Task without complete line - should insert
+        let project = r#"
+project "Test" {
+    start: 2026-01-06
+}
+
+task a "Task A" {
+    duration: 5d
+}
+"#;
+
+        let updated = update_task_progress(project, "a", 25.0);
+        assert!(updated.contains("complete: 25%"));
+    }
+
+    #[test]
+    fn test_update_task_progress_nonexistent() {
+        let project = r#"
+project "Test" {
+    start: 2026-01-06
+}
+
+task a "Task A" {
+    duration: 5d
+}
+"#;
+
+        // Try to update non-existent task - should return unchanged
+        let updated = update_task_progress(project, "nonexistent", 50.0);
+        assert!(!updated.contains("complete: 50%"));
+    }
+
+    // Note: Parse error tests are skipped because JsValue doesn't work in native test mode.
+    // These are tested via wasm-pack test in browser context.
+
+    #[test]
+    fn test_schedule_empty_project() {
+        let project = r#"
+project "Empty" {
+    start: 2026-01-06
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule empty project");
+        assert!(result.contains("Empty"));
+        assert!(result.contains("overall_progress"));
+    }
+
+    #[test]
+    fn test_schedule_deeply_nested() {
+        let project = r#"
+project "Deep" {
+    start: 2026-01-06
+}
+
+task level1 "Level 1" {
+    task level2 "Level 2" {
+        task level3 "Level 3" {
+            task leaf "Leaf Task" {
+                duration: 5d
+                complete: 50%
+            }
+        }
+    }
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule deeply nested");
+        assert!(result.contains("level1"));
+        assert!(result.contains("is_container"));
+    }
+
+    #[test]
+    fn test_schedule_with_dependencies() {
+        let project = r#"
+project "Deps" {
+    start: 2026-01-06
+}
+
+task a "Task A" {
+    duration: 5d
+}
+
+task b "Task B" {
+    duration: 3d
+    depends: a
+}
+
+task c "Task C" {
+    duration: 2d
+    depends: a, b
+}
+"#;
+
+        let result = schedule(project).expect("Should schedule with dependencies");
+        assert!(result.contains("dependencies"));
+    }
+
+    #[test]
+    fn test_count_tasks_nested() {
+        let project = r#"
+project "Nested Count" {
+    start: 2026-01-06
+}
+
+task parent "Parent" {
+    task child1 "Child 1" {
+        duration: 2d
+    }
+    task child2 "Child 2" {
+        task grandchild "Grandchild" {
+            duration: 1d
+        }
+    }
+}
+
+task standalone "Standalone" {
+    duration: 3d
+}
+"#;
+
+        let result = get_project_info(project).expect("Should count nested tasks");
+        // Should count: parent, child1, child2, grandchild, standalone = 5
+        assert!(result.contains("task_count"));
+        assert!(result.contains("5"));
+    }
 }

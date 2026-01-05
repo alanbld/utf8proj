@@ -1163,4 +1163,236 @@ mod tests {
         assert_eq!(truncate("Short", 20), "Short");
         assert_eq!(truncate("This is a very long name", 10), "This is a…");
     }
+
+    #[test]
+    fn html_gantt_row_height_option() {
+        // Test row_height builder method (lines 123-125)
+        let renderer = HtmlGanttRenderer::new().row_height(48);
+        assert_eq!(renderer.row_height, 48);
+    }
+
+    #[test]
+    fn html_gantt_with_ss_dependency() {
+        // Test Start-to-Start dependency rendering (lines 623-625)
+        let mut project = Project::new("SS Deps");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
+        task_b.depends.push(utf8proj_core::Dependency {
+            predecessor: "a".to_string(),
+            dep_type: utf8proj_core::DependencyType::StartToStart,
+            lag: None,
+        });
+        project.tasks.push(task_b);
+
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let finish2 = NaiveDate::from_ymd_opt(2025, 1, 8).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "a".to_string(),
+            ScheduledTask {
+                task_id: "a".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        tasks.insert(
+            "b".to_string(),
+            ScheduledTask {
+                task_id: "b".to_string(),
+                start: start1, // SS: starts at same time
+                finish: finish2,
+                duration: Duration::days(3),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: start1,
+                early_finish: finish2,
+                late_start: start1,
+                late_finish: finish2,
+                forecast_start: start1,
+                forecast_finish: finish2,
+                remaining_duration: Duration::days(3),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["a".to_string()],
+            project_duration: Duration::days(5),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        let renderer = HtmlGanttRenderer::new();
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+        let html = result.unwrap();
+        // Should contain dependency arrow path
+        assert!(html.contains("dep-arrow"));
+    }
+
+    #[test]
+    fn html_gantt_with_ff_dependency() {
+        // Test Finish-to-Finish dependency rendering (lines 628-630)
+        let mut project = Project::new("FF Deps");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
+        task_b.depends.push(utf8proj_core::Dependency {
+            predecessor: "a".to_string(),
+            dep_type: utf8proj_core::DependencyType::FinishToFinish,
+            lag: None,
+        });
+        project.tasks.push(task_b);
+
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let start2 = NaiveDate::from_ymd_opt(2025, 1, 8).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "a".to_string(),
+            ScheduledTask {
+                task_id: "a".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        tasks.insert(
+            "b".to_string(),
+            ScheduledTask {
+                task_id: "b".to_string(),
+                start: start2,
+                finish: finish1, // FF: finishes at same time
+                duration: Duration::days(3),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: start2,
+                early_finish: finish1,
+                late_start: start2,
+                late_finish: finish1,
+                forecast_start: start2,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(3),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["a".to_string()],
+            project_duration: Duration::days(5),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        let renderer = HtmlGanttRenderer::new();
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn html_gantt_with_sf_dependency() {
+        // Test Start-to-Finish dependency rendering (lines 633-635)
+        let mut project = Project::new("SF Deps");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
+        task_b.depends.push(utf8proj_core::Dependency {
+            predecessor: "a".to_string(),
+            dep_type: utf8proj_core::DependencyType::StartToFinish,
+            lag: None,
+        });
+        project.tasks.push(task_b);
+
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let start2 = NaiveDate::from_ymd_opt(2025, 1, 3).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "a".to_string(),
+            ScheduledTask {
+                task_id: "a".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        tasks.insert(
+            "b".to_string(),
+            ScheduledTask {
+                task_id: "b".to_string(),
+                start: start2,
+                finish: start1, // SF: b finishes when a starts
+                duration: Duration::days(3),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: start2,
+                early_finish: start1,
+                late_start: start2,
+                late_finish: start1,
+                forecast_start: start2,
+                forecast_finish: start1,
+                remaining_duration: Duration::days(3),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["a".to_string()],
+            project_duration: Duration::days(5),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        let renderer = HtmlGanttRenderer::new();
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+    }
 }

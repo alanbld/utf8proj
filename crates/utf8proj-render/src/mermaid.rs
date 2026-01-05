@@ -569,4 +569,182 @@ mod tests {
         let output = renderer.render(&project, &schedule).unwrap();
         assert!(output.contains("milestone"));
     }
+
+    #[test]
+    fn mermaid_no_completion_option() {
+        let renderer = MermaidRenderer::new().no_completion();
+        assert!(!renderer.show_completion);
+    }
+
+    #[test]
+    fn mermaid_custom_date_format() {
+        let renderer = MermaidRenderer::new().date_format("DD-MM-YYYY");
+        assert_eq!(renderer.date_format, "DD-MM-YYYY");
+
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(output.contains("dateFormat DD-MM-YYYY"));
+    }
+
+    #[test]
+    fn mermaid_no_sections_flat_list() {
+        let renderer = MermaidRenderer::new().no_sections();
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let output = renderer.render(&project, &schedule).unwrap();
+        // Without sections, output should not contain "section" directive
+        assert!(!output.contains("section "));
+    }
+
+    #[test]
+    fn mermaid_done_modifier_for_complete_task() {
+        let mut project = Project::new("Progress Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            Task::new("complete")
+                .name("Completed Task")
+                .effort(Duration::days(5))
+                .complete(100.0),
+        );
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "complete".to_string(),
+            ScheduledTask {
+                task_id: "complete".to_string(),
+                start,
+                finish,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start,
+                early_finish: finish,
+                late_start: start,
+                late_finish: finish,
+                forecast_start: start,
+                forecast_finish: finish,
+                remaining_duration: Duration::zero(),
+                percent_complete: 100,
+                status: TaskStatus::Complete,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["complete".to_string()],
+            project_duration: Duration::days(5),
+            project_end: finish,
+            total_cost: None,
+        };
+
+        let renderer = MermaidRenderer::new();
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(output.contains("done"));
+    }
+
+    #[test]
+    fn mermaid_active_modifier_for_in_progress_task() {
+        let mut project = Project::new("Progress Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            Task::new("inprogress")
+                .name("In Progress Task")
+                .effort(Duration::days(10))
+                .complete(50.0),
+        );
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 17).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "inprogress".to_string(),
+            ScheduledTask {
+                task_id: "inprogress".to_string(),
+                start,
+                finish,
+                duration: Duration::days(10),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start,
+                early_finish: finish,
+                late_start: start,
+                late_finish: finish,
+                forecast_start: start,
+                forecast_finish: finish,
+                remaining_duration: Duration::days(5),
+                percent_complete: 50,
+                status: TaskStatus::InProgress,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["inprogress".to_string()],
+            project_duration: Duration::days(10),
+            project_end: finish,
+            total_cost: None,
+        };
+
+        let renderer = MermaidRenderer::new();
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(output.contains("active"));
+    }
+
+    #[test]
+    fn mermaid_no_completion_hides_done_active() {
+        let mut project = Project::new("No Completion");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            Task::new("task")
+                .name("Task")
+                .effort(Duration::days(5))
+                .complete(100.0),
+        );
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "task".to_string(),
+            ScheduledTask {
+                task_id: "task".to_string(),
+                start,
+                finish,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: start,
+                early_finish: finish,
+                late_start: start,
+                late_finish: finish,
+                forecast_start: start,
+                forecast_finish: finish,
+                remaining_duration: Duration::zero(),
+                percent_complete: 100,
+                status: TaskStatus::Complete,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(5),
+            project_end: finish,
+            total_cost: None,
+        };
+
+        let renderer = MermaidRenderer::new().no_completion().no_critical();
+        let output = renderer.render(&project, &schedule).unwrap();
+        // With no_completion, should not have done or active markers
+        assert!(!output.contains("done"));
+        assert!(!output.contains("active"));
+        assert!(!output.contains("crit"));
+    }
 }

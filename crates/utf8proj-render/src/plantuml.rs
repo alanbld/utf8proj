@@ -855,4 +855,171 @@ mod tests {
         let output = renderer.render(&project, &schedule).unwrap();
         assert!(!output.contains("% complete"));
     }
+
+    #[test]
+    fn plantuml_milestone_without_predecessor() {
+        // Test milestone without any predecessor - uses absolute date (lines 232-235)
+        let mut project = Project::new("Milestone No Dep");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // A milestone with no dependency
+        project.tasks.push(Task::new("kickoff").name("Project Kickoff").milestone());
+
+        let ms_date = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "kickoff".to_string(),
+            ScheduledTask {
+                task_id: "kickoff".to_string(),
+                start: ms_date,
+                finish: ms_date,
+                duration: Duration::zero(),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: ms_date,
+                early_finish: ms_date,
+                late_start: ms_date,
+                late_finish: ms_date,
+                forecast_start: ms_date,
+                forecast_finish: ms_date,
+                remaining_duration: Duration::zero(),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["kickoff".to_string()],
+            project_duration: Duration::zero(),
+            project_end: ms_date,
+            total_cost: None,
+        };
+
+        let renderer = PlantUmlRenderer::new();
+        let output = renderer.render(&project, &schedule).unwrap();
+        // Milestone without predecessor uses absolute date format
+        assert!(output.contains("happens 2025-01-06"));
+    }
+
+    #[test]
+    fn plantuml_milestone_absolute_dates_mode() {
+        // Test milestone in absolute dates mode (lines 239-242)
+        let mut project = Project::new("Milestone Absolute");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(Task::new("work").name("Work").effort(Duration::days(5)));
+        project.tasks.push(Task::new("done").name("Complete").milestone().depends_on("work"));
+
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let ms_date = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "work".to_string(),
+            ScheduledTask {
+                task_id: "work".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        tasks.insert(
+            "done".to_string(),
+            ScheduledTask {
+                task_id: "done".to_string(),
+                start: ms_date,
+                finish: ms_date,
+                duration: Duration::zero(),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: ms_date,
+                early_finish: ms_date,
+                late_start: ms_date,
+                late_finish: ms_date,
+                forecast_start: ms_date,
+                forecast_finish: ms_date,
+                remaining_duration: Duration::zero(),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["work".to_string(), "done".to_string()],
+            project_duration: Duration::days(5),
+            project_end: ms_date,
+            total_cost: None,
+        };
+
+        // Use absolute dates mode
+        let renderer = PlantUmlRenderer::new().absolute_dates();
+        let output = renderer.render(&project, &schedule).unwrap();
+        // In absolute dates mode, milestone uses absolute date format
+        assert!(output.contains("happens 2025-01-13"));
+        assert!(!output.contains("happens at [")); // Not using dependency syntax
+    }
+
+    #[test]
+    fn plantuml_completion_without_aliases() {
+        // Test completion with show_aliases=false (line 312)
+        let mut project = Project::new("No Alias Completion");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("work").name("Work Task").effort(Duration::days(5));
+        task.complete = Some(60.0);
+        project.tasks.push(task);
+
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let mut tasks = HashMap::new();
+        tasks.insert(
+            "work".to_string(),
+            ScheduledTask {
+                task_id: "work".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: false,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 60,
+                status: TaskStatus::InProgress,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(5),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        // Use no_aliases mode
+        let renderer = PlantUmlRenderer::new().no_aliases();
+        let output = renderer.render(&project, &schedule).unwrap();
+        // Completion uses sanitized_name instead of alias
+        assert!(output.contains("[Work Task] is 60% complete"));
+    }
 }
