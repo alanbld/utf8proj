@@ -2882,4 +2882,150 @@ mod tests {
             .expect("Should have W001");
         assert!(w001.notes.iter().any(|n| n.contains("unknown")));
     }
+
+    // =========================================================================
+    // Semantic Gap Coverage: Edge Cases
+    // =========================================================================
+
+    #[test]
+    fn isolated_task_no_predecessors_or_successors() {
+        // Test CPM with task that has neither predecessors nor successors
+        // Covers: cpm.rs lines 125, 158, 208
+        let mut project = Project::new("Isolated Task Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![Task::new("alone").duration(Duration::days(3))];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Single task is its own critical path
+        assert_eq!(schedule.tasks.len(), 1);
+        assert!(schedule.tasks["alone"].is_critical);
+        assert_eq!(schedule.tasks["alone"].slack, Duration::zero());
+    }
+
+    #[test]
+    fn parallel_tasks_no_dependencies() {
+        // Multiple tasks with no dependencies - all start day 0
+        // Covers: cpm.rs line 125 (no predecessors)
+        let mut project = Project::new("Parallel Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("a").duration(Duration::days(5)),
+            Task::new("b").duration(Duration::days(3)),
+            Task::new("c").duration(Duration::days(7)),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // All tasks start on the same day
+        let start = project.start;
+        assert_eq!(schedule.tasks["a"].start, start);
+        assert_eq!(schedule.tasks["b"].start, start);
+        assert_eq!(schedule.tasks["c"].start, start);
+
+        // Longest task (c) is critical
+        assert!(schedule.tasks["c"].is_critical);
+        // Shorter tasks have slack
+        assert!(schedule.tasks["a"].slack.minutes > 0);
+        assert!(schedule.tasks["b"].slack.minutes > 0);
+    }
+
+    #[test]
+    fn task_with_no_successors_uses_project_end() {
+        // Task at the end of chain has no successors
+        // Covers: cpm.rs lines 158, 208 (no successors branch)
+        let mut project = Project::new("Terminal Task Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("first").duration(Duration::days(5)),
+            Task::new("last").duration(Duration::days(3)).depends_on("first"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Both tasks are critical (sequential chain)
+        assert!(schedule.tasks["first"].is_critical);
+        assert!(schedule.tasks["last"].is_critical);
+
+        // Free slack of last task equals total slack (no successors)
+        let last_task = &schedule.tasks["last"];
+        assert_eq!(last_task.slack, Duration::zero()); // Critical path
+    }
+
+    #[test]
+    fn relative_resolution_empty_container() {
+        // Test relative dependency resolution when task is at root level
+        // Covers: lib.rs line 197 (empty container path)
+        let mut project = Project::new("Root Level Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("root_a").duration(Duration::days(3)),
+            Task::new("root_b").duration(Duration::days(2)).depends_on("root_a"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Dependency resolved correctly at root level
+        assert!(schedule.tasks["root_b"].start >= schedule.tasks["root_a"].finish);
+    }
+
+    #[test]
+    fn resolve_assignment_unknown_id() {
+        // Test assigning to an ID that's neither a resource nor profile
+        // Covers: lib.rs lines 486-489 (unknown assignment)
+        let mut project = Project::new("Unknown Assignment Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("nonexistent_entity")];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Should still schedule (unknown treated as concrete with no rate)
+        assert_eq!(schedule.tasks.len(), 1);
+    }
+
+    #[test]
+    fn abstract_profile_with_no_rate_in_cost_calculation() {
+        // Test cost calculation when abstract profile has no rate
+        // Covers: lib.rs line 574 (None rate range)
+        let mut project = Project::new("No Rate Profile Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Profile with no rate (not inherited either)
+        project.profiles.push(ResourceProfile::new("bare_profile"));
+
+        project.tasks = vec![Task::new("work")
+            .duration(Duration::days(5))
+            .assign("bare_profile")];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Schedule should work, but cost range is None
+        assert!(schedule.total_cost_range.is_none());
+    }
+
+    #[test]
+    fn working_day_cache_large_project() {
+        // Test with a project that might exceed working day cache
+        // Covers: lib.rs line 280 (cache beyond limit fallback)
+        let mut project = Project::new("Large Duration Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Create a very long task (2000+ days)
+        project.tasks = vec![Task::new("marathon").duration(Duration::days(2500))];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Should handle gracefully even if cache is exceeded
+        assert_eq!(schedule.tasks.len(), 1);
+        assert!(schedule.project_duration.minutes >= Duration::days(2500).minutes);
+    }
 }
