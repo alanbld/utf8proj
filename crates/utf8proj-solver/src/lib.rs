@@ -2651,4 +2651,235 @@ mod tests {
         assert_eq!(config.file, Some(PathBuf::from("test.proj")));
         assert_eq!(config.cost_spread_threshold, 75.0);
     }
+
+    // =========================================================================
+    // Coverage: Semantic Gap Tests
+    // =========================================================================
+
+    #[test]
+    fn summary_unknown_cost_when_no_rate_data() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Project with no rates at all - cost should be "unknown"
+        let mut project = Project::new("No Cost Data Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![Task::new("task1").duration(Duration::days(5))];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Verify no cost range
+        assert!(schedule.total_cost_range.is_none());
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        // Should emit I001 with "unknown (no cost data)"
+        let summary = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::I001ProjectCostSummary)
+            .expect("Should have I001");
+        assert!(summary.notes.iter().any(|n| n.contains("unknown")));
+    }
+
+    #[test]
+    fn e002_with_many_tasks_truncates_list() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Profile without rate assigned to more than 3 tasks
+        let mut project = Project::new("Many Tasks Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(ResourceProfile::new("dev")); // No rate
+        project.tasks = vec![
+            Task::new("task1").duration(Duration::days(1)).assign("dev"),
+            Task::new("task2").duration(Duration::days(1)).assign("dev"),
+            Task::new("task3").duration(Duration::days(1)).assign("dev"),
+            Task::new("task4").duration(Duration::days(1)).assign("dev"),
+            Task::new("task5").duration(Duration::days(1)).assign("dev"),
+        ];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        let e002 = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::E002ProfileWithoutRate)
+            .expect("Should have E002");
+        // Should truncate: "task1, task2, ... (5 tasks)"
+        assert!(e002.notes.iter().any(|n| n.contains("5 tasks")));
+    }
+
+    #[test]
+    fn w002_with_trait_multiplier_contributor() {
+        use utf8proj_core::{CollectingEmitter, Trait};
+
+        // Wide range amplified by trait multiplier should list it as contributor
+        let mut project = Project::new("Trait Contributor Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // Define a significant trait multiplier
+        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
+        // Rate range that becomes wide after trait: 50-200 * 1.5 = 75-300
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(50), Decimal::from(200)))
+                .with_trait("senior"),
+        );
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(10))
+            .assign("developer")];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default().with_cost_spread_threshold(50.0);
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        let w002 = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::W002WideCostRange)
+            .expect("Should have W002");
+        // Should mention the trait as a contributor
+        assert!(w002
+            .notes
+            .iter()
+            .any(|n| n.contains("senior") && n.contains("multiplier")));
+    }
+
+    #[test]
+    fn profile_with_fixed_rate_converts_to_range() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Profile with fixed rate (not range) - should work in analysis
+        let mut project = Project::new("Fixed Rate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer").rate(Money::new(Decimal::from(100), "USD")),
+        );
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("developer")];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        // Should have W001 for abstract assignment
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::W001AbstractAssignment));
+        // Cost should be calculated (fixed rate = 100, 5 days = 500)
+        let summary = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::I001ProjectCostSummary)
+            .expect("Should have I001");
+        assert!(summary.notes.iter().any(|n| n.contains("$500")));
+    }
+
+    #[test]
+    fn specializes_inherits_rate_from_parent() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Child profile inherits rate from parent
+        let mut project = Project::new("Specialization Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.profiles.push(ResourceProfile::new("senior_developer").specializes("developer"));
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("senior_developer")];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+        // Should NOT emit E002 since rate is inherited
+        assert!(!emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::E002ProfileWithoutRate));
+        // Should have cost range in summary (inherited 100-200)
+        let summary = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::I001ProjectCostSummary)
+            .expect("Should have I001");
+        assert!(summary.notes.iter().any(|n| n.contains("$") && n.contains("-")));
+    }
+
+    #[test]
+    fn nested_child_task_with_profile_assignment() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Profile assigned to nested task
+        let mut project = Project::new("Nested Assignment Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("developer")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.tasks = vec![Task::new("phase1")
+            .child(
+                Task::new("design")
+                    .duration(Duration::days(3))
+                    .assign("developer"),
+            )
+            .child(
+                Task::new("implement")
+                    .duration(Duration::days(5))
+                    .assign("developer"),
+            )];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        // Should detect abstract assignments for both nested tasks
+        let w001_count = emitter
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::W001AbstractAssignment)
+            .count();
+        assert_eq!(w001_count, 2);
+    }
+
+    #[test]
+    fn abstract_assignment_without_rate_shows_unknown_cost() {
+        use utf8proj_core::CollectingEmitter;
+
+        // Profile without rate assigned - cost should say "unknown"
+        let mut project = Project::new("Unknown Cost Range Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(ResourceProfile::new("developer")); // No rate
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("developer")];
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        let w001 = emitter
+            .diagnostics
+            .iter()
+            .find(|d| d.code == DiagnosticCode::W001AbstractAssignment)
+            .expect("Should have W001");
+        assert!(w001.notes.iter().any(|n| n.contains("unknown")));
+    }
 }
