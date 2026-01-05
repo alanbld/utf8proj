@@ -218,3 +218,106 @@ fn render_without_dependencies() {
     // Should not have dependency arrows group in SVG
     assert!(!html.contains(r#"<g class="dependencies">"#));
 }
+
+// ============================================================================
+// Date interval coverage tests
+// ============================================================================
+
+#[test]
+fn render_short_project_daily_interval() {
+    // Project <= 14 days should show daily interval
+    let mut project = Project::new("Short Project");
+    project.start = date(2025, 1, 6);
+    project.tasks = vec![
+        Task::new("task1").name("Quick Task").duration(Duration::days(10)),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let renderer = HtmlGanttRenderer::new();
+    let html = renderer.render(&project, &schedule).unwrap();
+
+    assert!(html.contains("Short Project"));
+    assert!(html.contains("<svg"));
+}
+
+#[test]
+fn render_medium_project_weekly_interval() {
+    // Project 15-60 days should show weekly interval
+    let mut project = Project::new("Medium Project");
+    project.start = date(2025, 1, 6);
+    project.tasks = vec![
+        Task::new("task1").name("Task 1").duration(Duration::days(20)),
+        Task::new("task2").name("Task 2").duration(Duration::days(20)).depends_on("task1"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let renderer = HtmlGanttRenderer::new();
+    let html = renderer.render(&project, &schedule).unwrap();
+
+    assert!(html.contains("Medium Project"));
+}
+
+#[test]
+fn render_long_project_biweekly_interval() {
+    // Project 61-180 days should show bi-weekly interval
+    let mut project = Project::new("Long Project");
+    project.start = date(2025, 1, 6);
+    project.tasks = vec![
+        Task::new("task1").name("Phase 1").duration(Duration::days(50)),
+        Task::new("task2").name("Phase 2").duration(Duration::days(50)).depends_on("task1"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let renderer = HtmlGanttRenderer::new();
+    let html = renderer.render(&project, &schedule).unwrap();
+
+    assert!(html.contains("Long Project"));
+}
+
+#[test]
+fn render_very_long_project_monthly_interval() {
+    // Project > 180 days should show monthly interval
+    let mut project = Project::new("Very Long Project");
+    project.start = date(2025, 1, 6);
+    project.tasks = vec![
+        Task::new("task1").name("Quarter 1").duration(Duration::days(60)),
+        Task::new("task2").name("Quarter 2").duration(Duration::days(60)).depends_on("task1"),
+        Task::new("task3").name("Quarter 3").duration(Duration::days(60)).depends_on("task2"),
+        Task::new("task4").name("Quarter 4").duration(Duration::days(60)).depends_on("task3"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let renderer = HtmlGanttRenderer::new();
+    let html = renderer.render(&project, &schedule).unwrap();
+
+    assert!(html.contains("Very Long Project"));
+}
+
+#[test]
+fn render_with_progress_tracking() {
+    let mut project = Project::new("Progress Test");
+    project.start = date(2025, 1, 6);
+    project.tasks = vec![
+        Task::new("done").name("Completed").duration(Duration::days(5)).complete(100.0),
+        Task::new("half").name("Half Done").duration(Duration::days(5)).complete(50.0).depends_on("done"),
+        Task::new("started").name("Just Started").duration(Duration::days(5)).complete(10.0).depends_on("half"),
+        Task::new("pending").name("Not Started").duration(Duration::days(5)).depends_on("started"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    let renderer = HtmlGanttRenderer::new();
+    let html = renderer.render(&project, &schedule).unwrap();
+
+    assert!(html.contains("Completed"));
+    assert!(html.contains("Half Done"));
+}

@@ -686,4 +686,275 @@ mod tests {
         assert_eq!(truncate("Short", 20), "Short");
         assert_eq!(truncate("This is a very long task name", 15), "This is a ve...");
     }
+
+    #[test]
+    fn text_renderer_basic() {
+        let renderer = TextRenderer;
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+        let text = result.unwrap();
+        assert!(text.contains("Test Project"));
+    }
+
+    #[test]
+    fn svg_render_with_milestone() {
+        let mut project = Project::new("Milestone Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            utf8proj_core::Task::new("dev")
+                .name("Development")
+                .duration(Duration::days(5)),
+        );
+        project.tasks.push(
+            utf8proj_core::Task::new("release")
+                .name("Release")
+                .milestone()
+                .depends_on("dev"),
+        );
+
+        let mut tasks = HashMap::new();
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        tasks.insert(
+            "dev".to_string(),
+            ScheduledTask {
+                task_id: "dev".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        let ms_date = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
+        tasks.insert(
+            "release".to_string(),
+            ScheduledTask {
+                task_id: "release".to_string(),
+                start: ms_date,
+                finish: ms_date,
+                duration: Duration::zero(),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: ms_date,
+                early_finish: ms_date,
+                late_start: ms_date,
+                late_finish: ms_date,
+                forecast_start: ms_date,
+                forecast_finish: ms_date,
+                remaining_duration: Duration::zero(),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["dev".to_string(), "release".to_string()],
+            project_duration: Duration::days(5),
+            project_end: ms_date,
+            total_cost: None,
+        };
+
+        let renderer = SvgRenderer::new();
+        let svg = renderer.render(&project, &schedule).unwrap();
+
+        // Milestone should render as polygon (diamond)
+        assert!(svg.contains("polygon"));
+        assert!(svg.contains("Release"));
+    }
+
+    #[test]
+    fn svg_render_non_critical_tasks() {
+        let mut project = Project::new("Non-Critical");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            utf8proj_core::Task::new("task1")
+                .name("Task 1")
+                .duration(Duration::days(5)),
+        );
+
+        let mut tasks = HashMap::new();
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        tasks.insert(
+            "task1".to_string(),
+            ScheduledTask {
+                task_id: "task1".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(5),
+                assignments: vec![],
+                slack: Duration::days(5), // Has slack, so not critical
+                is_critical: false,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(5),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(5),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        let renderer = SvgRenderer::new();
+        let svg = renderer.render(&project, &schedule).unwrap();
+
+        // Non-critical tasks should use normal color
+        assert!(svg.contains(&renderer.normal_color));
+    }
+
+    #[test]
+    fn svg_render_long_project() {
+        // Test project > 60 days to trigger bi-weekly interval
+        let mut project = Project::new("Long Project");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            utf8proj_core::Task::new("phase1")
+                .name("Phase 1")
+                .duration(Duration::days(50)),
+        );
+        project.tasks.push(
+            utf8proj_core::Task::new("phase2")
+                .name("Phase 2")
+                .duration(Duration::days(50))
+                .depends_on("phase1"),
+        );
+
+        let mut tasks = HashMap::new();
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 3, 14).unwrap(); // ~50 working days
+        tasks.insert(
+            "phase1".to_string(),
+            ScheduledTask {
+                task_id: "phase1".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(50),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(50),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+        let start2 = NaiveDate::from_ymd_opt(2025, 3, 17).unwrap();
+        let finish2 = NaiveDate::from_ymd_opt(2025, 5, 23).unwrap();
+        tasks.insert(
+            "phase2".to_string(),
+            ScheduledTask {
+                task_id: "phase2".to_string(),
+                start: start2,
+                finish: finish2,
+                duration: Duration::days(50),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start2,
+                early_finish: finish2,
+                late_start: start2,
+                late_finish: finish2,
+                forecast_start: start2,
+                forecast_finish: finish2,
+                remaining_duration: Duration::days(50),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["phase1".to_string(), "phase2".to_string()],
+            project_duration: Duration::days(100),
+            project_end: finish2,
+            total_cost: None,
+        };
+
+        let renderer = SvgRenderer::new();
+        let svg = renderer.render(&project, &schedule).unwrap();
+
+        assert!(svg.contains("Long Project"));
+        assert!(svg.contains("Phase 1"));
+    }
+
+    #[test]
+    fn svg_render_very_long_project() {
+        // Test project > 180 days to trigger monthly interval
+        let mut project = Project::new("Very Long Project");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks.push(
+            utf8proj_core::Task::new("year")
+                .name("Year Long Task")
+                .duration(Duration::days(200)),
+        );
+
+        let mut tasks = HashMap::new();
+        let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish1 = NaiveDate::from_ymd_opt(2025, 10, 31).unwrap();
+        tasks.insert(
+            "year".to_string(),
+            ScheduledTask {
+                task_id: "year".to_string(),
+                start: start1,
+                finish: finish1,
+                duration: Duration::days(200),
+                assignments: vec![],
+                slack: Duration::zero(),
+                is_critical: true,
+                early_start: start1,
+                early_finish: finish1,
+                late_start: start1,
+                late_finish: finish1,
+                forecast_start: start1,
+                forecast_finish: finish1,
+                remaining_duration: Duration::days(200),
+                percent_complete: 0,
+                status: TaskStatus::NotStarted,
+            },
+        );
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["year".to_string()],
+            project_duration: Duration::days(200),
+            project_end: finish1,
+            total_cost: None,
+        };
+
+        let renderer = SvgRenderer::new();
+        let svg = renderer.render(&project, &schedule).unwrap();
+
+        assert!(svg.contains("Very Long Project"));
+    }
 }

@@ -1535,4 +1535,93 @@ mod tests {
 
         assert_eq!(container.container_progress(), Some(50));
     }
+
+    #[test]
+    fn container_progress_zero_duration_children() {
+        // Container with children that have no duration/effort returns None
+        let container = Task::new("dev")
+            .child(Task::new("a").complete(50.0))  // No duration
+            .child(Task::new("b").complete(100.0)); // No duration
+
+        assert_eq!(container.container_progress(), None);
+    }
+
+    #[test]
+    fn effective_progress_container_no_override() {
+        // Container without manual override uses derived progress
+        let container = Task::new("dev")
+            .child(Task::new("a").duration(Duration::days(10)).complete(100.0))
+            .child(Task::new("b").duration(Duration::days(10)).complete(0.0));
+
+        // No complete() set on container, so it derives from children
+        assert_eq!(container.effective_progress(), 50);
+    }
+
+    #[test]
+    fn effective_progress_leaf_no_complete() {
+        // Leaf task with no complete set returns 0
+        let task = Task::new("leaf").duration(Duration::days(5));
+        assert_eq!(task.effective_progress(), 0);
+    }
+
+    #[test]
+    fn progress_mismatch_leaf_returns_none() {
+        // progress_mismatch on a leaf task returns None
+        let task = Task::new("leaf").duration(Duration::days(5)).complete(50.0);
+        assert!(task.progress_mismatch(10).is_none());
+    }
+
+    #[test]
+    fn money_new() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let money = Money::new(Decimal::from_str("100.50").unwrap(), "EUR");
+        assert_eq!(money.amount, Decimal::from_str("100.50").unwrap());
+        assert_eq!(money.currency, "EUR");
+    }
+
+    #[test]
+    fn resource_rate() {
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+        let resource = Resource::new("dev")
+            .name("Developer")
+            .rate(Money::new(Decimal::from_str("500").unwrap(), "USD"));
+
+        assert!(resource.rate.is_some());
+        assert_eq!(resource.rate.unwrap().amount, Decimal::from_str("500").unwrap());
+    }
+
+    #[test]
+    fn calendar_with_holiday() {
+        let mut cal = Calendar::default();
+        cal.holidays.push(Holiday {
+            name: "New Year".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+        });
+
+        // Jan 1 is a Wednesday (working day) but is a holiday
+        let jan1 = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        assert!(!cal.is_working_day(jan1));
+
+        // Jan 2 is Thursday, should be working
+        let jan2 = NaiveDate::from_ymd_opt(2025, 1, 2).unwrap();
+        assert!(cal.is_working_day(jan2));
+    }
+
+    #[test]
+    fn scheduled_task_test_new() {
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let st = ScheduledTask::test_new("task1", start, finish, Duration::days(5), Duration::zero(), true);
+
+        assert_eq!(st.task_id, "task1");
+        assert_eq!(st.start, start);
+        assert_eq!(st.finish, finish);
+        assert!(st.is_critical);
+        assert_eq!(st.assignments.len(), 0);
+        assert_eq!(st.percent_complete, 0);
+        assert_eq!(st.status, TaskStatus::NotStarted);
+    }
 }

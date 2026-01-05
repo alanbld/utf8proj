@@ -1241,4 +1241,121 @@ mod tests {
         assert!(!result.feasible);
         assert!(!result.conflicts.is_empty());
     }
+
+    #[test]
+    fn isolated_task_no_dependencies() {
+        // Task with no dependencies and nothing depends on it
+        let mut project = Project::new("Isolated");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("alone").effort(Duration::days(3)),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        assert!(schedule.tasks.contains_key("alone"));
+        assert_eq!(schedule.tasks["alone"].duration, Duration::days(3));
+    }
+
+    #[test]
+    fn deeply_nested_tasks() {
+        // Multiple levels of nesting
+        let mut project = Project::new("Deep Nesting");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("level1")
+                .child(
+                    Task::new("level2")
+                        .child(
+                            Task::new("level3")
+                                .child(Task::new("leaf").effort(Duration::days(2)))
+                        )
+                ),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // All levels should be in schedule
+        assert!(schedule.tasks.contains_key("level1"));
+        assert!(schedule.tasks.contains_key("level1.level2"));
+        assert!(schedule.tasks.contains_key("level1.level2.level3"));
+        assert!(schedule.tasks.contains_key("level1.level2.level3.leaf"));
+    }
+
+    #[test]
+    fn explain_task_with_no_dependencies() {
+        let mut project = Project::new("Simple");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("standalone").effort(Duration::days(5)),
+        ];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"standalone".to_string());
+
+        assert!(explanation.reason.contains("project start"));
+        assert!(explanation.constraints_applied.is_empty());
+    }
+
+    #[test]
+    fn schedule_with_dependency_on_container() {
+        // Task that depends on a container (should expand to all children)
+        let mut project = Project::new("Container Dep");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("phase1")
+                .child(Task::new("a").effort(Duration::days(3)))
+                .child(Task::new("b").effort(Duration::days(2)).depends_on("a")),
+            Task::new("phase2")
+                .effort(Duration::days(4))
+                .depends_on("phase1"), // Depends on container
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // phase2 should start after phase1.b finishes
+        let phase1_b = &schedule.tasks["phase1.b"];
+        let phase2 = &schedule.tasks["phase2"];
+        assert!(phase2.start > phase1_b.finish);
+    }
+
+    #[test]
+    fn schedule_with_relative_sibling_dependency() {
+        // Sibling tasks referencing each other without qualified paths
+        let mut project = Project::new("Sibling Deps");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("container")
+                .child(Task::new("first").effort(Duration::days(3)))
+                .child(Task::new("second").effort(Duration::days(2)).depends_on("first"))
+                .child(Task::new("third").effort(Duration::days(1)).depends_on("second")),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Chain should be scheduled correctly
+        assert!(schedule.tasks["container.second"].start > schedule.tasks["container.first"].finish);
+        assert!(schedule.tasks["container.third"].start > schedule.tasks["container.second"].finish);
+    }
+
+    #[test]
+    fn working_day_cache_beyond_limit() {
+        // Test with a project that exceeds typical cache size
+        let mut project = Project::new("Long Project");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("long_task").duration(Duration::days(500)), // Very long
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Should still schedule without error
+        assert!(schedule.tasks.contains_key("long_task"));
+        assert_eq!(schedule.tasks["long_task"].duration, Duration::days(500));
+    }
 }
