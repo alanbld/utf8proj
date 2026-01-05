@@ -3,14 +3,19 @@
 //! Provides contextual information when hovering over:
 //! - Profile identifiers: shows rate range, specialization chain, traits
 //! - Resource identifiers: shows rate, capacity, efficiency
-//! - Task identifiers: shows duration, dependencies, assignments
+//! - Task identifiers: shows dates, slack, criticality, dependencies, assignments
 
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use utf8proj_core::{Project, ResourceProfile, ResourceRate, Task};
+use utf8proj_core::{Project, ResourceProfile, ResourceRate, Schedule, Task};
 
 /// Get hover information for a position in the document
-pub fn get_hover_info(project: &Project, text: &str, position: Position) -> Option<Hover> {
+pub fn get_hover_info(
+    project: &Project,
+    schedule: Option<&Schedule>,
+    text: &str,
+    position: Position,
+) -> Option<Hover> {
     // Find the word at the cursor position
     let word = get_word_at_position(text, position)?;
 
@@ -24,7 +29,7 @@ pub fn get_hover_info(project: &Project, text: &str, position: Position) -> Opti
     }
 
     if let Some(task) = find_task_by_id(&project.tasks, &word) {
-        return Some(hover_for_task(task));
+        return Some(hover_for_task(task, &word, schedule));
     }
 
     if let Some(t) = project.get_trait(&word) {
@@ -186,7 +191,7 @@ fn hover_for_resource(resource: &utf8proj_core::Resource) -> Hover {
 }
 
 /// Build hover content for a task
-fn hover_for_task(task: &Task) -> Hover {
+fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Hover {
     let mut lines = vec![format!("**Task: {}**", task.id)];
 
     if task.name != task.id {
@@ -230,6 +235,34 @@ fn hover_for_task(task: &Task) -> Hover {
     if let Some(complete) = task.complete {
         if complete > 0.0 {
             lines.push(format!("Progress: {}%", (complete * 100.0) as i32));
+        }
+    }
+
+    // Add schedule information if available
+    if let Some(sched) = schedule {
+        // Try to find this task in the schedule (may be qualified ID like "phase.task")
+        let scheduled = sched.tasks.get(task_id).or_else(|| sched.tasks.get(&task.id));
+
+        if let Some(st) = scheduled {
+            lines.push("---".to_string()); // Separator
+
+            // Dates
+            lines.push(format!(
+                "📅 **Schedule:** {} → {}",
+                st.start.format("%Y-%m-%d"),
+                st.finish.format("%Y-%m-%d")
+            ));
+
+            // Duration (from schedule, may differ from effort)
+            lines.push(format!("⏱️ Duration: {} days", st.duration.as_days() as i64));
+
+            // Slack and criticality
+            let slack_days = st.slack.as_days() as i64;
+            if st.is_critical {
+                lines.push("🔴 **Critical Path** (0 days slack)".to_string());
+            } else if slack_days > 0 {
+                lines.push(format!("🟢 Slack: {} days", slack_days));
+            }
         }
     }
 
@@ -277,11 +310,44 @@ fn find_task_by_id<'a>(tasks: &'a [Task], id: &str) -> Option<&'a Task> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
     use rust_decimal_macros::dec;
+    use std::collections::HashMap;
     use utf8proj_core::{
         Dependency, DependencyType, Duration, Money, RateRange, Resource, ResourceProfile,
-        ResourceRate, ResourceRef, Trait,
+        ResourceRate, ResourceRef, ScheduledTask, TaskStatus, Trait,
     };
+
+    /// Helper to create a ScheduledTask for tests
+    fn make_scheduled_task(
+        task_id: &str,
+        start: NaiveDate,
+        finish: NaiveDate,
+        duration: Duration,
+        slack: Duration,
+        is_critical: bool,
+    ) -> ScheduledTask {
+        ScheduledTask {
+            task_id: task_id.to_string(),
+            start,
+            finish,
+            duration,
+            assignments: vec![],
+            slack,
+            is_critical,
+            early_start: start,
+            early_finish: finish,
+            late_start: start,
+            late_finish: finish,
+            forecast_start: start,
+            forecast_finish: finish,
+            remaining_duration: duration,
+            percent_complete: 0,
+            status: TaskStatus::NotStarted,
+            cost_range: None,
+            has_abstract_assignments: false,
+        }
+    }
 
     // =========================================================================
     // get_word_at_position tests
@@ -624,7 +690,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "task1").unwrap();
 
-        let hover = hover_for_task(task);
+        let hover = hover_for_task(task, "task1", None);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: task1**"));
@@ -641,7 +707,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "milestone1").unwrap();
 
-        let hover = hover_for_task(task);
+        let hover = hover_for_task(task, "milestone1", None);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: milestone1**"));
@@ -653,7 +719,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "container").unwrap();
 
-        let hover = hover_for_task(task);
+        let hover = hover_for_task(task, "container", None);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: container**"));
@@ -666,7 +732,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "simple").unwrap();
 
-        let hover = hover_for_task(task);
+        let hover = hover_for_task(task, "simple", None);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: simple**"));
@@ -687,11 +753,87 @@ mod tests {
         project.tasks.push(zero_task);
 
         let task = find_task_by_id(&project.tasks, "zero_progress").unwrap();
-        let hover = hover_for_task(task);
+        let hover = hover_for_task(task, "zero_progress", None);
         let content = extract_hover_content(&hover);
 
         // 0% progress should not be shown
         assert!(!content.contains("Progress:"));
+    }
+
+    #[test]
+    fn hover_task_with_schedule_critical_path() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "task1").unwrap();
+
+        // Create a schedule with this task on the critical path
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let scheduled = make_scheduled_task(
+            "task1",
+            start,
+            finish,
+            Duration::days(5),
+            Duration::days(0), // no slack
+            true,              // critical
+        );
+
+        let mut tasks = HashMap::new();
+        tasks.insert("task1".to_string(), scheduled);
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["task1".to_string()],
+            project_duration: Duration::days(5),
+            project_end: finish,
+            total_cost: None,
+            total_cost_range: None,
+        };
+
+        let hover = hover_for_task(task, "task1", Some(&schedule));
+        let content = extract_hover_content(&hover);
+
+        // Should show schedule info
+        assert!(content.contains("📅 **Schedule:** 2025-01-06 → 2025-01-10"));
+        assert!(content.contains("⏱️ Duration: 5 days"));
+        assert!(content.contains("🔴 **Critical Path**"));
+    }
+
+    #[test]
+    fn hover_task_with_schedule_slack() {
+        let project = make_test_project();
+        let task = find_task_by_id(&project.tasks, "task1").unwrap();
+
+        // Create a schedule with this task having slack
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let scheduled = make_scheduled_task(
+            "task1",
+            start,
+            finish,
+            Duration::days(5),
+            Duration::days(3), // has slack
+            false,             // not critical
+        );
+
+        let mut tasks = HashMap::new();
+        tasks.insert("task1".to_string(), scheduled);
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(8),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+            total_cost: None,
+            total_cost_range: None,
+        };
+
+        let hover = hover_for_task(task, "task1", Some(&schedule));
+        let content = extract_hover_content(&hover);
+
+        // Should show slack info
+        assert!(content.contains("📅 **Schedule:**"));
+        assert!(content.contains("🟢 Slack: 3 days"));
+        assert!(!content.contains("Critical Path"));
     }
 
     // =========================================================================
@@ -793,7 +935,7 @@ mod tests {
         let project = make_test_project();
         let text = "assign: developer";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -805,7 +947,7 @@ mod tests {
         let project = make_test_project();
         let text = "resource: alice";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 12));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 12));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -817,7 +959,7 @@ mod tests {
         let project = make_test_project();
         let text = "depends: task1";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -829,7 +971,7 @@ mod tests {
         let project = make_test_project();
         let text = "traits: senior";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -841,7 +983,7 @@ mod tests {
         let project = make_test_project();
         let text = "unknown_identifier";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 5));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 5));
 
         assert!(hover.is_none());
     }
@@ -851,7 +993,7 @@ mod tests {
         let project = make_test_project();
         let text = "   ";
 
-        let hover = get_hover_info(&project, text, Position::new(0, 1));
+        let hover = get_hover_info(&project, None, text, Position::new(0, 1));
 
         assert!(hover.is_none());
     }

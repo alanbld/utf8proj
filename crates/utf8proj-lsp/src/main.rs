@@ -16,7 +16,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use utf8proj_core::{CollectingEmitter, Project, Scheduler};
+use utf8proj_core::{CollectingEmitter, Project, Schedule, Scheduler};
 use utf8proj_parser::parse_project;
 use utf8proj_solver::{analyze_project, AnalysisConfig, CpmSolver};
 
@@ -30,6 +30,8 @@ struct DocumentState {
     text: String,
     /// Parsed project (if successful)
     project: Option<Project>,
+    /// Computed schedule (if successful)
+    schedule: Option<Schedule>,
     /// Parse error (if failed)
     parse_error: Option<String>,
 }
@@ -53,6 +55,7 @@ impl Backend {
         let mut state = DocumentState {
             text: text.clone(),
             project: None,
+            schedule: None,
             parse_error: None,
         };
 
@@ -67,6 +70,7 @@ impl Backend {
                 let config = AnalysisConfig::new().with_file(uri.path());
                 analyze_project(&project, schedule.as_ref(), &config, &mut emitter);
 
+                state.schedule = schedule;
                 state.project = Some(project);
                 to_lsp_diagnostics(&emitter.diagnostics)
             }
@@ -155,7 +159,12 @@ impl LanguageServer for Backend {
         let docs = self.documents.read().await;
         if let Some(state) = docs.get(&uri) {
             if let Some(ref project) = state.project {
-                return Ok(get_hover_info(project, &state.text, position));
+                return Ok(get_hover_info(
+                    project,
+                    state.schedule.as_ref(),
+                    &state.text,
+                    position,
+                ));
             }
         }
 
