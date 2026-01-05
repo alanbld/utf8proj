@@ -419,6 +419,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         // Both tasks scheduled at the same time - conflict!
@@ -438,6 +439,8 @@ mod tests {
                     finish,
                     units: 1.0,
                     cost: None,
+                    cost_range: None,
+                    is_abstract: false,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
@@ -450,6 +453,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -466,6 +471,8 @@ mod tests {
                     finish,
                     units: 1.0,
                     cost: None,
+                    cost_range: None,
+                    is_abstract: false,
                 }],
                 slack: Duration::days(5),
                 is_critical: false,
@@ -478,6 +485,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -509,6 +518,7 @@ mod tests {
             project_duration: Duration::days(10),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 17).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let start1 = project.start;
@@ -529,6 +539,8 @@ mod tests {
                     finish: finish1,
                     units: 1.0,
                     cost: None,
+                    cost_range: None,
+                    is_abstract: false,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
@@ -541,6 +553,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -557,6 +571,8 @@ mod tests {
                     finish: finish2,
                     units: 1.0,
                     cost: None,
+                    cost_range: None,
+                    is_abstract: false,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
@@ -569,6 +585,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -657,6 +675,7 @@ mod tests {
             project_duration: Duration::zero(),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let analyzer = BddConflictAnalyzer::new();

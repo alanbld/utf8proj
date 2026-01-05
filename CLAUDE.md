@@ -54,9 +54,9 @@ playground/             # Browser-based playground
 | utf8proj-render/mermaid | 111/111 | 100.0% |
 | utf8proj-parser/lib | 13/13 | 100.0% |
 | utf8proj-render/lib | 243/245 | 99.2% |
-| utf8proj-solver/lib | 299/302 | 99.0% |
 | utf8proj-render/gantt | 273/278 | 98.2% |
 | utf8proj-render/excel | 421/432 | 97.5% |
+| utf8proj-solver/lib | 371/381 | 97.4% |
 | utf8proj-solver/bdd | 108/111 | 97.3% |
 | utf8proj-solver/leveling | 190/196 | 96.9% |
 | utf8proj-parser/tjp | 152/157 | 96.8% |
@@ -67,14 +67,14 @@ playground/             # Browser-based playground
 | utf8proj-solver/cpm | 78/83 | 94.0% |
 | utf8proj-wasm | 74/81 | 91.4% |
 | utf8proj-cli | 143/466 | 30.7% |
-| **Overall** | **3186/3594** | **88.65%** |
+| **Overall** | **3258/3673** | **88.70%** |
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI).
 
-**Tests:** 430+ passing, 1 ignored (render doctest)
+**Tests:** 465 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 79 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress = 130 tests
+- utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress = 146 tests (includes 16 RFC-0001 tests)
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests (includes 10 RFC-0001 tests)
 - utf8proj-core: 74 tests + 3 doc-tests (includes 26 RFC-0001 tests)

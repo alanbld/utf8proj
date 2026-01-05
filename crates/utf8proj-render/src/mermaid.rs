@@ -353,6 +353,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -377,6 +379,8 @@ mod tests {
                 remaining_duration: Duration::days(10),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -401,6 +405,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -414,6 +420,7 @@ mod tests {
             project_duration: Duration::days(18),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 29).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         }
     }
 
@@ -497,6 +504,7 @@ mod tests {
             project_duration: Duration::zero(),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -554,6 +562,8 @@ mod tests {
                 remaining_duration: Duration::zero(),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -563,6 +573,7 @@ mod tests {
             project_duration: Duration::zero(),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = MermaidRenderer::new();
@@ -631,6 +642,8 @@ mod tests {
                 remaining_duration: Duration::zero(),
                 percent_complete: 100,
                 status: TaskStatus::Complete,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -640,6 +653,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = MermaidRenderer::new();
@@ -680,6 +694,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 50,
                 status: TaskStatus::InProgress,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -689,6 +705,7 @@ mod tests {
             project_duration: Duration::days(10),
             project_end: finish,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = MermaidRenderer::new();
@@ -729,6 +746,8 @@ mod tests {
                 remaining_duration: Duration::zero(),
                 percent_complete: 100,
                 status: TaskStatus::Complete,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -738,6 +757,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = MermaidRenderer::new().no_completion().no_critical();

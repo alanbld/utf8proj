@@ -1012,6 +1012,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1036,6 +1038,8 @@ mod tests {
                 remaining_duration: Duration::days(10),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1060,6 +1064,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1069,6 +1075,7 @@ mod tests {
             project_duration: Duration::days(18),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 29).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         }
     }
 
@@ -1146,6 +1153,7 @@ mod tests {
             project_duration: Duration::zero(),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -1208,6 +1216,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
         tasks.insert(
@@ -1229,6 +1239,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1238,6 +1250,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish1,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1285,6 +1298,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
         tasks.insert(
@@ -1306,6 +1321,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1315,6 +1332,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish1,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1359,6 +1377,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
         tasks.insert(
@@ -1380,6 +1400,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -1389,6 +1411,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish1,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = HtmlGanttRenderer::new();

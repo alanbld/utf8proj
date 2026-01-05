@@ -386,6 +386,7 @@ pub fn level_resources(
             project_duration: Duration::days(project_duration_days),
             project_end: new_project_end,
             total_cost: schedule.total_cost.clone(),
+            total_cost_range: schedule.total_cost_range.clone(),
         },
         shifted_tasks,
         unresolved_conflicts,

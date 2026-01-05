@@ -589,6 +589,8 @@ mod tests {
                 remaining_duration: Duration::days(3),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -613,6 +615,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -622,6 +626,7 @@ mod tests {
             project_duration: Duration::days(8),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         }
     }
 
@@ -675,6 +680,7 @@ mod tests {
             project_duration: Duration::zero(),
             project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             total_cost: None,
+            total_cost_range: None,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -737,6 +743,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
         let ms_date = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
@@ -759,6 +767,8 @@ mod tests {
                 remaining_duration: Duration::zero(),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -768,6 +778,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: ms_date,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = SvgRenderer::new();
@@ -810,6 +821,8 @@ mod tests {
                 remaining_duration: Duration::days(5),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -819,6 +832,7 @@ mod tests {
             project_duration: Duration::days(5),
             project_end: finish1,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = SvgRenderer::new();
@@ -867,6 +881,8 @@ mod tests {
                 remaining_duration: Duration::days(50),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
         let start2 = NaiveDate::from_ymd_opt(2025, 3, 17).unwrap();
@@ -890,6 +906,8 @@ mod tests {
                 remaining_duration: Duration::days(50),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -899,6 +917,7 @@ mod tests {
             project_duration: Duration::days(100),
             project_end: finish2,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = SvgRenderer::new();
@@ -941,6 +960,8 @@ mod tests {
                 remaining_duration: Duration::days(200),
                 percent_complete: 0,
                 status: TaskStatus::NotStarted,
+                cost_range: None,
+                has_abstract_assignments: false,
             },
         );
 
@@ -950,6 +971,7 @@ mod tests {
             project_duration: Duration::days(200),
             project_end: finish1,
             total_cost: None,
+            total_cost_range: None,
         };
 
         let renderer = SvgRenderer::new();

@@ -13,6 +13,7 @@ utf8proj-core.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 biodivine-lib-bdd.workspace = true
+rust_decimal.workspace = true
 
 [lints]
 workspace = true
