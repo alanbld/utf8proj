@@ -15,7 +15,7 @@ use utf8proj_core::{CollectingEmitter, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project};
 
-use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
+use crate::diagnostics::{DiagnosticConfig, ExitCode, JsonEmitter, TerminalEmitter};
 
 #[derive(Parser)]
 #[command(name = "utf8proj")]

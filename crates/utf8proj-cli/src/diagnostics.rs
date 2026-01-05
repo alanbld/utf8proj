@@ -8,12 +8,95 @@
 //! - `--strict` mode: escalates warnings to errors, hints to warnings
 //! - `--quiet` mode: suppresses all output except errors
 //! - Path normalization for reproducible test output
+//!
+//! ## Exit Code Semantics
+//!
+//! Exit codes follow rustc conventions:
+//!
+//! | Exit Code | Meaning |
+//! |-----------|---------|
+//! | 0 | Success: no errors (warnings/hints/info allowed) |
+//! | 1 | Failure: one or more errors emitted |
+//!
+//! ### Policy Effects
+//!
+//! - **Default mode**: Exit code determined by native errors only
+//! - **`--strict` mode**: Warnings escalate to errors, hints to warnings
+//!   - A project with only warnings will exit 1 in strict mode
+//! - **`--quiet` mode**: Does NOT affect exit code, only output visibility
+//! - **`--format=json`**: Exit code semantics identical to text mode
+//!
+//! ### Multiple Diagnostics
+//!
+//! Exit code is determined by the **highest effective severity** after policy:
+//! - If any effective error exists → exit 1
+//! - Otherwise → exit 0
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process;
 
 use serde::Serialize;
 use utf8proj_core::{Diagnostic, DiagnosticEmitter, Severity};
+
+// ============================================================================
+// Exit Code
+// ============================================================================
+
+/// Exit codes for CLI operations.
+///
+/// These follow rustc conventions and are stable API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitCode {
+    /// Success: no errors (warnings/hints/info allowed)
+    Success = 0,
+    /// Failure: one or more errors emitted
+    Failure = 1,
+}
+
+impl ExitCode {
+    /// Determine exit code from error count.
+    ///
+    /// This is the central decision point for exit semantics.
+    /// The error count should already reflect policy (strict mode escalation).
+    pub fn from_error_count(count: usize) -> Self {
+        if count > 0 {
+            ExitCode::Failure
+        } else {
+            ExitCode::Success
+        }
+    }
+
+    /// Check if this represents success
+    pub fn is_success(self) -> bool {
+        matches!(self, ExitCode::Success)
+    }
+
+    /// Check if this represents failure
+    pub fn is_failure(self) -> bool {
+        matches!(self, ExitCode::Failure)
+    }
+
+    /// Convert to std::process::ExitCode for main()
+    pub fn to_process_exit_code(self) -> process::ExitCode {
+        process::ExitCode::from(self as u8)
+    }
+
+    /// Get the numeric value
+    pub fn code(self) -> i32 {
+        self as i32
+    }
+}
+
+impl From<ExitCode> for process::ExitCode {
+    fn from(code: ExitCode) -> Self {
+        process::ExitCode::from(code as u8)
+    }
+}
+
+// ============================================================================
+// Diagnostic Config
+// ============================================================================
 
 /// Configuration for diagnostic output
 #[derive(Debug, Clone)]
@@ -124,6 +207,14 @@ impl<W: Write> TerminalEmitter<W> {
     /// Check if any errors were emitted
     pub fn has_errors(&self) -> bool {
         self.error_count > 0
+    }
+
+    /// Get the exit code based on emitted diagnostics.
+    ///
+    /// This is the authoritative exit code decision for terminal output.
+    /// Returns `ExitCode::Failure` if any errors were emitted (after policy).
+    pub fn exit_code(&self) -> ExitCode {
+        ExitCode::from_error_count(self.error_count)
     }
 
     /// Format and write a diagnostic
@@ -246,6 +337,14 @@ impl JsonEmitter {
             .iter()
             .filter(|d| d.severity == "error")
             .count()
+    }
+
+    /// Get the exit code based on collected diagnostics.
+    ///
+    /// This is the authoritative exit code decision for JSON output.
+    /// Returns `ExitCode::Failure` if any errors were collected (after policy).
+    pub fn exit_code(&self) -> ExitCode {
+        ExitCode::from_error_count(self.error_count())
     }
 
     /// Convert to JSON value for inclusion in schedule output
@@ -473,5 +572,149 @@ mod tests {
 
         // Hint should become warning in strict mode
         assert_eq!(emitter.diagnostics()[0].severity, "warning");
+    }
+
+    // =========================================================================
+    // Exit Code Tests
+    // =========================================================================
+
+    #[test]
+    fn exit_code_zero_errors_is_success() {
+        assert_eq!(ExitCode::from_error_count(0), ExitCode::Success);
+        assert!(ExitCode::Success.is_success());
+        assert!(!ExitCode::Success.is_failure());
+        assert_eq!(ExitCode::Success.code(), 0);
+    }
+
+    #[test]
+    fn exit_code_with_errors_is_failure() {
+        assert_eq!(ExitCode::from_error_count(1), ExitCode::Failure);
+        assert_eq!(ExitCode::from_error_count(5), ExitCode::Failure);
+        assert!(ExitCode::Failure.is_failure());
+        assert!(!ExitCode::Failure.is_success());
+        assert_eq!(ExitCode::Failure.code(), 1);
+    }
+
+    #[test]
+    fn terminal_emitter_exit_code_no_errors() {
+        let mut output = Vec::new();
+        let config = DiagnosticConfig::default();
+        let mut emitter = TerminalEmitter::new(&mut output, config);
+
+        // Emit only warnings - should be success
+        emitter.emit(make_test_diagnostic());
+
+        assert_eq!(emitter.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn terminal_emitter_exit_code_with_errors() {
+        let mut output = Vec::new();
+        let config = DiagnosticConfig::default();
+        let mut emitter = TerminalEmitter::new(&mut output, config);
+
+        let error = Diagnostic::error(
+            DiagnosticCode::E001CircularSpecialization,
+            "circular specialization detected",
+        );
+        emitter.emit(error);
+
+        assert_eq!(emitter.exit_code(), ExitCode::Failure);
+    }
+
+    #[test]
+    fn terminal_emitter_exit_code_strict_escalation() {
+        let mut output = Vec::new();
+        let config = DiagnosticConfig::strict();
+        let mut emitter = TerminalEmitter::new(&mut output, config);
+
+        // Warning escalates to error in strict mode
+        emitter.emit(make_test_diagnostic());
+
+        assert_eq!(emitter.exit_code(), ExitCode::Failure);
+    }
+
+    #[test]
+    fn terminal_emitter_exit_code_quiet_doesnt_affect_code() {
+        let mut output = Vec::new();
+        let config = DiagnosticConfig {
+            strict: true,
+            quiet: true,
+            base_path: None,
+        };
+        let mut emitter = TerminalEmitter::new(&mut output, config);
+
+        // Warning escalates to error (strict), output suppressed (quiet)
+        // But exit code should still be failure
+        emitter.emit(make_test_diagnostic());
+
+        assert_eq!(emitter.exit_code(), ExitCode::Failure);
+    }
+
+    #[test]
+    fn json_emitter_exit_code_no_errors() {
+        let config = DiagnosticConfig::default();
+        let mut emitter = JsonEmitter::new(config);
+
+        // Emit only warnings - should be success
+        emitter.emit(make_test_diagnostic());
+
+        assert_eq!(emitter.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn json_emitter_exit_code_with_errors() {
+        let config = DiagnosticConfig::default();
+        let mut emitter = JsonEmitter::new(config);
+
+        let error = Diagnostic::error(
+            DiagnosticCode::E001CircularSpecialization,
+            "circular specialization detected",
+        );
+        emitter.emit(error);
+
+        assert_eq!(emitter.exit_code(), ExitCode::Failure);
+    }
+
+    #[test]
+    fn json_emitter_exit_code_strict_escalation() {
+        let config = DiagnosticConfig::strict();
+        let mut emitter = JsonEmitter::new(config);
+
+        // Warning escalates to error in strict mode
+        emitter.emit(make_test_diagnostic());
+
+        assert_eq!(emitter.exit_code(), ExitCode::Failure);
+    }
+
+    #[test]
+    fn hint_only_is_success_even_in_strict() {
+        // Hints become warnings in strict, not errors
+        let config = DiagnosticConfig::strict();
+        let mut emitter = JsonEmitter::new(config);
+
+        let hint = Diagnostic::new(
+            DiagnosticCode::H002UnusedProfile,
+            "profile 'dev' is defined but never assigned",
+        );
+        emitter.emit(hint);
+
+        // Hint → Warning in strict, which is NOT an error
+        assert_eq!(emitter.exit_code(), ExitCode::Success);
+    }
+
+    #[test]
+    fn info_only_is_always_success() {
+        let config = DiagnosticConfig::strict();
+        let mut emitter = JsonEmitter::new(config);
+
+        let info = Diagnostic::new(
+            DiagnosticCode::I001ProjectCostSummary,
+            "project scheduled successfully",
+        );
+        emitter.emit(info);
+
+        // Info stays info, always success
+        assert_eq!(emitter.exit_code(), ExitCode::Success);
     }
 }

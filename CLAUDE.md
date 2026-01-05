@@ -71,15 +71,71 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI).
 
-**Tests:** 465 passing, 1 ignored (render doctest)
+**Tests:** 520+ passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 95 unit + 27 hierarchical + 8 correctness + 12 leveling + 4 progress = 146 tests (includes 16 RFC-0001 tests)
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests (includes 10 RFC-0001 tests)
 - utf8proj-core: 74 tests + 3 doc-tests (includes 26 RFC-0001 tests)
-- utf8proj-cli: 10 tests
+- utf8proj-cli: 32 unit + 14 diagnostic snapshot + 19 exit code = 65 tests
 - utf8proj-wasm: 15 tests
+
+## Diagnostic System (Compiler-Grade)
+
+The CLI implements rustc-style diagnostics for project analysis with structured output and CI-ready exit codes.
+
+### Exit Code Contract (Stable API)
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | Success: no errors (warnings/hints/info allowed) |
+| 1 | Failure: one or more errors emitted |
+
+### Policy Flags
+
+- **`--strict`**: Escalates severities (warnings→errors, hints→warnings)
+- **`--quiet`**: Suppresses all output except errors (does NOT change exit code)
+- **`--format=json`**: Machine-readable output (same exit semantics)
+
+### Diagnostic Codes
+
+| Code | Severity | Trigger |
+|------|----------|---------|
+| E001 | Error | Circular specialization in profiles |
+| E002 | Warning | Profile without rate assigned to tasks |
+| W001 | Warning | Task assigned to abstract profile |
+| W002 | Warning | Wide cost range (>100% spread) |
+| W003 | Warning | Unknown trait on profile |
+| W004 | Warning | Approximate leveling applied |
+| H001 | Hint | Mixed abstract and concrete assignments |
+| H002 | Hint | Unused profile defined |
+| H003 | Hint | Unused trait defined |
+| I001 | Info | Project scheduled successfully (summary) |
+
+### Usage
+
+```bash
+# Default mode - warnings don't fail
+utf8proj schedule project.proj          # Exit 0 with warnings
+
+# Strict mode - warnings become errors
+utf8proj schedule --strict project.proj # Exit 1 with warnings
+
+# CI mode - quiet + strict
+utf8proj schedule --quiet --strict project.proj
+
+# JSON output for tooling
+utf8proj schedule --format=json project.proj
+```
+
+### Implementation Files
+
+- `crates/utf8proj-cli/src/diagnostics.rs` - Emitters, ExitCode, DiagnosticConfig
+- `crates/utf8proj-core/src/diagnostics.rs` - Core types (Diagnostic, Severity, DiagnosticCode)
+- `crates/utf8proj-solver/src/lib.rs` - analyze_project() emission points
+- `crates/utf8proj-cli/tests/exit_codes.rs` - 19 integration tests
+- `crates/utf8proj-cli/tests/diagnostics.rs` - 14 snapshot tests
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
