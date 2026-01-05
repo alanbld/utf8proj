@@ -31,11 +31,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Parse and validate a project file
+    /// Parse and validate a project file (no scheduling output)
     Check {
         /// Input file path
         #[arg(value_name = "FILE")]
         file: std::path::PathBuf,
+
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+
+        /// Strict mode: warnings become errors, hints become warnings
+        #[arg(long)]
+        strict: bool,
+
+        /// Quiet mode: suppress all output except errors
+        #[arg(short, long)]
+        quiet: bool,
     },
 
     /// Schedule a project
@@ -133,7 +145,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Check { file }) => cmd_check(&file),
+        Some(Commands::Check { file, format, strict, quiet }) => {
+            cmd_check(&file, &format, strict, quiet)
+        }
         Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet)
         }
@@ -169,36 +183,72 @@ fn main() -> Result<()> {
 }
 
 /// Check command: parse and validate a project file
-fn cmd_check(file: &std::path::Path) -> Result<()> {
-    println!("Checking: {}", file.display());
-
+///
+/// This is the fast validation entry point - it parses the file, schedules
+/// (to enable cost analysis), and runs semantic analysis, but produces no
+/// schedule output. Designed for CI pipelines, pre-commit hooks, and editors.
+fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
-    println!("  Project: {}", project.name);
-    println!("  Start: {}", project.start);
-    if let Some(end) = project.end {
-        println!("  End: {}", end);
-    }
-    println!("  Tasks: {}", count_tasks(&project.tasks));
-    println!("  Resources: {}", project.resources.len());
-
-    // Check feasibility
+    // Schedule the project (needed for cost analysis in diagnostics)
     let solver = CpmSolver::new();
-    let feasibility = solver.is_feasible(&project);
+    let schedule = solver.schedule(&project).ok();
 
-    if feasibility.feasible {
-        println!("  Status: OK - No circular dependencies detected");
-    } else {
-        println!("  Status: ERRORS FOUND");
-        for conflict in &feasibility.conflicts {
-            println!("    - {}: {}",
-                format!("{:?}", conflict.conflict_type),
-                conflict.description
-            );
+    // Run diagnostic analysis
+    let analysis_config = AnalysisConfig::new().with_file(file);
+    let mut collector = CollectingEmitter::new();
+    analyze_project(&project, schedule.as_ref(), &analysis_config, &mut collector);
+
+    // Configure diagnostic output
+    let diag_config = DiagnosticConfig {
+        strict,
+        quiet,
+        base_path: file.parent().map(|p| p.to_path_buf()),
+    };
+
+    // Emit diagnostics based on format
+    let has_errors = match format {
+        "json" => {
+            let mut json_emitter = JsonEmitter::new(diag_config);
+            for diag in collector.sorted() {
+                json_emitter.emit(diag.clone());
+            }
+
+            // Output JSON diagnostics array
+            let output = serde_json::json!({
+                "file": file.display().to_string(),
+                "diagnostics": json_emitter.to_json_value(),
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+
+            json_emitter.has_errors()
         }
-        return Err(anyhow::anyhow!("Project has feasibility issues"));
+        "text" | _ => {
+            let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
+            for diag in collector.sorted() {
+                term_emitter.emit(diag.clone());
+            }
+
+            // Show summary if not quiet and no errors
+            if !quiet && !term_emitter.has_errors() {
+                eprintln!(
+                    "Checked '{}': {} tasks, {} resources, {} profiles",
+                    file.display(),
+                    count_tasks(&project.tasks),
+                    project.resources.len(),
+                    project.profiles.len()
+                );
+            }
+
+            term_emitter.has_errors()
+        }
+    };
+
+    // Exit with error if there were errors
+    if has_errors {
+        return Err(anyhow::anyhow!("aborting due to previous error(s)"));
     }
 
     Ok(())

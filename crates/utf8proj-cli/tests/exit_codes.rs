@@ -195,3 +195,65 @@ fn exit_0_mixed_warnings_hints_no_error() {
     let code = run_schedule("h001_mixed_abstraction.proj", &[]);
     assert_eq!(code, 0, "Warnings + hints without errors should exit 0");
 }
+
+// =============================================================================
+// Check Command Exit Codes
+// =============================================================================
+
+/// Run check command and return exit code
+fn run_check(fixture: &str, args: &[&str]) -> i32 {
+    let input_path = fixtures_dir().join(fixture);
+
+    let mut cmd = Command::new(utf8proj_binary());
+    cmd.arg("check").arg(&input_path);
+
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    let status = cmd.status().expect("failed to execute utf8proj");
+
+    status.code().unwrap_or(-1)
+}
+
+#[test]
+fn check_exit_0_success() {
+    let code = run_check("i001_success.proj", &[]);
+    assert_eq!(code, 0, "check: success should exit 0");
+}
+
+#[test]
+fn check_exit_0_warnings_only() {
+    let code = run_check("w001_abstract_assignment.proj", &[]);
+    assert_eq!(code, 0, "check: warnings only should exit 0");
+}
+
+#[test]
+fn check_exit_1_errors() {
+    let code = run_check("e001_circular_specialization.proj", &[]);
+    assert_eq!(code, 1, "check: errors should exit 1");
+}
+
+#[test]
+fn check_exit_1_strict_escalates_warnings() {
+    let code = run_check("w001_abstract_assignment.proj", &["--strict"]);
+    assert_eq!(code, 1, "check --strict: warnings should exit 1");
+}
+
+#[test]
+fn check_exit_0_quiet_no_output() {
+    let code = run_check("i001_success.proj", &["--quiet"]);
+    assert_eq!(code, 0, "check --quiet: success should exit 0");
+}
+
+#[test]
+fn check_exit_0_json_format() {
+    let code = run_check("i001_success.proj", &["--format=json"]);
+    assert_eq!(code, 0, "check --format=json: success should exit 0");
+}
+
+#[test]
+fn check_exit_1_json_errors() {
+    let code = run_check("e001_circular_specialization.proj", &["--format=json"]);
+    assert_eq!(code, 1, "check --format=json: errors should exit 1");
+}
