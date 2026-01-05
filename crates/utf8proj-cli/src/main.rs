@@ -15,7 +15,7 @@ use utf8proj_core::{CollectingEmitter, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project};
 
-use crate::diagnostics::{DiagnosticConfig, ExitCode, JsonEmitter, TerminalEmitter};
+use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
 
 #[derive(Parser)]
 #[command(name = "utf8proj")]
@@ -428,52 +428,6 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     output
 }
 
-/// Format schedule as JSON
-fn format_json(
-    project: &utf8proj_core::Project,
-    schedule: &utf8proj_core::Schedule,
-    show_progress: bool,
-) -> Result<String> {
-    // Create a summary structure for JSON output
-    let summary = serde_json::json!({
-        "project": {
-            "name": project.name,
-            "start": project.start.to_string(),
-            "end": schedule.project_end.to_string(),
-            "duration_days": schedule.project_duration.as_days(),
-        },
-        "critical_path": schedule.critical_path,
-        "tasks": schedule.tasks.values().map(|t| {
-            let mut task_json = serde_json::json!({
-                "id": t.task_id,
-                "start": t.start.to_string(),
-                "finish": t.finish.to_string(),
-                "duration_days": t.duration.as_days(),
-                "slack_days": t.slack.as_days(),
-                "is_critical": t.is_critical,
-                "early_start": t.early_start.to_string(),
-                "early_finish": t.early_finish.to_string(),
-                "late_start": t.late_start.to_string(),
-                "late_finish": t.late_finish.to_string(),
-            });
-
-            // Add progress fields if requested
-            if show_progress {
-                task_json["progress"] = serde_json::json!({
-                    "percent_complete": t.percent_complete,
-                    "status": format!("{}", t.status),
-                    "remaining_days": t.remaining_duration.as_days(),
-                    "forecast_start": t.forecast_start.to_string(),
-                    "forecast_finish": t.forecast_finish.to_string(),
-                });
-            }
-            task_json
-        }).collect::<Vec<_>>(),
-    });
-
-    serde_json::to_string_pretty(&summary)
-        .with_context(|| "Failed to serialize schedule to JSON")
-}
 
 /// Format schedule as JSON with diagnostics included
 fn format_json_with_diagnostics(

@@ -121,6 +121,7 @@ impl Default for DiagnosticConfig {
 
 impl DiagnosticConfig {
     /// Create a new config with strict mode enabled
+    #[allow(dead_code)] // Public API, used in tests
     pub fn strict() -> Self {
         Self {
             strict: true,
@@ -129,6 +130,7 @@ impl DiagnosticConfig {
     }
 
     /// Create a new config with quiet mode enabled
+    #[allow(dead_code)] // Public API, used in tests
     pub fn quiet() -> Self {
         Self {
             quiet: true,
@@ -137,6 +139,7 @@ impl DiagnosticConfig {
     }
 
     /// Set the base path for path normalization
+    #[allow(dead_code)] // Public API, used in tests
     pub fn with_base_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.base_path = Some(path.into());
         self
@@ -195,11 +198,13 @@ impl<W: Write> TerminalEmitter<W> {
     }
 
     /// Get the number of errors emitted
+    #[allow(dead_code)] // Public API, used in tests
     pub fn error_count(&self) -> usize {
         self.error_count
     }
 
     /// Get the number of warnings emitted
+    #[allow(dead_code)] // Public API, used in tests
     pub fn warning_count(&self) -> usize {
         self.warning_count
     }
@@ -213,6 +218,7 @@ impl<W: Write> TerminalEmitter<W> {
     ///
     /// This is the authoritative exit code decision for terminal output.
     /// Returns `ExitCode::Failure` if any errors were emitted (after policy).
+    #[allow(dead_code)] // Public API, used in tests
     pub fn exit_code(&self) -> ExitCode {
         ExitCode::from_error_count(self.error_count)
     }
@@ -320,6 +326,7 @@ impl JsonEmitter {
     }
 
     /// Get collected diagnostics
+    #[allow(dead_code)] // Public API, used in tests
     pub fn diagnostics(&self) -> &[JsonDiagnostic] {
         &self.diagnostics
     }
@@ -332,6 +339,7 @@ impl JsonEmitter {
     }
 
     /// Get error count
+    #[allow(dead_code)] // Public API, used in tests
     pub fn error_count(&self) -> usize {
         self.diagnostics
             .iter()
@@ -343,6 +351,7 @@ impl JsonEmitter {
     ///
     /// This is the authoritative exit code decision for JSON output.
     /// Returns `ExitCode::Failure` if any errors were collected (after policy).
+    #[allow(dead_code)] // Public API, used in tests
     pub fn exit_code(&self) -> ExitCode {
         ExitCode::from_error_count(self.error_count())
     }

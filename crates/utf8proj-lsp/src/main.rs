@@ -186,6 +186,7 @@ fn build_document_symbols(project: &Project) -> Vec<SymbolInformation> {
 
     // Add profiles
     for profile in &project.profiles {
+        #[allow(deprecated)] // SymbolInformation is deprecated in LSP 3.17 but still widely used
         symbols.push(SymbolInformation {
             name: profile.id.clone(),
             kind: SymbolKind::CLASS,
@@ -201,6 +202,7 @@ fn build_document_symbols(project: &Project) -> Vec<SymbolInformation> {
 
     // Add resources
     for resource in &project.resources {
+        #[allow(deprecated)]
         symbols.push(SymbolInformation {
             name: resource.id.clone(),
             kind: SymbolKind::VARIABLE,
@@ -231,6 +233,7 @@ fn build_document_symbols(project: &Project) -> Vec<SymbolInformation> {
                 SymbolKind::FUNCTION
             };
 
+            #[allow(deprecated)]
             symbols.push(SymbolInformation {
                 name: name.clone(),
                 kind,
