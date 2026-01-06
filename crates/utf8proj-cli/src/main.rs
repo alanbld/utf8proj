@@ -758,15 +758,12 @@ fn find_task_info(tasks: &[utf8proj_core::Task], id: &str) -> Option<(String, Op
     None
 }
 
-/// Get the display name for a task using fallback: summary → name → id
+/// Get the display name for a task using fallback: name (quoted string) → id
+/// The `name` field contains the human-readable task name from the DSL quoted string.
+/// The `summary` field is supplementary info, not the primary display name.
 fn get_task_display_name(tasks: &[utf8proj_core::Task], id: &str) -> String {
-    if let Some((name, summary)) = find_task_info(tasks, id) {
-        // Fallback: summary → name (description) → id
-        if let Some(s) = summary {
-            if !s.is_empty() {
-                return s;
-            }
-        }
+    if let Some((name, _summary)) = find_task_info(tasks, id) {
+        // Use name (the quoted string) if it's meaningful
         if !name.is_empty() && name != id {
             return name;
         }
