@@ -43,10 +43,13 @@ time_range = { time ~ "-" ~ time | "off" }
 time = @{ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} }
 
 // ============================================================================
-// Vacation Declaration
+// Vacation / Leaves Declaration
 // ============================================================================
 
-vacation_decl = { "vacation" ~ date }
+vacation_decl = {
+    ("vacation" ~ date) |
+    ("leaves" ~ "holiday" ~ string ~ date)
+}
 
 // ============================================================================
 // Resource Declaration
