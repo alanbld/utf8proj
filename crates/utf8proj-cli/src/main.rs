@@ -618,9 +618,10 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
             } else {
                 format!("{}d", task.finish_variance_days)
             };
+            let display_name = get_task_display_name(&project.tasks, &task.task_id);
             output.push_str(&format!(
                 "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
-                truncate(&task.task_id, 16),
+                truncate(&display_name, 16),
                 task.percent_complete,
                 format!("{}", task.status),
                 task.forecast_start.format("%Y-%m-%d"),
@@ -645,9 +646,10 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         // Task rows
         for task in tasks {
             let critical = if task.is_critical { "*" } else { "" };
+            let display_name = get_task_display_name(&project.tasks, &task.task_id);
             output.push_str(&format!(
                 "{:<20} {:<12} {:<12} {:>6}d {:>6}d {}\n",
-                truncate(&task.task_id, 20),
+                truncate(&display_name, 20),
                 task.start.format("%Y-%m-%d"),
                 task.finish.format("%Y-%m-%d"),
                 task.duration.as_days() as i64,
@@ -688,12 +690,13 @@ fn format_json_with_diagnostics(
                 "spi": schedule.spi,
             },
             "tasks": schedule.tasks.values().map(|t| {
+                // Get task info: (name/description, summary)
+                let (description, summary) = find_task_info(&project.tasks, &t.task_id)
+                    .unwrap_or_else(|| (t.task_id.clone(), None));
                 let mut task_json = serde_json::json!({
                     "id": t.task_id,
-                    "name": project.tasks.iter()
-                        .find(|task| task.id == t.task_id)
-                        .map(|task| task.name.as_str())
-                        .unwrap_or(&t.task_id),
+                    "name": description,
+                    "summary": summary,
                     "start": t.start.to_string(),
                     "finish": t.finish.to_string(),
                     "duration_days": t.duration.as_days(),
@@ -732,6 +735,43 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max - 3])
     }
+}
+
+/// Find a task by ID in a nested task tree, returning (name/description, summary)
+fn find_task_info(tasks: &[utf8proj_core::Task], id: &str) -> Option<(String, Option<String>)> {
+    for task in tasks {
+        if task.id == id {
+            return Some((task.name.clone(), task.summary.clone()));
+        }
+        // For nested tasks, the ID might be like "parent.child"
+        let prefix = format!("{}.", task.id);
+        if id.starts_with(&prefix) {
+            if let Some(result) = find_task_info(&task.children, id) {
+                return Some(result);
+            }
+        }
+        // Also check children directly (for non-prefixed lookups)
+        if let Some(result) = find_task_info(&task.children, id) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Get the display name for a task using fallback: summary → name → id
+fn get_task_display_name(tasks: &[utf8proj_core::Task], id: &str) -> String {
+    if let Some((name, summary)) = find_task_info(tasks, id) {
+        // Fallback: summary → name (description) → id
+        if let Some(s) = summary {
+            if !s.is_empty() {
+                return s;
+            }
+        }
+        if !name.is_empty() && name != id {
+            return name;
+        }
+    }
+    id.to_string()
 }
 
 /// Benchmark command: run performance benchmarks

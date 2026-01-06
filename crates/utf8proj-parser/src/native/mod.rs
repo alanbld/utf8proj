@@ -709,6 +709,10 @@ fn parse_milestone_decl(pair: Pair<Rule>) -> Result<Task, ParseError> {
 fn parse_milestone_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
+        Rule::task_summary => {
+            let str_pair = inner.into_inner().next().unwrap();
+            task.summary = Some(parse_string(str_pair));
+        }
         Rule::task_depends => {
             for dep_list in inner.into_inner() {
                 if dep_list.as_rule() == Rule::dependency_list {
@@ -737,6 +741,10 @@ fn parse_milestone_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseEr
 fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
+        Rule::task_summary => {
+            let str_pair = inner.into_inner().next().unwrap();
+            task.summary = Some(parse_string(str_pair));
+        }
         Rule::task_effort => {
             let dur_pair = inner.into_inner().next().unwrap();
             task.effort = Some(parse_duration(dur_pair)?);

@@ -192,6 +192,7 @@ task_body = { (task_attr | task_decl | milestone_decl)* }
 milestone_body = { milestone_attr* }
 
 task_attr = {
+    task_summary |
     task_effort |
     task_duration |
     task_depends |
@@ -210,11 +211,13 @@ task_attr = {
 }
 
 milestone_attr = {
+    task_summary |
     task_depends |
     task_note |
     task_payment
 }
 
+task_summary = { "summary" ~ ":" ~ string }
 task_effort = { "effort" ~ ":" ~ duration }
 task_duration = { "duration" ~ ":" ~ duration }
 task_depends = { "depends" ~ ":" ~ dependency_list }

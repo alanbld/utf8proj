@@ -611,8 +611,10 @@ impl Project {
 pub struct Task {
     /// Unique identifier
     pub id: TaskId,
-    /// Human-readable name
+    /// Human-readable description (from quoted string in DSL)
     pub name: String,
+    /// Optional short display name (MS Project "Task Name" style)
+    pub summary: Option<String>,
     /// Work effort required (person-time)
     pub effort: Option<Duration>,
     /// Calendar duration (overrides effort-based calculation)
@@ -648,6 +650,7 @@ impl Task {
         Self {
             name: id.clone(),
             id,
+            summary: None,
             effort: None,
             duration: None,
             depends: Vec::new(),
@@ -667,6 +670,12 @@ impl Task {
     /// Set the task name
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Set the task summary (short display name)
+    pub fn summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = Some(summary.into());
         self
     }
 

@@ -161,7 +161,7 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
     let name = parse_string(name_pair.as_str());
 
     let mut task = Task::new(&id);
-    task.name = name;
+    task.summary = Some(name); // TJP quoted string is the short display name
 
     // Parse task body - iterate through remaining pairs
     for body_or_attr in inner {
@@ -298,8 +298,8 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                 Rule::note_attr => {
                     let mut inner = actual_attr.into_inner();
                     if let Some(note) = inner.next() {
-                        // Store notes in attributes
-                        task.attributes.insert("notes".to_string(), parse_string(note.as_str()));
+                        // Map TJP note to name (human-readable description)
+                        task.name = parse_string(note.as_str());
                     }
                 }
                 Rule::complete_attr => {
@@ -491,7 +491,10 @@ mod tests {
         "#;
 
         let project = parse(input).unwrap();
-        assert!(project.tasks[0].attributes.contains_key("notes"));
+        // TJP note maps to task.name (description in our model)
+        assert_eq!(project.tasks[0].name, "This is a note");
+        // TJP quoted string maps to summary
+        assert_eq!(project.tasks[0].summary, Some("Task 1".to_string()));
     }
 
     #[test]
