@@ -48,11 +48,20 @@ All ceiling constraints wired to backward pass:
 - `crates/utf8proj-cli/src/main.rs` — E003 emission in check/schedule
 - `crates/utf8proj-solver/src/lib.rs` — W005 emission in analyze_project
 
-### 🚧 Phase 4: Diagnostics Integration — Planned
+### 🚧 Phase 4: Diagnostics Integration — In Progress
 
-- [ ] Add constraint info to `explain()` output
+- [x] Add constraint info to `explain()` output
 - [ ] Include constraint effects in LSP hover
 - [ ] Show constraint conflicts in feasibility report
+
+**Phase 4.1 (explain() enhancement) complete:**
+- Added `ConstraintEffect` struct and `ConstraintEffectType` enum to utf8proj-core
+- Extended `Explanation` struct with `constraint_effects: Vec<ConstraintEffect>`
+- Implemented `analyze_constraint_effects()` in CpmSolver
+- Effect types: `PushedStart`, `CappedLate`, `Pinned`, `Redundant`
+- Added `Task::constraint()` builder method
+
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 72-314)
 
 ---
 
@@ -196,6 +205,17 @@ All constraint scenarios covered in `crates/utf8proj-solver/tests/constraint_wir
 | `feasible_window_fits` | Tight fit succeeds |
 
 CLI diagnostic test: `crates/utf8proj-cli/tests/fixtures/diagnostics/e003_infeasible_constraint.*`
+
+### Phase 4 Tests (explain() enhancement)
+
+Unit tests in `crates/utf8proj-solver/src/lib.rs`:
+
+| Test | Description |
+|------|-------------|
+| `explain_task_with_temporal_constraint_shows_effects` | SNET constraint effect detection |
+| `explain_task_with_pinned_constraint` | MustStartOn pinned effect |
+| `explain_task_with_redundant_constraint` | Redundant constraint detection |
+| `explain_task_without_constraints_has_empty_effects` | No constraints = empty effects |
 
 ## Not In Scope (v0)
 

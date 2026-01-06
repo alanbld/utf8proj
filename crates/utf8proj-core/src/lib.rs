@@ -739,6 +739,12 @@ impl Task {
         self
     }
 
+    /// Add a temporal constraint
+    pub fn constraint(mut self, constraint: TaskConstraint) -> Self {
+        self.constraints.push(constraint);
+        self
+    }
+
     /// Check if this is a summary task (has children)
     pub fn is_summary(&self) -> bool {
         !self.children.is_empty()
@@ -1371,6 +1377,30 @@ pub struct Suggestion {
     pub impact: String,
 }
 
+/// Type of effect a constraint has on scheduling
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConstraintEffectType {
+    /// Constraint pushed ES/EF forward (floor constraint active)
+    PushedStart,
+    /// Constraint capped LS/LF (ceiling constraint active)
+    CappedLate,
+    /// Constraint pinned task to specific date (MustStartOn/MustFinishOn)
+    Pinned,
+    /// Constraint was redundant (dependencies already more restrictive)
+    Redundant,
+}
+
+/// Effect of a temporal constraint on task scheduling
+#[derive(Clone, Debug)]
+pub struct ConstraintEffect {
+    /// The constraint that was applied
+    pub constraint: TaskConstraint,
+    /// What effect the constraint had
+    pub effect: ConstraintEffectType,
+    /// Human-readable description of the effect
+    pub description: String,
+}
+
 /// Explanation of a scheduling decision
 #[derive(Clone, Debug)]
 pub struct Explanation {
@@ -1378,6 +1408,8 @@ pub struct Explanation {
     pub reason: String,
     pub constraints_applied: Vec<String>,
     pub alternatives_considered: Vec<String>,
+    /// Detailed effects of temporal constraints (Phase 4)
+    pub constraint_effects: Vec<ConstraintEffect>,
 }
 
 /// Constraint for what-if analysis

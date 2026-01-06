@@ -178,3 +178,21 @@ at your option.
 ## Acknowledgments
 
 utf8proj is inspired by [TaskJuggler](https://taskjuggler.org/), a pioneering text-based project management tool. utf8proj is a clean-room implementation that does not share code with TaskJuggler.
+
+## Logo
+
+<picture>
+  <source srcset="docs/logos/logo-horizontal-dark.svg" media="(prefers-color-scheme: dark)">
+  <img src="docs/logos/logo-horizontal.svg" alt="utf8proj logo" width="300">
+</picture>
+
+The utf8proj logo features curly braces `{ }` representing text-based project files, a timeline bar with tick marks for Gantt charts, and dependency triangles for critical path visualization.
+
+**Available variants:**
+- [logo.svg](docs/logos/logo.svg) — Main logo (400×200)
+- [logo-horizontal.svg](docs/logos/logo-horizontal.svg) — Banner for headers
+- [logo-horizontal-dark.svg](docs/logos/logo-horizontal-dark.svg) — Dark mode variant
+- [logo-horizontal-mono.svg](docs/logos/logo-horizontal-mono.svg) — Print/monochrome
+- [logo-icon.svg](docs/logos/logo-icon.svg) — Favicon/app icon (128×128)
+
+**License:** Same as the project (MIT/Apache-2.0). See [docs/logos/README.md](docs/logos/README.md) for usage guidelines.

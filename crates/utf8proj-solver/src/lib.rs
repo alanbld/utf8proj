@@ -68,6 +68,250 @@ impl CpmSolver {
             resource_leveling: true,
         }
     }
+
+    /// Analyze the effects of temporal constraints on a task
+    fn analyze_constraint_effects(
+        &self,
+        project: &Project,
+        task: &Task,
+    ) -> Vec<utf8proj_core::ConstraintEffect> {
+        use utf8proj_core::{ConstraintEffect, ConstraintEffectType, TaskConstraint};
+
+        if task.constraints.is_empty() {
+            return vec![];
+        }
+
+        // Schedule the project to get actual dates
+        let schedule_result = Scheduler::schedule(self, project);
+        let schedule = match schedule_result {
+            Ok(s) => s,
+            Err(_) => {
+                // If scheduling fails, we can still describe the constraints
+                return task
+                    .constraints
+                    .iter()
+                    .map(|c| ConstraintEffect {
+                        constraint: c.clone(),
+                        effect: ConstraintEffectType::PushedStart, // Placeholder
+                        description: format!(
+                            "{} (scheduling failed - effect unknown)",
+                            Self::format_constraint(c)
+                        ),
+                    })
+                    .collect();
+            }
+        };
+
+        // Get the scheduled task data
+        let scheduled_task = match schedule.tasks.get(&task.id) {
+            Some(t) => t,
+            None => {
+                return task
+                    .constraints
+                    .iter()
+                    .map(|c| ConstraintEffect {
+                        constraint: c.clone(),
+                        effect: ConstraintEffectType::Redundant,
+                        description: format!(
+                            "{} (task not in schedule)",
+                            Self::format_constraint(c)
+                        ),
+                    })
+                    .collect();
+            }
+        };
+
+        let es = scheduled_task.start;
+        let ef = scheduled_task.finish;
+        let ls = scheduled_task.late_start;
+        let lf = scheduled_task.late_finish;
+        let slack = scheduled_task.slack;
+        let zero_slack = Duration::zero();
+
+        task.constraints
+            .iter()
+            .map(|c| {
+                let (effect, description) = match c {
+                    TaskConstraint::MustStartOn(date) => {
+                        if es == *date && ls == *date {
+                            (
+                                ConstraintEffectType::Pinned,
+                                format!("Task pinned to start on {}", date),
+                            )
+                        } else if es == *date {
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Constraint pushed early start to {}", date),
+                            )
+                        } else if es > *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint date {} superseded by dependencies (ES={})",
+                                    date, es
+                                ),
+                            )
+                        } else {
+                            (
+                                ConstraintEffectType::CappedLate,
+                                format!("Constraint capped late start at {}", date),
+                            )
+                        }
+                    }
+                    TaskConstraint::MustFinishOn(date) => {
+                        if ef == *date && lf == *date {
+                            (
+                                ConstraintEffectType::Pinned,
+                                format!("Task pinned to finish on {}", date),
+                            )
+                        } else if ef == *date {
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Constraint pushed early finish to {}", date),
+                            )
+                        } else if ef > *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint date {} superseded by dependencies (EF={})",
+                                    date, ef
+                                ),
+                            )
+                        } else {
+                            (
+                                ConstraintEffectType::CappedLate,
+                                format!("Constraint capped late finish at {}", date),
+                            )
+                        }
+                    }
+                    TaskConstraint::StartNoEarlierThan(date) => {
+                        if es == *date {
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Task starts exactly on constraint boundary {}", date),
+                            )
+                        } else if es > *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint {} redundant (dependencies already push ES to {})",
+                                    date, es
+                                ),
+                            )
+                        } else {
+                            // es < date shouldn't happen if scheduling is correct
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Constraint pushed early start to {}", date),
+                            )
+                        }
+                    }
+                    TaskConstraint::StartNoLaterThan(date) => {
+                        if ls == *date {
+                            if slack == zero_slack {
+                                (
+                                    ConstraintEffectType::CappedLate,
+                                    format!(
+                                        "Constraint made task critical (LS capped at {})",
+                                        date
+                                    ),
+                                )
+                            } else {
+                                (
+                                    ConstraintEffectType::CappedLate,
+                                    format!("Constraint capped late start at {}", date),
+                                )
+                            }
+                        } else if ls < *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint {} redundant (successors already require LS={})",
+                                    date, ls
+                                ),
+                            )
+                        } else {
+                            (
+                                ConstraintEffectType::CappedLate,
+                                format!("Constraint caps late start at {}", date),
+                            )
+                        }
+                    }
+                    TaskConstraint::FinishNoEarlierThan(date) => {
+                        if ef == *date {
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Task finishes exactly on constraint boundary {}", date),
+                            )
+                        } else if ef > *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint {} redundant (dependencies already push EF to {})",
+                                    date, ef
+                                ),
+                            )
+                        } else {
+                            (
+                                ConstraintEffectType::PushedStart,
+                                format!("Constraint pushed early finish to {}", date),
+                            )
+                        }
+                    }
+                    TaskConstraint::FinishNoLaterThan(date) => {
+                        if lf == *date {
+                            if slack == zero_slack {
+                                (
+                                    ConstraintEffectType::CappedLate,
+                                    format!(
+                                        "Constraint made task critical (LF capped at {})",
+                                        date
+                                    ),
+                                )
+                            } else {
+                                (
+                                    ConstraintEffectType::CappedLate,
+                                    format!("Constraint capped late finish at {}", date),
+                                )
+                            }
+                        } else if lf < *date {
+                            (
+                                ConstraintEffectType::Redundant,
+                                format!(
+                                    "Constraint {} redundant (successors already require LF={})",
+                                    date, lf
+                                ),
+                            )
+                        } else {
+                            (
+                                ConstraintEffectType::CappedLate,
+                                format!("Constraint caps late finish at {}", date),
+                            )
+                        }
+                    }
+                };
+
+                ConstraintEffect {
+                    constraint: c.clone(),
+                    effect,
+                    description,
+                }
+            })
+            .collect()
+    }
+
+    /// Format a constraint for display
+    fn format_constraint(constraint: &utf8proj_core::TaskConstraint) -> String {
+        use utf8proj_core::TaskConstraint;
+        match constraint {
+            TaskConstraint::MustStartOn(d) => format!("MustStartOn({})", d),
+            TaskConstraint::MustFinishOn(d) => format!("MustFinishOn({})", d),
+            TaskConstraint::StartNoEarlierThan(d) => format!("StartNoEarlierThan({})", d),
+            TaskConstraint::StartNoLaterThan(d) => format!("StartNoLaterThan({})", d),
+            TaskConstraint::FinishNoEarlierThan(d) => format!("FinishNoEarlierThan({})", d),
+            TaskConstraint::FinishNoLaterThan(d) => format!("FinishNoLaterThan({})", d),
+        }
+    }
 }
 
 impl Default for CpmSolver {
@@ -1568,7 +1812,11 @@ impl Scheduler for CpmSolver {
 
         // Step 7c: Feasibility check - verify ES <= LS for all tasks
         // If any task has negative slack, constraints are infeasible
-        for (id, node) in &nodes {
+        // Sort by task ID for deterministic error reporting
+        let mut infeasibility_check_ids: Vec<_> = nodes.keys().collect();
+        infeasibility_check_ids.sort();
+        for id in infeasibility_check_ids {
+            let node = &nodes[id];
             if node.slack < 0 {
                 return Err(ScheduleError::Infeasible(format!(
                     "task '{}' has infeasible constraints: ES ({}) > LS ({}), slack = {} days",
@@ -1764,21 +2012,27 @@ impl Scheduler for CpmSolver {
     }
 
     fn explain(&self, project: &Project, task_id: &TaskId) -> Explanation {
+
         // Try to find the task and explain its scheduling
         let mut task_map: HashMap<String, &Task> = HashMap::new();
         flatten_tasks(&project.tasks, &mut task_map);
 
         if let Some(task) = task_map.get(task_id) {
-            let constraints: Vec<String> = task
+            let dependency_constraints: Vec<String> = task
                 .depends
                 .iter()
                 .map(|d| format!("Depends on: {}", d.predecessor))
                 .collect();
 
+            // Build constraint effects from temporal constraints
+            let constraint_effects = self.analyze_constraint_effects(project, task);
+
             Explanation {
                 task_id: task_id.clone(),
-                reason: if task.depends.is_empty() {
-                    "Scheduled at project start (no dependencies)".into()
+                reason: if task.depends.is_empty() && task.constraints.is_empty() {
+                    "Scheduled at project start (no dependencies or constraints)".into()
+                } else if task.depends.is_empty() {
+                    "Scheduled based on constraints".into()
                 } else {
                     format!(
                         "Scheduled after predecessors: {}",
@@ -1789,8 +2043,9 @@ impl Scheduler for CpmSolver {
                             .join(", ")
                     )
                 },
-                constraints_applied: constraints,
+                constraints_applied: dependency_constraints,
                 alternatives_considered: vec![],
+                constraint_effects,
             }
         } else {
             Explanation {
@@ -1798,6 +2053,7 @@ impl Scheduler for CpmSolver {
                 reason: "Task not found".into(),
                 constraints_applied: vec![],
                 alternatives_considered: vec![],
+                constraint_effects: vec![],
             }
         }
     }
@@ -2268,6 +2524,94 @@ mod tests {
         assert!(explanation.reason.contains("predecessors"));
         assert!(!explanation.constraints_applied.is_empty());
         assert!(explanation.constraints_applied.iter().any(|c| c.contains("design")));
+    }
+
+    #[test]
+    fn explain_task_with_temporal_constraint_shows_effects() {
+        use utf8proj_core::{ConstraintEffectType, TaskConstraint};
+
+        let mut project = Project::new("Constraint Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("constrained")
+                .effort(Duration::days(5))
+                .constraint(TaskConstraint::StartNoEarlierThan(
+                    NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+                )),
+        ];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"constrained".to_string());
+
+        assert_eq!(explanation.task_id, "constrained");
+        assert_eq!(explanation.constraint_effects.len(), 1);
+
+        let effect = &explanation.constraint_effects[0];
+        assert!(matches!(
+            effect.constraint,
+            TaskConstraint::StartNoEarlierThan(_)
+        ));
+        assert_eq!(effect.effect, ConstraintEffectType::PushedStart);
+        assert!(effect.description.contains("2025-01-13"));
+    }
+
+    #[test]
+    fn explain_task_with_pinned_constraint() {
+        use utf8proj_core::{ConstraintEffectType, TaskConstraint};
+
+        let mut project = Project::new("Pin Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("pinned")
+                .effort(Duration::days(3))
+                .constraint(TaskConstraint::MustStartOn(
+                    NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                )),
+        ];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"pinned".to_string());
+
+        assert_eq!(explanation.constraint_effects.len(), 1);
+        let effect = &explanation.constraint_effects[0];
+        assert_eq!(effect.effect, ConstraintEffectType::Pinned);
+        assert!(effect.description.contains("pinned"));
+    }
+
+    #[test]
+    fn explain_task_with_redundant_constraint() {
+        use utf8proj_core::{ConstraintEffectType, TaskConstraint};
+
+        let mut project = Project::new("Redundant Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(10)),
+            Task::new("blocked")
+                .effort(Duration::days(5))
+                .depends_on("blocker")
+                // SNET is before where dependencies push it - should be redundant
+                .constraint(TaskConstraint::StartNoEarlierThan(
+                    NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                )),
+        ];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"blocked".to_string());
+
+        assert_eq!(explanation.constraint_effects.len(), 1);
+        let effect = &explanation.constraint_effects[0];
+        assert_eq!(effect.effect, ConstraintEffectType::Redundant);
+        assert!(effect.description.contains("redundant"));
+    }
+
+    #[test]
+    fn explain_task_without_constraints_has_empty_effects() {
+        let project = make_test_project();
+        let solver = CpmSolver::new();
+
+        let explanation = solver.explain(&project, &"design".to_string());
+
+        assert!(explanation.constraint_effects.is_empty());
     }
 
     #[test]
