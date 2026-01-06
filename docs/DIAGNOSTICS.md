@@ -26,7 +26,7 @@ For determinism and testability, diagnostics are emitted in this order:
 2. **Cost-related warnings** (W002, W004) - budget risk
 3. **Assignment-related warnings** (W001, W003) - planning gaps
 4. **Hints** (H001, H002, H003) - suggestions
-5. **Info** (I001, I002) - summary last
+5. **Info** (I001, I002, I003) - summary last
 
 Within each category, diagnostics are ordered by source location (file, line, column).
 
@@ -406,6 +406,48 @@ certainty = 100 - (total_spread / total_expected * 100)
 
 ---
 
+### I003: Resource Utilization Summary
+
+**Severity**: Info
+
+**Trigger**: Emitted after successful scheduling when project has resources assigned.
+
+**Message Template**:
+```
+info[I003]: Resource utilization ({start_date} - {end_date})
+  {resource_id}: {percent}% ({used_days}/{total_days} days) [{status}]
+  ...
+  --> {file}
+```
+
+**Status Indicators**:
+- `[OVER]` - Utilization > 100% (over-allocated)
+- `[HIGH]` - Utilization > 80%
+- `[LOW]` - Utilization < 20% (with some assignments)
+- `[IDLE]` - No assignments
+
+**Example**:
+```
+info[I003]: Resource utilization (2026-02-01 - 2026-03-06)
+  pm: 41% (8.0/26 days)
+  dev1: 231% (60.0/26 days) [OVER]
+  dev2: 150% (39.0/26 days) [OVER]
+  qa: 15% (4.0/26 days) [LOW]
+  --> project.proj
+```
+
+**Calculation**:
+```
+utilization_percent = (used_days / (total_working_days * capacity)) * 100
+```
+
+Where:
+- `used_days` = sum of daily resource units across all assigned tasks
+- `total_working_days` = working days in schedule period (respects calendar)
+- `capacity` = resource capacity (1.0 = 100%)
+
+---
+
 ## CLI Integration
 
 ### Default Output
@@ -501,15 +543,18 @@ pub enum Severity {
 pub enum DiagnosticCode {
     E001, // Circular specialization
     E002, // Profile without rate
+    E003, // Infeasible constraint
     W001, // Abstract assignment
     W002, // Wide cost range
     W003, // Unknown trait
     W004, // Approximate leveling
+    W005, // Constraint zero slack
     H001, // Mixed abstraction
     H002, // Unused profile
     H003, // Unused trait
     I001, // Project cost summary
     I002, // Refinement progress
+    I003, // Resource utilization
 }
 ```
 
@@ -536,8 +581,7 @@ pub trait DiagnosticEmitter {
 
 These may be added in future versions:
 
-- `W005`: Resource over-committed across projects
 - `W006`: Deadline at risk (critical path exceeds constraint)
+- `W007`: Resource over-committed across projects
 - `H004`: Task with no assignments
 - `H005`: Redundant dependency (transitive)
-- `I003`: Resource utilization summary

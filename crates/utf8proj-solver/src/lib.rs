@@ -45,8 +45,9 @@ pub mod leveling;
 
 pub use bdd::{BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict, ShiftDirection};
 pub use leveling::{
-    detect_overallocations, level_resources, LevelingResult, OverallocationPeriod,
-    ResourceTimeline, ShiftedTask, UnresolvedConflict,
+    calculate_utilization, detect_overallocations, level_resources, LevelingResult,
+    OverallocationPeriod, ResourceTimeline, ResourceUtilization, ShiftedTask, UnresolvedConflict,
+    UtilizationSummary,
 };
 
 /// CPM-based scheduler

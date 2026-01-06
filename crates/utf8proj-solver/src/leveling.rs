@@ -526,6 +526,145 @@ pub fn detect_overallocations(
         .collect()
 }
 
+/// Utilization statistics for a single resource
+#[derive(Debug, Clone)]
+pub struct ResourceUtilization {
+    /// Resource identifier
+    pub resource_id: ResourceId,
+    /// Resource capacity (1.0 = 100%)
+    pub capacity: f32,
+    /// Total working days in the schedule period
+    pub total_days: i64,
+    /// Sum of daily usage (in resource-days)
+    pub used_days: f32,
+    /// Utilization percentage (0-100+, can exceed 100 if over-allocated)
+    pub utilization_percent: f32,
+    /// Peak daily usage
+    pub peak_usage: f32,
+    /// Number of days with any assignment
+    pub assigned_days: i64,
+}
+
+/// Summary of resource utilization across all resources
+#[derive(Debug, Clone)]
+pub struct UtilizationSummary {
+    /// Per-resource utilization statistics
+    pub resources: Vec<ResourceUtilization>,
+    /// Schedule start date
+    pub schedule_start: NaiveDate,
+    /// Schedule end date
+    pub schedule_end: NaiveDate,
+    /// Total working days in schedule period
+    pub total_working_days: i64,
+    /// Average utilization across all resources
+    pub average_utilization: f32,
+}
+
+/// Calculate resource utilization for a schedule
+pub fn calculate_utilization(
+    project: &Project,
+    schedule: &Schedule,
+    calendar: &Calendar,
+) -> UtilizationSummary {
+    let timelines = build_resource_timelines(project, &schedule.tasks);
+
+    // Determine schedule date range
+    let schedule_start = schedule
+        .tasks
+        .values()
+        .map(|t| t.start)
+        .min()
+        .unwrap_or(project.start);
+    let schedule_end = schedule
+        .tasks
+        .values()
+        .map(|t| t.finish)
+        .max()
+        .unwrap_or(project.start);
+
+    // Count working days in schedule period
+    let total_working_days = count_schedule_working_days(schedule_start, schedule_end, calendar);
+
+    let mut resources = Vec::new();
+
+    for resource in &project.resources {
+        let timeline = timelines.get(&resource.id);
+
+        let (used_days, peak_usage, assigned_days) = if let Some(timeline) = timeline {
+            let mut used = 0.0f32;
+            let mut peak = 0.0f32;
+            let mut assigned = 0i64;
+
+            for day_usage in timeline.usage.values() {
+                used += day_usage.total_units;
+                peak = peak.max(day_usage.total_units);
+                if day_usage.total_units > 0.0 {
+                    assigned += 1;
+                }
+            }
+
+            (used, peak, assigned)
+        } else {
+            (0.0, 0.0, 0)
+        };
+
+        // Calculate utilization: used_days / (total_working_days * capacity) * 100
+        let capacity_days = total_working_days as f32 * resource.capacity;
+        let utilization_percent = if capacity_days > 0.0 {
+            (used_days / capacity_days) * 100.0
+        } else {
+            0.0
+        };
+
+        resources.push(ResourceUtilization {
+            resource_id: resource.id.clone(),
+            capacity: resource.capacity,
+            total_days: total_working_days,
+            used_days,
+            utilization_percent,
+            peak_usage,
+            assigned_days,
+        });
+    }
+
+    // Calculate average utilization
+    let average_utilization = if resources.is_empty() {
+        0.0
+    } else {
+        resources.iter().map(|r| r.utilization_percent).sum::<f32>() / resources.len() as f32
+    };
+
+    UtilizationSummary {
+        resources,
+        schedule_start,
+        schedule_end,
+        total_working_days,
+        average_utilization,
+    }
+}
+
+/// Count working days between two dates (inclusive of start, exclusive of end)
+fn count_schedule_working_days(start: NaiveDate, end: NaiveDate, calendar: &Calendar) -> i64 {
+    if end <= start {
+        return 0;
+    }
+
+    let mut current = start;
+    let mut count = 0;
+
+    while current <= end {
+        if calendar.is_working_day(current) {
+            count += 1;
+        }
+        current = match current.succ_opt() {
+            Some(d) => d,
+            None => break,
+        };
+    }
+
+    count
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -945,5 +1084,138 @@ mod tests {
         // Both tasks in a linear chain should be critical
         assert!(critical.contains(&"first".to_string()));
         assert!(critical.contains(&"second".to_string()));
+    }
+
+    #[test]
+    fn calculate_utilization_basic() {
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Utilization Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let utilization = calculate_utilization(&project, &schedule, &calendar);
+
+        assert_eq!(utilization.resources.len(), 1);
+        let dev_util = &utilization.resources[0];
+        assert_eq!(dev_util.resource_id, "dev");
+        // 5 days used over ~5 working days = ~100% utilization
+        assert!(dev_util.utilization_percent > 90.0);
+        assert!(dev_util.used_days > 0.0);
+    }
+
+    #[test]
+    fn calculate_utilization_multiple_resources() {
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Multi Resource Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0),
+        ];
+        project.tasks = vec![
+            Task::new("task1").effort(Duration::days(5)).assign("dev1"),
+            Task::new("task2").effort(Duration::days(3)).assign("dev2"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let utilization = calculate_utilization(&project, &schedule, &calendar);
+
+        assert_eq!(utilization.resources.len(), 2);
+        assert!(utilization.average_utilization > 0.0);
+
+        // dev1 should have higher utilization than dev2
+        let dev1 = utilization.resources.iter().find(|r| r.resource_id == "dev1").unwrap();
+        let dev2 = utilization.resources.iter().find(|r| r.resource_id == "dev2").unwrap();
+        assert!(dev1.used_days > dev2.used_days);
+    }
+
+    #[test]
+    fn calculate_utilization_no_resources() {
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("No Resources Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("task1").effort(Duration::days(5)),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let utilization = calculate_utilization(&project, &schedule, &calendar);
+
+        assert!(utilization.resources.is_empty());
+        assert_eq!(utilization.average_utilization, 0.0);
+    }
+
+    #[test]
+    fn calculate_utilization_idle_resource() {
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Idle Resource Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0), // No assignments
+        ];
+        project.tasks = vec![
+            Task::new("task1").effort(Duration::days(5)).assign("dev1"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let utilization = calculate_utilization(&project, &schedule, &calendar);
+
+        let dev2 = utilization.resources.iter().find(|r| r.resource_id == "dev2").unwrap();
+        assert_eq!(dev2.used_days, 0.0);
+        assert_eq!(dev2.utilization_percent, 0.0);
+        assert_eq!(dev2.assigned_days, 0);
+    }
+
+    #[test]
+    fn count_schedule_working_days_basic() {
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+        let end = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(); // Friday
+
+        // Monday through Friday = 5 working days
+        let count = count_schedule_working_days(start, end, &calendar);
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn count_schedule_working_days_same_date() {
+        let calendar = make_test_calendar();
+        let date = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Same start and end returns 0 (function requires end > start)
+        let count = count_schedule_working_days(date, date, &calendar);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn count_schedule_working_days_end_before_start() {
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let end = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Invalid range should return 0
+        let count = count_schedule_working_days(start, end, &calendar);
+        assert_eq!(count, 0);
     }
 }

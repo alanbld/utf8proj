@@ -13,7 +13,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
-use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project};
+use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project, calculate_utilization};
 
 use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
 
@@ -384,6 +384,53 @@ fn cmd_schedule(
     };
 
     analyze_project(&project, Some(&schedule), &analysis_config, &mut collector);
+
+    // Calculate and emit resource utilization (I003)
+    if !project.resources.is_empty() {
+        let calendar = project.calendars.first().cloned().unwrap_or_default();
+        let utilization = calculate_utilization(&project, &schedule, &calendar);
+
+        // Build utilization message
+        let mut util_lines = Vec::new();
+        for res_util in &utilization.resources {
+            let status = if res_util.utilization_percent > 100.0 {
+                "OVER"
+            } else if res_util.utilization_percent > 80.0 {
+                "HIGH"
+            } else if res_util.utilization_percent < 20.0 && res_util.assigned_days > 0 {
+                "LOW"
+            } else if res_util.assigned_days == 0 {
+                "IDLE"
+            } else {
+                ""
+            };
+            let status_suffix = if status.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", status)
+            };
+            util_lines.push(format!(
+                "  {}: {:.0}% ({:.1}/{} days){}",
+                res_util.resource_id,
+                res_util.utilization_percent,
+                res_util.used_days,
+                res_util.total_days,
+                status_suffix
+            ));
+        }
+
+        let util_message = format!(
+            "Resource utilization ({} - {})\n{}",
+            utilization.schedule_start.format("%Y-%m-%d"),
+            utilization.schedule_end.format("%Y-%m-%d"),
+            util_lines.join("\n")
+        );
+
+        collector.emit(
+            Diagnostic::new(DiagnosticCode::I003ResourceUtilization, util_message)
+                .with_file(file.to_path_buf()),
+        );
+    }
 
     // Configure diagnostic output
     let diag_config = DiagnosticConfig {

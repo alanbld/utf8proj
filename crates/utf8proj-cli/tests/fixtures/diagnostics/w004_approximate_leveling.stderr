@@ -11,3 +11,7 @@ info[I001]: project 'W004 Test' scheduled successfully
    = tasks: 3 (3 concrete, 0 abstract assignments)
    = critical path: 3 tasks
 
+info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
+  alice: 300% (15.0/5 days) [OVER]
+  --> w004_approximate_leveling.proj
+

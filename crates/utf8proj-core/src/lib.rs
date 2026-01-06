@@ -1554,6 +1554,8 @@ pub enum DiagnosticCode {
     I001ProjectCostSummary,
     /// Refinement progress status
     I002RefinementProgress,
+    /// Resource utilization summary
+    I003ResourceUtilization,
 }
 
 impl DiagnosticCode {
@@ -1573,6 +1575,7 @@ impl DiagnosticCode {
             DiagnosticCode::H003UnusedTrait => "H003",
             DiagnosticCode::I001ProjectCostSummary => "I001",
             DiagnosticCode::I002RefinementProgress => "I002",
+            DiagnosticCode::I003ResourceUtilization => "I003",
         }
     }
 
@@ -1592,6 +1595,7 @@ impl DiagnosticCode {
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
             DiagnosticCode::I001ProjectCostSummary => Severity::Info,
             DiagnosticCode::I002RefinementProgress => Severity::Info,
+            DiagnosticCode::I003ResourceUtilization => Severity::Info,
         }
     }
 
@@ -1619,6 +1623,7 @@ impl DiagnosticCode {
             // Info last
             DiagnosticCode::I001ProjectCostSummary => 40,
             DiagnosticCode::I002RefinementProgress => 41,
+            DiagnosticCode::I003ResourceUtilization => 42,
         }
     }
 }

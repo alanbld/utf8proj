@@ -13,3 +13,7 @@ info[I001]: project 'H002 Test' scheduled successfully
    = tasks: 1 (1 concrete, 0 abstract assignments)
    = critical path: 1 tasks
 
+info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
+  alice: 100% (5.0/5 days) [HIGH]
+  --> h002_unused_profile.proj
+
