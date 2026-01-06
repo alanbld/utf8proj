@@ -1,0 +1,47 @@
+<svg width="400" height="200" viewBox="0 0 400 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="400" height="200" fill="none"/>
+  
+  <!-- Left curly brace -->
+  <text x="60" y="110" 
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace" 
+        font-size="100" 
+        font-weight="bold" 
+        fill="#17a2b8" 
+        opacity="0.9">{</text>
+  
+  <!-- Right curly brace -->
+  <text x="320" y="110" 
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace" 
+        font-size="100" 
+        font-weight="bold" 
+        fill="#17a2b8" 
+        opacity="0.9">}</text>
+  
+  <!-- Upper triangle (critical path indicator) -->
+  <path d="M 200 40 L 185 65 L 215 65 Z" 
+        fill="#17a2b8" 
+        stroke="none"/>
+  
+  <!-- Lower triangle (dependency indicator) -->
+  <path d="M 200 160 L 185 135 L 215 135 Z" 
+        fill="#17a2b8" 
+        stroke="none"/>
+  
+  <!-- Central Gantt timeline bar -->
+  <rect x="90" y="95" width="220" height="10" rx="5" fill="#17a2b8"/>
+  
+  <!-- Timeline tick marks -->
+  <line x1="130" y1="88" x2="130" y2="112" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="200" y1="88" x2="200" y2="112" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="270" y1="88" x2="270" y2="112" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Wordmark: utf8proj -->
+  <text x="200" y="122" 
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace" 
+        font-size="36" 
+        font-weight="700" 
+        fill="#2d3748" 
+        text-anchor="middle" 
+        letter-spacing="1">utf8proj</text>
+</svg>

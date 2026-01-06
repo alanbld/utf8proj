@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>utf8proj - Project Dashboard</title>
+    <link rel="icon" href="logos/logo-icon.svg" type="image/svg+xml">
+    <meta property="og:title" content="utf8proj">
+    <meta property="og:description" content="Git-Native Project Scheduling Engine for Rust">
+    <meta property="og:image" content="https://alanbld.github.io/utf8proj/logos/logo.svg">
     <style>
         :root {
             --bg: #1a1a2e;
@@ -413,7 +417,10 @@
 <body>
     <div class="container">
         <header>
-            <h1>utf8proj Dashboard</h1>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <img src="logos/logo-icon.svg" alt="utf8proj" width="40" height="40">
+                <h1>utf8proj Dashboard</h1>
+            </div>
             <div class="status">
                 <div class="status-dot" id="status-dot"></div>
                 <span id="status-text">Loading WASM...</span>

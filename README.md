@@ -1,6 +1,10 @@
-# utf8proj
+<div align="center">
+  <img src="docs/logos/logo.svg" alt="utf8proj" width="400">
 
-**Project Scheduling Engine for Rust**
+  # utf8proj
+
+  **Git-Native Project Scheduling Engine for Rust**
+</div>
 
 [![Crates.io](https://img.shields.io/crates/v/utf8proj.svg)](https://crates.io/crates/utf8proj)
 [![Documentation](https://docs.rs/utf8proj/badge.svg)](https://docs.rs/utf8proj)

@@ -1,0 +1,31 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon-only variant for favicon and small displays -->
+
+  <!-- Left curly brace -->
+  <text x="8" y="78"
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        font-size="56"
+        font-weight="bold"
+        fill="#17a2b8">{</text>
+
+  <!-- Right curly brace -->
+  <text x="88" y="78"
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        font-size="56"
+        font-weight="bold"
+        fill="#17a2b8">}</text>
+
+  <!-- Upper triangle -->
+  <path d="M 64 20 L 54 35 L 74 35 Z" fill="#17a2b8"/>
+
+  <!-- Lower triangle -->
+  <path d="M 64 108 L 54 93 L 74 93 Z" fill="#17a2b8"/>
+
+  <!-- Timeline bar -->
+  <rect x="28" y="59" width="72" height="10" rx="5" fill="#17a2b8"/>
+
+  <!-- Timeline ticks -->
+  <line x1="44" y1="54" x2="44" y2="74" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="64" y1="54" x2="64" y2="74" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+  <line x1="84" y1="54" x2="84" y2="74" stroke="#17a2b8" stroke-width="3" stroke-linecap="round"/>
+</svg>

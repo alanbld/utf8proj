@@ -1,0 +1,40 @@
+<svg width="600" height="120" viewBox="0 0 600 120" xmlns="http://www.w3.org/2000/svg">
+  <!-- Monochrome variant for print -->
+
+  <!-- Left curly brace -->
+  <text x="20" y="75"
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        font-size="70"
+        font-weight="bold"
+        fill="#2d3748">{</text>
+
+  <!-- Right curly brace -->
+  <text x="560" y="75"
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        font-size="70"
+        font-weight="bold"
+        fill="#2d3748">}</text>
+
+  <!-- Upper triangle -->
+  <path d="M 300 15 L 290 30 L 310 30 Z" fill="#2d3748"/>
+
+  <!-- Lower triangle -->
+  <path d="M 300 105 L 290 90 L 310 90 Z" fill="#2d3748"/>
+
+  <!-- Timeline bar -->
+  <rect x="100" y="55" width="400" height="10" rx="5" fill="#2d3748"/>
+
+  <!-- Timeline ticks -->
+  <line x1="180" y1="50" x2="180" y2="70" stroke="#2d3748" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="300" y1="50" x2="300" y2="70" stroke="#2d3748" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="420" y1="50" x2="420" y2="70" stroke="#2d3748" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Wordmark -->
+  <text x="300" y="80"
+        font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        font-size="28"
+        font-weight="700"
+        fill="#2d3748"
+        text-anchor="middle"
+        letter-spacing="1.5">utf8proj</text>
+</svg>
