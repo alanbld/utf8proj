@@ -387,6 +387,12 @@ pub fn level_resources(
             project_end: new_project_end,
             total_cost: schedule.total_cost.clone(),
             total_cost_range: schedule.total_cost_range.clone(),
+            // Project status (I004): Copy from original schedule
+            // Note: These could be recomputed from leveled tasks for accuracy
+            project_progress: schedule.project_progress,
+            project_baseline_finish: schedule.project_baseline_finish,
+            project_forecast_finish: schedule.project_forecast_finish,
+            project_variance_days: schedule.project_variance_days,
         },
         shifted_tasks,
         unresolved_conflicts,

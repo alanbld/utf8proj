@@ -11,3 +11,8 @@ info[I001]: project 'W002 Test' scheduled successfully
    = tasks: 1 (0 concrete, 1 abstract assignments)
    = critical path: 1 tasks
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> w002_wide_cost_range.proj
+   |
+   = baseline finish: 2025-01-17, forecast finish: 2025-01-17
+

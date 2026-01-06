@@ -37,4 +37,9 @@ info[I001]: project 'E001 Test' scheduled successfully
    = tasks: 1 (0 concrete, 1 abstract assignments)
    = critical path: 1 tasks
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> e001_circular_specialization.proj
+   |
+   = baseline finish: 2025-01-10, forecast finish: 2025-01-10
+
 Error: aborting due to previous error(s)

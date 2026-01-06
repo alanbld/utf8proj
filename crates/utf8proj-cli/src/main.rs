@@ -546,6 +546,26 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     output.push_str(&format!("Start: {}\n", project.start));
     output.push_str(&format!("End: {}\n", schedule.project_end));
     output.push_str(&format!("Duration: {} days\n", schedule.project_duration.as_days()));
+
+    // Project status (I004)
+    let status_icon = if schedule.project_variance_days > 5 {
+        "🔴"
+    } else if schedule.project_variance_days > 0 {
+        "🟡"
+    } else {
+        "🟢"
+    };
+    let variance_str = if schedule.project_variance_days == 0 {
+        "on schedule".to_string()
+    } else if schedule.project_variance_days > 0 {
+        format!("+{}d behind", schedule.project_variance_days)
+    } else {
+        format!("{}d ahead", schedule.project_variance_days.abs())
+    };
+    output.push_str(&format!(
+        "Status: {}% complete, {} {}\n",
+        schedule.project_progress, variance_str, status_icon
+    ));
     output.push('\n');
 
     // Critical path
@@ -635,6 +655,12 @@ fn format_json_with_diagnostics(
             "start": project.start.to_string(),
             "end": schedule.project_end.to_string(),
             "duration_days": schedule.project_duration.as_days(),
+            "project_status": {
+                "progress_percent": schedule.project_progress,
+                "baseline_finish": schedule.project_baseline_finish.to_string(),
+                "forecast_finish": schedule.project_forecast_finish.to_string(),
+                "variance_days": schedule.project_variance_days,
+            },
             "tasks": schedule.tasks.values().map(|t| {
                 let mut task_json = serde_json::json!({
                     "id": t.task_id,

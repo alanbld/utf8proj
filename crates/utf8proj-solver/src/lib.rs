@@ -941,6 +941,11 @@ pub fn analyze_project(
     if let Some(sched) = schedule {
         emit_project_summary(project, sched, &assignments_info, config, emitter);
     }
+
+    // I004: Project status (requires schedule)
+    if let Some(sched) = schedule {
+        check_project_status(sched, config, emitter);
+    }
 }
 
 /// Info about assignments in the project
@@ -1461,6 +1466,44 @@ fn check_schedule_variance(
     }
 }
 
+/// I004: Emit project status (overall progress and variance)
+fn check_project_status(
+    schedule: &Schedule,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let variance_indicator = if schedule.project_variance_days > 0 {
+        format!("+{}d behind", schedule.project_variance_days)
+    } else if schedule.project_variance_days < 0 {
+        format!("{}d ahead", schedule.project_variance_days.abs())
+    } else {
+        "on schedule".to_string()
+    };
+
+    let status_emoji = if schedule.project_variance_days > VARIANCE_THRESHOLD_DAYS {
+        "🔴"
+    } else if schedule.project_variance_days > 0 {
+        "🟡"
+    } else {
+        "🟢"
+    };
+
+    emitter.emit(
+        Diagnostic::new(
+            DiagnosticCode::I004ProjectStatus,
+            format!(
+                "project {}% complete, {} {}",
+                schedule.project_progress, variance_indicator, status_emoji
+            ),
+        )
+        .with_file(config.file.clone().unwrap_or_default())
+        .with_note(format!(
+            "baseline finish: {}, forecast finish: {}",
+            schedule.project_baseline_finish, schedule.project_forecast_finish
+        )),
+    );
+}
+
 /// I001: Emit project cost summary
 fn emit_project_summary(
     project: &Project,
@@ -1533,6 +1576,10 @@ impl Scheduler for CpmSolver {
                 project_end: project.start,
                 total_cost: None,
                 total_cost_range: None,
+                project_progress: 0,
+                project_baseline_finish: project.start,
+                project_forecast_finish: project.start,
+                project_variance_days: 0,
             });
         }
 
@@ -2037,6 +2084,53 @@ impl Scheduler for CpmSolver {
             project.start
         };
 
+        // Step 10b: Compute project-level progress and variance (I004)
+        // Progress: weighted average of leaf task progress, weighted by duration
+        // Variance: max(forecast_finish) - max(baseline_finish)
+        let (project_progress, project_baseline_finish, project_forecast_finish) = {
+            let mut total_weight: i64 = 0;
+            let mut weighted_progress: i64 = 0;
+            let mut max_baseline = project.start;
+            let mut max_forecast = project.start;
+
+            // Build set of container task IDs (tasks with children)
+            let container_ids: std::collections::HashSet<&str> = task_map
+                .values()
+                .filter(|t| !t.children.is_empty())
+                .map(|t| t.id.as_str())
+                .collect();
+
+            for st in scheduled_tasks.values() {
+                // Update baseline/forecast max for ALL tasks
+                if st.baseline_finish > max_baseline {
+                    max_baseline = st.baseline_finish;
+                }
+                if st.forecast_finish > max_forecast {
+                    max_forecast = st.forecast_finish;
+                }
+
+                // Only aggregate progress from leaf tasks (non-containers)
+                if !container_ids.contains(st.task_id.as_str()) {
+                    let duration_days = st.duration.as_days() as i64;
+                    if duration_days > 0 {
+                        total_weight += duration_days;
+                        weighted_progress += (st.percent_complete as i64) * duration_days;
+                    }
+                }
+            }
+
+            let progress = if total_weight > 0 {
+                (weighted_progress / total_weight) as u8
+            } else {
+                0
+            };
+
+            (progress, max_baseline, max_forecast)
+        };
+
+        let project_variance_days =
+            (project_forecast_finish - project_baseline_finish).num_days();
+
         let schedule = Schedule {
             tasks: scheduled_tasks,
             critical_path,
@@ -2044,6 +2138,10 @@ impl Scheduler for CpmSolver {
             project_end: project_end_date,
             total_cost: None, // For fully concrete projects
             total_cost_range, // RFC-0001: Cost range for abstract assignments
+            project_progress,
+            project_baseline_finish,
+            project_forecast_finish,
+            project_variance_days,
         };
 
         // Step 11: Apply resource leveling if enabled

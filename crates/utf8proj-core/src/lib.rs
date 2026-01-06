@@ -1203,6 +1203,16 @@ pub struct Schedule {
     pub total_cost: Option<Money>,
     /// RFC-0001: Total cost range (includes abstract profile assignments)
     pub total_cost_range: Option<CostRange>,
+
+    // Project Status Fields (I004)
+    /// Overall project progress (0-100), weighted by task duration
+    pub project_progress: u8,
+    /// Project baseline finish date (max of all baseline_finish)
+    pub project_baseline_finish: NaiveDate,
+    /// Project forecast finish date (max of all forecast_finish)
+    pub project_forecast_finish: NaiveDate,
+    /// Project-level variance in calendar days (forecast - baseline)
+    pub project_variance_days: i64,
 }
 
 /// A task with computed schedule information
@@ -1576,6 +1586,8 @@ pub enum DiagnosticCode {
     I002RefinementProgress,
     /// Resource utilization summary
     I003ResourceUtilization,
+    /// Project status summary (overall progress and variance)
+    I004ProjectStatus,
 }
 
 impl DiagnosticCode {
@@ -1597,6 +1609,7 @@ impl DiagnosticCode {
             DiagnosticCode::I001ProjectCostSummary => "I001",
             DiagnosticCode::I002RefinementProgress => "I002",
             DiagnosticCode::I003ResourceUtilization => "I003",
+            DiagnosticCode::I004ProjectStatus => "I004",
         }
     }
 
@@ -1618,6 +1631,7 @@ impl DiagnosticCode {
             DiagnosticCode::I001ProjectCostSummary => Severity::Info,
             DiagnosticCode::I002RefinementProgress => Severity::Info,
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
+            DiagnosticCode::I004ProjectStatus => Severity::Info,
         }
     }
 
@@ -1648,6 +1662,7 @@ impl DiagnosticCode {
             DiagnosticCode::I001ProjectCostSummary => 40,
             DiagnosticCode::I002RefinementProgress => 41,
             DiagnosticCode::I003ResourceUtilization => 42,
+            DiagnosticCode::I004ProjectStatus => 43,
         }
     }
 }

@@ -25,12 +25,29 @@
       ],
       "severity": "info",
       "spans": []
+    },
+    {
+      "code": "I004",
+      "file": "w001_abstract_assignment.proj",
+      "hints": [],
+      "message": "project 0% complete, on schedule 🟢",
+      "notes": [
+        "baseline finish: 2025-01-10, forecast finish: 2025-01-10"
+      ],
+      "severity": "info",
+      "spans": []
     }
   ],
   "schedule": {
     "duration_days": 5.0,
     "end": "2025-01-10",
     "project_name": "W001 Test",
+    "project_status": {
+      "baseline_finish": "2025-01-10",
+      "forecast_finish": "2025-01-10",
+      "progress_percent": 0,
+      "variance_days": 0
+    },
     "start": "2025-01-06",
     "tasks": [
       {

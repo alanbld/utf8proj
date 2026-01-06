@@ -413,13 +413,18 @@ mod tests {
         ];
 
         // Create a schedule where both tasks overlap (conflict!)
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
         let mut schedule = Schedule {
             tasks: HashMap::new(),
             critical_path: vec!["task1".to_string()],
             project_duration: Duration::days(5),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         // Both tasks scheduled at the same time - conflict!
@@ -520,13 +525,18 @@ mod tests {
         ];
 
         // Sequential schedule - no conflict
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 17).unwrap();
         let mut schedule = Schedule {
             tasks: HashMap::new(),
             critical_path: vec!["task1".to_string(), "task2".to_string()],
             project_duration: Duration::days(10),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 17).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let start1 = project.start;
@@ -685,13 +695,18 @@ mod tests {
     fn empty_project_no_conflicts() {
         // Project with no tasks and no resource assignments
         let project = Project::new("Empty");
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
         let schedule = Schedule {
             tasks: HashMap::new(),
             critical_path: vec![],
             project_duration: Duration::zero(),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let analyzer = BddConflictAnalyzer::new();

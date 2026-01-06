@@ -1134,6 +1134,7 @@ mod tests {
             },
         );
 
+        let project_end = NaiveDate::from_ymd_opt(2025, 2, 14).unwrap();
         Schedule {
             tasks,
             critical_path: vec![
@@ -1142,9 +1143,13 @@ mod tests {
                 "test".to_string(),
             ],
             project_duration: Duration::days(35),
-            project_end: NaiveDate::from_ymd_opt(2025, 2, 14).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         }
     }
 
@@ -1191,13 +1196,18 @@ mod tests {
     fn excel_empty_schedule_fails() {
         let renderer = ExcelRenderer::new();
         let project = Project::new("Empty");
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
         let schedule = Schedule {
             tasks: HashMap::new(),
             critical_path: vec![],
             project_duration: Duration::zero(),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let result = renderer.render(&project, &schedule);

@@ -1081,13 +1081,18 @@ mod tests {
             },
         );
 
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 29).unwrap();
         Schedule {
             tasks,
             critical_path: vec!["design".to_string(), "implement".to_string(), "test".to_string()],
             project_duration: Duration::days(18),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 29).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         }
     }
 
@@ -1159,13 +1164,18 @@ mod tests {
     fn html_gantt_empty_schedule_fails() {
         let renderer = HtmlGanttRenderer::new();
         let project = Project::new("Empty");
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
         let schedule = Schedule {
             tasks: HashMap::new(),
             critical_path: vec![],
             project_duration: Duration::zero(),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -1271,6 +1281,10 @@ mod tests {
             project_end: finish1,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: finish1,
+            project_forecast_finish: finish1,
+            project_variance_days: 0,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1361,6 +1375,10 @@ mod tests {
             project_end: finish1,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: finish1,
+            project_forecast_finish: finish1,
+            project_variance_days: 0,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1448,6 +1466,10 @@ mod tests {
             project_end: finish1,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: finish1,
+            project_forecast_finish: finish1,
+            project_variance_days: 0,
         };
 
         let renderer = HtmlGanttRenderer::new();

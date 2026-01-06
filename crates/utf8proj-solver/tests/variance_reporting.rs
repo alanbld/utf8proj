@@ -165,3 +165,151 @@ fn early_start_negative_variance() {
     // Started 3 days early (Jan 3 vs Jan 6 = -3 days)
     assert_eq!(work.start_variance_days, -3);
 }
+
+// =============================================================================
+// Project Status Tests (I004)
+// =============================================================================
+
+/// Test project progress with no tasks
+#[test]
+fn project_progress_empty_project() {
+    let mut project = Project::new("Empty");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    assert_eq!(schedule.project_progress, 0);
+    assert_eq!(schedule.project_variance_days, 0);
+}
+
+/// Test project progress with single task
+#[test]
+fn project_progress_single_task() {
+    let mut project = Project::new("Single Task");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    let mut task = Task::new("work")
+        .name("Work")
+        .duration(Duration::days(10));
+    task.complete = Some(50.0);
+    task.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 6).unwrap());
+    project.tasks.push(task);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    // Single task at 50% = 50% project progress
+    assert_eq!(schedule.project_progress, 50);
+}
+
+/// Test project progress with multiple tasks (weighted by duration)
+#[test]
+fn project_progress_weighted_by_duration() {
+    let mut project = Project::new("Multi Task");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    // Task 1: 10 days, 100% complete
+    let mut task1 = Task::new("task1")
+        .name("Task 1")
+        .duration(Duration::days(10));
+    task1.complete = Some(100.0);
+    task1.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 6).unwrap());
+    task1.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 1, 17).unwrap());
+    project.tasks.push(task1);
+
+    // Task 2: 10 days, 0% complete (not started)
+    project.tasks.push(
+        Task::new("task2")
+            .name("Task 2")
+            .duration(Duration::days(10))
+            .depends_on("task1"),
+    );
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    // 10d * 100% + 10d * 0% = 1000 / 20 = 50%
+    assert_eq!(schedule.project_progress, 50);
+}
+
+/// Test project baseline/forecast finish dates
+#[test]
+fn project_baseline_forecast_finish() {
+    let mut project = Project::new("Project Dates");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    // First task: 10 days, no progress
+    project.tasks.push(
+        Task::new("task1")
+            .name("Task 1")
+            .duration(Duration::days(10)),
+    );
+
+    // Second task: 5 days after first
+    project.tasks.push(
+        Task::new("task2")
+            .name("Task 2")
+            .duration(Duration::days(5))
+            .depends_on("task1"),
+    );
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    // Project baseline and forecast finish should be the same when no progress
+    assert_eq!(schedule.project_baseline_finish, schedule.project_forecast_finish);
+    assert_eq!(schedule.project_variance_days, 0);
+}
+
+/// Test project variance when behind schedule
+#[test]
+fn project_variance_behind_schedule() {
+    let mut project = Project::new("Behind Schedule");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    // Task started 5 days late with only 10% progress
+    let mut task = Task::new("work")
+        .name("Work")
+        .duration(Duration::days(10));
+    task.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 13).unwrap()); // 5 working days late
+    task.complete = Some(10.0);
+    project.tasks.push(task);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    // Project should show variance > 0 (behind schedule)
+    assert!(
+        schedule.project_variance_days > 0,
+        "Project should be behind schedule: variance = {}",
+        schedule.project_variance_days
+    );
+    assert!(schedule.project_forecast_finish > schedule.project_baseline_finish);
+}
+
+/// Test project variance when ahead of schedule
+#[test]
+fn project_variance_ahead_of_schedule() {
+    let mut project = Project::new("Ahead");
+    project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+
+    // Task completed 2 days early
+    let mut task = Task::new("work")
+        .name("Work")
+        .duration(Duration::days(10));
+    task.complete = Some(100.0);
+    task.actual_start = Some(NaiveDate::from_ymd_opt(2026, 1, 6).unwrap());
+    task.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap()); // 2 days early
+    project.tasks.push(task);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+
+    // Project should show negative variance (ahead of schedule)
+    assert!(
+        schedule.project_variance_days < 0,
+        "Project should be ahead of schedule: variance = {}",
+        schedule.project_variance_days
+    );
+}

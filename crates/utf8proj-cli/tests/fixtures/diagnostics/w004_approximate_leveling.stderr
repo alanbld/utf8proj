@@ -15,3 +15,8 @@ info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
   alice: 300% (15.0/5 days) [OVER]
   --> w004_approximate_leveling.proj
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> w004_approximate_leveling.proj
+   |
+   = baseline finish: 2025-01-10, forecast finish: 2025-01-10
+

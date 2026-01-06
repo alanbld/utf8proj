@@ -17,3 +17,8 @@ info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
   alice: 100% (5.0/5 days) [HIGH]
   --> h002_unused_profile.proj
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> h002_unused_profile.proj
+   |
+   = baseline finish: 2025-01-10, forecast finish: 2025-01-10
+

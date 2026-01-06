@@ -947,6 +947,10 @@ mod tests {
             project_end: finish,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: finish,
+            project_forecast_finish: finish,
+            project_variance_days: 0,
         };
 
         let hover = hover_for_task(task, "task1", Some(&schedule));
@@ -978,13 +982,18 @@ mod tests {
         let mut tasks = HashMap::new();
         tasks.insert("task1".to_string(), scheduled);
 
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
         let schedule = Schedule {
             tasks,
             critical_path: vec![],
             project_duration: Duration::days(8),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let hover = hover_for_task(task, "task1", Some(&schedule));
@@ -1043,6 +1052,10 @@ mod tests {
             project_end: finish,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: finish,
+            project_forecast_finish: finish,
+            project_variance_days: 0,
         };
 
         let hover = hover_for_task(&task, "pinned_task", Some(&schedule));
@@ -1076,13 +1089,18 @@ mod tests {
         let mut tasks = HashMap::new();
         tasks.insert("redundant_task".to_string(), scheduled);
 
+        let project_end = NaiveDate::from_ymd_opt(2025, 1, 16).unwrap();
         let schedule = Schedule {
             tasks,
             critical_path: vec![],
             project_duration: Duration::days(7),
-            project_end: NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            project_end,
             total_cost: None,
             total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: project_end,
+            project_forecast_finish: project_end,
+            project_variance_days: 0,
         };
 
         let hover = hover_for_task(&task, "redundant_task", Some(&schedule));

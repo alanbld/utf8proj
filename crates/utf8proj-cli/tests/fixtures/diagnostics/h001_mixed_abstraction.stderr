@@ -21,3 +21,8 @@ info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
   alice: 100% (5.0/5 days) [HIGH]
   --> h001_mixed_abstraction.proj
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> h001_mixed_abstraction.proj
+   |
+   = baseline finish: 2025-01-10, forecast finish: 2025-01-10
+

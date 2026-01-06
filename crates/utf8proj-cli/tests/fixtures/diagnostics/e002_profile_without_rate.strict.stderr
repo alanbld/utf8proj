@@ -23,4 +23,9 @@ info[I001]: project 'E002 Test' scheduled successfully
    = tasks: 2 (0 concrete, 2 abstract assignments)
    = critical path: 2 tasks
 
+info[I004]: project 0% complete, on schedule 🟢
+  --> e002_profile_without_rate.proj
+   |
+   = baseline finish: 2025-01-15, forecast finish: 2025-01-15
+
 Error: aborting due to previous error(s)
