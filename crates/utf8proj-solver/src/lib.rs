@@ -2110,6 +2110,21 @@ mod tests {
     }
 
     #[test]
+    fn explain_task_with_dependencies_shows_constraints() {
+        // Verify that explain() populates constraints_applied for tasks with dependencies
+        let project = make_test_project();
+        let solver = CpmSolver::new();
+
+        // "implement" depends on "design"
+        let explanation = solver.explain(&project, &"implement".to_string());
+
+        assert_eq!(explanation.task_id, "implement");
+        assert!(explanation.reason.contains("predecessors"));
+        assert!(!explanation.constraints_applied.is_empty());
+        assert!(explanation.constraints_applied.iter().any(|c| c.contains("design")));
+    }
+
+    #[test]
     fn schedule_with_dependency_on_container() {
         // Task that depends on a container (should expand to all children)
         let mut project = Project::new("Container Dep");
