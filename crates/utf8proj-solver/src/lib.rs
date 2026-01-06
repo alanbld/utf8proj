@@ -1381,7 +1381,13 @@ impl Scheduler for CpmSolver {
                                 match dep.dep_type {
                                     DependencyType::FinishToStart => {
                                         // LF(pred) <= LS(succ) - lag
-                                        succ_node.late_start - lag
+                                        // For negative lag, mirror the forward pass formula:
+                                        // Forward uses pred.EF - 1 + lag, so backward uses LS + 1 - lag
+                                        if lag >= 0 {
+                                            succ_node.late_start - lag
+                                        } else {
+                                            succ_node.late_start + 1 - lag
+                                        }
                                     }
                                     DependencyType::StartToStart => {
                                         // LS(pred) <= LS(succ) - lag
@@ -1487,6 +1493,17 @@ impl Scheduler for CpmSolver {
                         container_node.slack = min_ls - container_node.early_start;
                     }
                 }
+            }
+        }
+
+        // Step 7c: Feasibility check - verify ES <= LS for all tasks
+        // If any task has negative slack, constraints are infeasible
+        for (id, node) in &nodes {
+            if node.slack < 0 {
+                return Err(ScheduleError::Infeasible(format!(
+                    "task '{}' has infeasible constraints: ES ({}) > LS ({}), slack = {} days",
+                    id, node.early_start, node.late_start, node.slack
+                )));
             }
         }
 
