@@ -11,7 +11,7 @@ use std::fs;
 use std::io::Write;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use utf8proj_core::{CollectingEmitter, DiagnosticEmitter, Scheduler};
+use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project};
 
@@ -194,11 +194,29 @@ fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool) ->
 
     // Schedule the project (needed for cost analysis in diagnostics)
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).ok();
+    let schedule_result = solver.schedule(&project);
 
     // Run diagnostic analysis
     let analysis_config = AnalysisConfig::new().with_file(file);
     let mut collector = CollectingEmitter::new();
+
+    // If scheduling failed due to infeasible constraints, emit E003
+    if let Err(ref e) = schedule_result {
+        use utf8proj_core::ScheduleError;
+        if let ScheduleError::Infeasible(msg) = e {
+            collector.emit(
+                Diagnostic::new(
+                    DiagnosticCode::E003InfeasibleConstraint,
+                    format!("constraint cannot be satisfied"),
+                )
+                .with_file(file.to_path_buf())
+                .with_note(msg.clone())
+                .with_hint("check that constraints don't conflict with dependencies"),
+            );
+        }
+    }
+
+    let schedule = schedule_result.ok();
     analyze_project(&project, schedule.as_ref(), &analysis_config, &mut collector);
 
     // Configure diagnostic output
@@ -288,8 +306,7 @@ fn cmd_schedule(
     }
 
     // Schedule the project
-    let schedule = solver.schedule(&project)
-        .with_context(|| "Failed to generate schedule")?;
+    let schedule_result = solver.schedule(&project);
 
     // Run diagnostic analysis
     let analysis_config = AnalysisConfig::new()
@@ -297,6 +314,40 @@ fn cmd_schedule(
 
     // Collect diagnostics first, then emit in correct order
     let mut collector = CollectingEmitter::new();
+
+    // If scheduling failed due to infeasible constraints, emit E003
+    if let Err(ref e) = schedule_result {
+        use utf8proj_core::ScheduleError;
+        if let ScheduleError::Infeasible(msg) = e {
+            collector.emit(
+                Diagnostic::new(
+                    DiagnosticCode::E003InfeasibleConstraint,
+                    format!("constraint cannot be satisfied"),
+                )
+                .with_file(file.to_path_buf())
+                .with_note(msg.clone())
+                .with_hint("check that constraints don't conflict with dependencies"),
+            );
+        }
+    }
+
+    let schedule = match schedule_result {
+        Ok(s) => s,
+        Err(_) => {
+            // Emit the collected E003 diagnostic before returning
+            let diag_config = DiagnosticConfig {
+                strict,
+                quiet,
+                base_path: file.parent().map(|p| p.to_path_buf()),
+            };
+            let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
+            for diag in collector.sorted() {
+                term_emitter.emit(diag.clone());
+            }
+            return Err(anyhow::anyhow!("Failed to generate schedule"));
+        }
+    };
+
     analyze_project(&project, Some(&schedule), &analysis_config, &mut collector);
 
     // Configure diagnostic output

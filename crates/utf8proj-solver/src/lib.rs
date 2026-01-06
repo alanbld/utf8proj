@@ -669,6 +669,11 @@ pub fn analyze_project(
     // H003: Unused traits
     check_unused_traits(project, config, emitter);
 
+    // W005: Constraint zero slack (requires schedule)
+    if let Some(sched) = schedule {
+        check_constraint_zero_slack(project, sched, config, emitter);
+    }
+
     // I001: Project cost summary (requires schedule)
     if let Some(sched) = schedule {
         emit_project_summary(project, sched, &assignments_info, config, emitter);
@@ -1094,6 +1099,71 @@ fn check_unused_traits(
                 )
                 .with_file(config.file.clone().unwrap_or_default())
                 .with_hint("add to profile traits or remove if no longer needed"),
+            );
+        }
+    }
+}
+
+/// W005: Check for tasks where constraints reduced slack to zero
+fn check_constraint_zero_slack(
+    project: &Project,
+    schedule: &Schedule,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // Build task map for constraint lookup
+    let mut task_map: HashMap<String, &Task> = HashMap::new();
+    flatten_tasks(&project.tasks, &mut task_map);
+
+    for (task_id, scheduled) in &schedule.tasks {
+        // Only check tasks with zero slack
+        if scheduled.slack != Duration::zero() {
+            continue;
+        }
+
+        // Get the original task to check constraints
+        let Some(task) = task_map.get(task_id) else {
+            continue;
+        };
+
+        // Check for ceiling constraints that could cause zero slack
+        // These are: MustStartOn, MustFinishOn, StartNoLaterThan, FinishNoLaterThan
+        let has_ceiling_constraint = task.constraints.iter().any(|c| {
+            matches!(
+                c,
+                TaskConstraint::MustStartOn(_)
+                    | TaskConstraint::MustFinishOn(_)
+                    | TaskConstraint::StartNoLaterThan(_)
+                    | TaskConstraint::FinishNoLaterThan(_)
+            )
+        });
+
+        if has_ceiling_constraint {
+            // Find the specific constraint for the message
+            let constraint_desc = task
+                .constraints
+                .iter()
+                .find_map(|c| match c {
+                    TaskConstraint::MustStartOn(d) => Some(format!("must_start_on: {}", d)),
+                    TaskConstraint::MustFinishOn(d) => Some(format!("must_finish_on: {}", d)),
+                    TaskConstraint::StartNoLaterThan(d) => {
+                        Some(format!("start_no_later_than: {}", d))
+                    }
+                    TaskConstraint::FinishNoLaterThan(d) => {
+                        Some(format!("finish_no_later_than: {}", d))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| "constraint".to_string());
+
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::W005ConstraintZeroSlack,
+                    format!("constraint reduces slack to zero for task '{}'", task_id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!("{} makes task critical", constraint_desc))
+                .with_hint("consider relaxing constraint or adding buffer"),
             );
         }
     }

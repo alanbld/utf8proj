@@ -1494,6 +1494,8 @@ pub enum DiagnosticCode {
     E001CircularSpecialization,
     /// Profile has no rate and is used in cost-bearing assignments
     E002ProfileWithoutRate,
+    /// Task constraint cannot be satisfied (ES > LS)
+    E003InfeasibleConstraint,
 
     // Warnings (W) - Likely problem
     /// Task assigned to abstract profile instead of concrete resource
@@ -1504,6 +1506,8 @@ pub enum DiagnosticCode {
     W003UnknownTrait,
     /// Resource leveling could not fully resolve all conflicts
     W004ApproximateLeveling,
+    /// Task constraint reduces slack to zero (now on critical path)
+    W005ConstraintZeroSlack,
 
     // Hints (H) - Suggestions
     /// Task has both concrete and abstract assignments
@@ -1526,10 +1530,12 @@ impl DiagnosticCode {
         match self {
             DiagnosticCode::E001CircularSpecialization => "E001",
             DiagnosticCode::E002ProfileWithoutRate => "E002",
+            DiagnosticCode::E003InfeasibleConstraint => "E003",
             DiagnosticCode::W001AbstractAssignment => "W001",
             DiagnosticCode::W002WideCostRange => "W002",
             DiagnosticCode::W003UnknownTrait => "W003",
             DiagnosticCode::W004ApproximateLeveling => "W004",
+            DiagnosticCode::W005ConstraintZeroSlack => "W005",
             DiagnosticCode::H001MixedAbstraction => "H001",
             DiagnosticCode::H002UnusedProfile => "H002",
             DiagnosticCode::H003UnusedTrait => "H003",
@@ -1543,10 +1549,12 @@ impl DiagnosticCode {
         match self {
             DiagnosticCode::E001CircularSpecialization => Severity::Error,
             DiagnosticCode::E002ProfileWithoutRate => Severity::Warning, // Error in strict mode
+            DiagnosticCode::E003InfeasibleConstraint => Severity::Error,
             DiagnosticCode::W001AbstractAssignment => Severity::Warning,
             DiagnosticCode::W002WideCostRange => Severity::Warning,
             DiagnosticCode::W003UnknownTrait => Severity::Warning,
             DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
+            DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
             DiagnosticCode::H001MixedAbstraction => Severity::Hint,
             DiagnosticCode::H002UnusedProfile => Severity::Hint,
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
@@ -1563,9 +1571,12 @@ impl DiagnosticCode {
             // Structural errors first
             DiagnosticCode::E001CircularSpecialization => 0,
             DiagnosticCode::E002ProfileWithoutRate => 1,
+            DiagnosticCode::E003InfeasibleConstraint => 2,
             // Cost-related warnings
             DiagnosticCode::W002WideCostRange => 10,
             DiagnosticCode::W004ApproximateLeveling => 11,
+            // Constraint warnings
+            DiagnosticCode::W005ConstraintZeroSlack => 12,
             // Assignment-related warnings
             DiagnosticCode::W001AbstractAssignment => 20,
             DiagnosticCode::W003UnknownTrait => 21,

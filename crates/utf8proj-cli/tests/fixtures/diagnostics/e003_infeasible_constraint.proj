@@ -1,0 +1,23 @@
+# E003: Infeasible Constraint
+# Task constraint conflicts with dependency
+
+project "E003 Test" {
+    start: 2025-01-06
+    currency: USD
+}
+
+resource dev "Developer" {
+    rate: 100/day
+}
+
+task blocker "Blocker Task" {
+    effort: 10d
+    assign: dev
+}
+
+task blocked "Blocked Task" {
+    effort: 5d
+    depends: blocker
+    must_start_on: 2025-01-10
+    assign: dev
+}

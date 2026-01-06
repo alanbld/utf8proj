@@ -156,6 +156,11 @@ fn e002_profile_without_rate_strict() {
     assert_stderr_matches("e002_profile_without_rate", true);
 }
 
+#[test]
+fn e003_infeasible_constraint() {
+    assert_stderr_matches("e003_infeasible_constraint", false);
+}
+
 // =============================================================================
 // Info Tests
 // =============================================================================
