@@ -393,6 +393,10 @@ pub fn level_resources(
             project_baseline_finish: schedule.project_baseline_finish,
             project_forecast_finish: schedule.project_forecast_finish,
             project_variance_days: schedule.project_variance_days,
+            // Earned Value (I005): Copy from original schedule
+            planned_value: schedule.planned_value,
+            earned_value: schedule.earned_value,
+            spi: schedule.spi,
         },
         shifted_tasks,
         unresolved_conflicts,

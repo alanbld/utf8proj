@@ -946,6 +946,11 @@ pub fn analyze_project(
     if let Some(sched) = schedule {
         check_project_status(sched, config, emitter);
     }
+
+    // I005: Earned value summary (requires schedule)
+    if let Some(sched) = schedule {
+        check_earned_value(sched, config, emitter);
+    }
 }
 
 /// Info about assignments in the project
@@ -1504,6 +1509,37 @@ fn check_project_status(
     );
 }
 
+/// I005: Emit earned value summary (EV, PV, SPI)
+fn check_earned_value(
+    schedule: &Schedule,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // SPI status bands
+    let (spi_status, spi_emoji) = if schedule.spi >= 1.0 {
+        ("on schedule", "🟢")
+    } else if schedule.spi >= 0.95 {
+        ("slightly behind", "🟡")
+    } else {
+        ("behind schedule", "🔴")
+    };
+
+    emitter.emit(
+        Diagnostic::new(
+            DiagnosticCode::I005EarnedValueSummary,
+            format!(
+                "SPI {:.2}: {} {}",
+                schedule.spi, spi_status, spi_emoji
+            ),
+        )
+        .with_file(config.file.clone().unwrap_or_default())
+        .with_note(format!(
+            "EV {}%, PV {}% (earned vs planned progress)",
+            schedule.earned_value, schedule.planned_value
+        )),
+    );
+}
+
 /// I001: Emit project cost summary
 fn emit_project_summary(
     project: &Project,
@@ -1580,6 +1616,10 @@ impl Scheduler for CpmSolver {
                 project_baseline_finish: project.start,
                 project_forecast_finish: project.start,
                 project_variance_days: 0,
+                // I005: EV fields - empty project defaults
+                planned_value: 0,
+                earned_value: 0,
+                spi: 1.0,
             });
         }
 
@@ -2131,6 +2171,78 @@ impl Scheduler for CpmSolver {
         let project_variance_days =
             (project_forecast_finish - project_baseline_finish).num_days();
 
+        // Step 10c: Compute Earned Value metrics (I005)
+        // PV = weighted % of baseline work that should be complete by status date
+        // EV = actual project progress (already computed)
+        // SPI = EV / PV
+        let status_date = chrono::Local::now().date_naive();
+
+        let (planned_value, earned_value, spi) = {
+            let mut total_weight: i64 = 0;
+            let mut weighted_pv: f64 = 0.0;
+
+            // Build set of container task IDs (tasks with children)
+            let container_ids: std::collections::HashSet<&str> = task_map
+                .values()
+                .filter(|t| !t.children.is_empty())
+                .map(|t| t.id.as_str())
+                .collect();
+
+            for st in scheduled_tasks.values() {
+                // Only compute PV from leaf tasks (non-containers)
+                if !container_ids.contains(st.task_id.as_str()) {
+                    let duration_days = st.duration.as_days() as i64;
+                    if duration_days > 0 {
+                        total_weight += duration_days;
+
+                        // PV for this task: % of baseline period elapsed at status_date
+                        let task_pv = if status_date <= st.baseline_start {
+                            // Before task starts: 0% planned
+                            0.0
+                        } else if status_date >= st.baseline_finish {
+                            // After task finishes: 100% planned
+                            100.0
+                        } else {
+                            // Within task: linear interpolation
+                            let baseline_duration =
+                                (st.baseline_finish - st.baseline_start).num_days() as f64;
+                            if baseline_duration > 0.0 {
+                                let elapsed =
+                                    (status_date - st.baseline_start).num_days() as f64;
+                                (elapsed / baseline_duration) * 100.0
+                            } else {
+                                100.0 // Milestone
+                            }
+                        };
+
+                        weighted_pv += task_pv * (duration_days as f64);
+                    }
+                }
+            }
+
+            let pv = if total_weight > 0 {
+                (weighted_pv / total_weight as f64).round() as u8
+            } else {
+                0
+            };
+
+            let ev = project_progress;
+
+            // SPI = EV / PV with edge case handling
+            let spi_value = if pv == 0 {
+                if ev == 0 {
+                    1.0 // No work planned, no work done = on schedule
+                } else {
+                    2.0 // Work done before planned = cap at 2.0
+                }
+            } else {
+                let raw_spi = (ev as f64) / (pv as f64);
+                raw_spi.min(2.0) // Cap at 2.0
+            };
+
+            (pv, ev, spi_value)
+        };
+
         let schedule = Schedule {
             tasks: scheduled_tasks,
             critical_path,
@@ -2142,6 +2254,10 @@ impl Scheduler for CpmSolver {
             project_baseline_finish,
             project_forecast_finish,
             project_variance_days,
+            // I005: Earned Value fields
+            planned_value,
+            earned_value,
+            spi,
         };
 
         // Step 11: Apply resource leveling if enabled

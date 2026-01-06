@@ -42,4 +42,9 @@ info[I004]: project 0% complete, on schedule 🟢
    |
    = baseline finish: 2025-01-10, forecast finish: 2025-01-10
 
+info[I005]: SPI 0.00: behind schedule 🔴
+  --> e001_circular_specialization.proj
+   |
+   = EV 0%, PV 100% (earned vs planned progress)
+
 Error: aborting due to previous error(s)

@@ -951,6 +951,9 @@ mod tests {
             project_baseline_finish: finish,
             project_forecast_finish: finish,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let hover = hover_for_task(task, "task1", Some(&schedule));
@@ -994,6 +997,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let hover = hover_for_task(task, "task1", Some(&schedule));
@@ -1056,6 +1062,9 @@ mod tests {
             project_baseline_finish: finish,
             project_forecast_finish: finish,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let hover = hover_for_task(&task, "pinned_task", Some(&schedule));
@@ -1101,6 +1110,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let hover = hover_for_task(&task, "redundant_task", Some(&schedule));

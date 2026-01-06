@@ -1213,6 +1213,14 @@ pub struct Schedule {
     pub project_forecast_finish: NaiveDate,
     /// Project-level variance in calendar days (forecast - baseline)
     pub project_variance_days: i64,
+
+    // Earned Value Fields (I005)
+    /// Planned Value at status date (0-100), weighted % of baseline work due
+    pub planned_value: u8,
+    /// Earned Value (same as project_progress, 0-100)
+    pub earned_value: u8,
+    /// Schedule Performance Index (EV / PV), capped at 2.0
+    pub spi: f64,
 }
 
 /// A task with computed schedule information
@@ -1588,6 +1596,8 @@ pub enum DiagnosticCode {
     I003ResourceUtilization,
     /// Project status summary (overall progress and variance)
     I004ProjectStatus,
+    /// Earned value summary (EV, PV, SPI)
+    I005EarnedValueSummary,
 }
 
 impl DiagnosticCode {
@@ -1610,6 +1620,7 @@ impl DiagnosticCode {
             DiagnosticCode::I002RefinementProgress => "I002",
             DiagnosticCode::I003ResourceUtilization => "I003",
             DiagnosticCode::I004ProjectStatus => "I004",
+            DiagnosticCode::I005EarnedValueSummary => "I005",
         }
     }
 
@@ -1632,6 +1643,7 @@ impl DiagnosticCode {
             DiagnosticCode::I002RefinementProgress => Severity::Info,
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
             DiagnosticCode::I004ProjectStatus => Severity::Info,
+            DiagnosticCode::I005EarnedValueSummary => Severity::Info,
         }
     }
 
@@ -1663,6 +1675,7 @@ impl DiagnosticCode {
             DiagnosticCode::I002RefinementProgress => 41,
             DiagnosticCode::I003ResourceUtilization => 42,
             DiagnosticCode::I004ProjectStatus => 43,
+            DiagnosticCode::I005EarnedValueSummary => 44,
         }
     }
 }

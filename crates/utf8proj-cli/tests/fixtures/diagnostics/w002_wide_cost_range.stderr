@@ -16,3 +16,8 @@ info[I004]: project 0% complete, on schedule 🟢
    |
    = baseline finish: 2025-01-17, forecast finish: 2025-01-17
 
+info[I005]: SPI 0.00: behind schedule 🔴
+  --> w002_wide_cost_range.proj
+   |
+   = EV 0%, PV 100% (earned vs planned progress)
+

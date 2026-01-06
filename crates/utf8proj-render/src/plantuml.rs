@@ -480,6 +480,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         }
     }
 
@@ -601,6 +604,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -698,6 +704,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = PlantUmlRenderer::new();
@@ -874,6 +883,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = PlantUmlRenderer::new();
@@ -933,6 +945,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = PlantUmlRenderer::new().no_completion();
@@ -989,6 +1004,9 @@ mod tests {
             project_baseline_finish: ms_date,
             project_forecast_finish: ms_date,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = PlantUmlRenderer::new();
@@ -1075,6 +1093,9 @@ mod tests {
             project_baseline_finish: ms_date,
             project_forecast_finish: ms_date,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         // Use absolute dates mode
@@ -1137,6 +1158,9 @@ mod tests {
             project_baseline_finish: finish1,
             project_forecast_finish: finish1,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         // Use no_aliases mode

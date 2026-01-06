@@ -36,10 +36,26 @@
       ],
       "severity": "info",
       "spans": []
+    },
+    {
+      "code": "I005",
+      "file": "w001_abstract_assignment.proj",
+      "hints": [],
+      "message": "SPI 0.00: behind schedule 🔴",
+      "notes": [
+        "EV 0%, PV 100% (earned vs planned progress)"
+      ],
+      "severity": "info",
+      "spans": []
     }
   ],
   "schedule": {
     "duration_days": 5.0,
+    "earned_value": {
+      "earned_value": 0,
+      "planned_value": 100,
+      "spi": 0.0
+    },
     "end": "2025-01-10",
     "project_name": "W001 Test",
     "project_status": {

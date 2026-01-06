@@ -24,3 +24,8 @@ info[I004]: project 0% complete, on schedule 🟢
    |
    = baseline finish: 2025-01-10, forecast finish: 2025-01-10
 
+info[I005]: SPI 0.00: behind schedule 🔴
+  --> w003_unknown_trait.proj
+   |
+   = EV 0%, PV 100% (earned vs planned progress)
+

@@ -425,6 +425,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         // Both tasks scheduled at the same time - conflict!
@@ -537,6 +540,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let start1 = project.start;
@@ -707,6 +713,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let analyzer = BddConflictAnalyzer::new();

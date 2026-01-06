@@ -1093,6 +1093,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         }
     }
 
@@ -1176,6 +1179,9 @@ mod tests {
             project_baseline_finish: project_end,
             project_forecast_finish: project_end,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let result = renderer.render(&project, &schedule);
@@ -1285,6 +1291,9 @@ mod tests {
             project_baseline_finish: finish1,
             project_forecast_finish: finish1,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1379,6 +1388,9 @@ mod tests {
             project_baseline_finish: finish1,
             project_forecast_finish: finish1,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = HtmlGanttRenderer::new();
@@ -1470,6 +1482,9 @@ mod tests {
             project_baseline_finish: finish1,
             project_forecast_finish: finish1,
             project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
         };
 
         let renderer = HtmlGanttRenderer::new();

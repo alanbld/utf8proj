@@ -566,6 +566,27 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         "Status: {}% complete, {} {}\n",
         schedule.project_progress, variance_str, status_icon
     ));
+
+    // Earned Value (I005)
+    let spi_icon = if schedule.spi >= 1.0 {
+        "🟢"
+    } else if schedule.spi >= 0.95 {
+        "🟡"
+    } else {
+        "🔴"
+    };
+    let spi_status = if schedule.spi >= 1.0 {
+        "on schedule"
+    } else if schedule.spi >= 0.95 {
+        "slightly behind"
+    } else {
+        "behind schedule"
+    };
+    output.push_str(&format!(
+        "Earned Value: SPI {:.2} ({}) {} | EV {}% / PV {}%\n",
+        schedule.spi, spi_status, spi_icon,
+        schedule.earned_value, schedule.planned_value
+    ));
     output.push('\n');
 
     // Critical path
@@ -660,6 +681,11 @@ fn format_json_with_diagnostics(
                 "baseline_finish": schedule.project_baseline_finish.to_string(),
                 "forecast_finish": schedule.project_forecast_finish.to_string(),
                 "variance_days": schedule.project_variance_days,
+            },
+            "earned_value": {
+                "earned_value": schedule.earned_value,
+                "planned_value": schedule.planned_value,
+                "spi": schedule.spi,
             },
             "tasks": schedule.tasks.values().map(|t| {
                 let mut task_json = serde_json::json!({
