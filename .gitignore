@@ -34,3 +34,8 @@ examples/scripts/
 tutor_ideas.zip
 .claude/
 files_read.zip
+
+# Temporary files
+*.zip
+*.zip:*
+tarpaulin-report.html
