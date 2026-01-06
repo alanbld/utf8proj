@@ -1,8 +1,60 @@
 # Constraint Semantics v0
 
-**Status:** Draft
+**Status:** Implemented (Phases 1-3)
 **Date:** 2026-01-06
 **Scope:** Task scheduling constraints (temporal)
+
+## Implementation Status
+
+### ✅ Phase 1: Forward Pass Constraints — Complete
+
+All floor constraints wired to forward pass:
+- `MustStartOn` — ES pushed to constraint date
+- `StartNoEarlierThan` — ES floor applied
+- `MustFinishOn` — EF pushed to constraint date
+- `FinishNoEarlierThan` — EF floor applied
+
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 1292-1324)
+
+### ✅ Phase 2: Backward Pass Constraints — Complete
+
+All ceiling constraints wired to backward pass:
+- `MustStartOn` — LS capped at constraint date
+- `StartNoLaterThan` — LS ceiling applied
+- `MustFinishOn` — LF capped at constraint date
+- `FinishNoLaterThan` — LF ceiling applied
+
+**Also fixed:** Negative lag handling in backward pass for FS dependencies.
+
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 1413-1460)
+
+### ✅ Phase 3: Feasibility Detection — Complete
+
+- ES ≤ LS check for all tasks after both passes
+- Returns `ScheduleError::Infeasible` with task details when violated
+- Negative slack = infeasible constraint combination
+
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 1493-1502)
+
+### ✅ Diagnostics: E003 and W005 — Complete
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| E003 | Error | Infeasible constraint (ES > LS) |
+| W005 | Warning | Constraint reduces slack to zero |
+
+**Locations:**
+- `crates/utf8proj-core/src/lib.rs` — DiagnosticCode enum
+- `crates/utf8proj-cli/src/main.rs` — E003 emission in check/schedule
+- `crates/utf8proj-solver/src/lib.rs` — W005 emission in analyze_project
+
+### 🚧 Phase 4: Diagnostics Integration — Planned
+
+- [ ] Add constraint info to `explain()` output
+- [ ] Include constraint effects in LSP hover
+- [ ] Show constraint conflicts in feasibility report
+
+---
 
 ## Overview
 
@@ -103,73 +155,47 @@ Emitted when a constraint cannot be satisfied.
 
 ```
 error[E003]: constraint cannot be satisfied
-  --> project.proj:15
+  --> project.proj
    |
-15 |     must_start_on: 2025-02-01
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ task 'implement' must start on 2025-02-01
-   |
-   = note: earliest possible start is 2025-02-10 (due to dependency on 'design')
-   = note: constraint is infeasible by 7 working days
+   = task 'blocked' has infeasible constraints: ES (10) > LS (4), slack = -6 days
+   = hint: check that constraints don't conflict with dependencies
 ```
 
-### Warning: Constraint Narrows Slack (W004)
+### Warning: Constraint Zero Slack (W005)
 
-Emitted when a constraint significantly reduces scheduling flexibility.
+Emitted when a ceiling constraint reduces slack to zero.
 
 ```
-warning[W004]: constraint reduces slack to zero
-  --> project.proj:15
+warning[W005]: constraint reduces slack to zero for task 'task_c'
+  --> project.proj
    |
-15 |     start_no_later_than: 2025-02-15
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ task 'implement' now has 0 days slack
-   |
-   = note: task is now on critical path due to constraint
+   = must_finish_on: 2025-01-10 makes task critical
    = hint: consider relaxing constraint or adding buffer
 ```
 
-### Info: Constraint Applied (I002)
+**Note:** Originally planned as W004, but W004 was already used for `ApproximateLeveling`. Implemented as W005.
 
-Available in verbose mode to show constraint effects.
+## Test Coverage
 
-```
-info[I002]: constraint applied
-  --> project.proj:15
-   |
-   = task 'implement' start constrained to 2025-02-01
-   = effective slack: 3 days
-```
+All constraint scenarios covered in `crates/utf8proj-solver/tests/constraint_wiring.rs`:
 
-## Implementation Phases
+| Test | Description |
+|------|-------------|
+| `start_no_earlier_than_pushes_es` | SNET floor constraint |
+| `start_no_earlier_than_respects_dependencies` | Dependency overrides SNET |
+| `finish_no_earlier_than_pushes_ef` | FNET floor constraint |
+| `must_finish_on_sets_dates` | MFO pin constraint |
+| `must_start_on_already_works` | MSO regression test |
+| `start_no_later_than_caps_ls` | SNLT ceiling constraint |
+| `finish_no_later_than_caps_lf` | FNLT ceiling constraint |
+| `must_start_on_has_zero_slack` | Pin = zero slack |
+| `must_finish_on_has_zero_slack` | Pin = zero slack |
+| `infeasible_constraint_dependency_conflict` | E003 for MSO conflict |
+| `infeasible_floor_ceiling_collapse` | E003 for SNET > SNLT |
+| `infeasible_finish_before_start` | E003 for impossible window |
+| `feasible_window_fits` | Tight fit succeeds |
 
-### Phase 1: Forward Pass Constraints (Current + Enhancement)
-
-Wire all "floor" constraints to forward pass:
-- `MustStartOn` ✅ (exists)
-- `StartNoEarlierThan` (to wire)
-- `MustFinishOn` → affects EF (to wire)
-- `FinishNoEarlierThan` → affects EF (to wire)
-
-### Phase 2: Backward Pass Constraints
-
-Wire all "ceiling" constraints to backward pass:
-- `MustStartOn` → also constrain LS (to wire)
-- `StartNoLaterThan` → constrain LS (to wire)
-- `MustFinishOn` → also constrain LF (to wire)
-- `FinishNoLaterThan` → constrain LF (to wire)
-
-### Phase 3: Feasibility Detection
-
-After both passes:
-1. Check ES ≤ LS for all tasks
-2. Check EF ≤ LF for all tasks
-3. Emit E003 for violations
-4. Emit W004 for zero-slack from constraints
-
-### Phase 4: Diagnostics Integration
-
-- Add constraint info to `explain()` output
-- Include constraint effects in hover (LSP)
-- Show constraint conflicts in feasibility report
+CLI diagnostic test: `crates/utf8proj-cli/tests/fixtures/diagnostics/e003_infeasible_constraint.*`
 
 ## Not In Scope (v0)
 
@@ -197,9 +223,7 @@ None. Existing `MustStartOn` behavior is preserved and extended.
 
 Projects using unenforced constraints (`MustFinishOn`, etc.) may see new errors if constraints conflict with dependencies. This is correct behavior - the errors were always present, just unreported.
 
-## Test Cases
-
-### Feasible Constraints
+## Example: Feasible Constraints
 
 ```
 task design:
@@ -212,7 +236,7 @@ task implement:
 ```
 Result: Valid, constraint is satisfied.
 
-### Infeasible Constraint
+## Example: Infeasible Constraint
 
 ```
 task design:
@@ -225,18 +249,7 @@ task implement:
 ```
 Result: E003 - earliest start is 2025-01-20, constraint requires 2025-01-15.
 
-### Ceiling Constraint Violation
-
-```
-task critical:
-    effort: 20d
-    start_no_later_than: 2025-01-10
-
-# Project starts 2025-01-06
-```
-Result: E003 - task needs 20 days but must start by day 4.
-
-### Multiple Constraints
+## Example: Multiple Constraints
 
 ```
 task bounded:
@@ -244,7 +257,7 @@ task bounded:
     start_no_earlier_than: 2025-02-01
     finish_no_later_than: 2025-02-10
 ```
-Result: Valid - 5 days fits in 7-day window.
+Result: Valid - 5 days fits in 7-day window (with 2 days slack).
 
 ```
 task over_constrained:
