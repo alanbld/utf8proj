@@ -7,7 +7,7 @@
 
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use utf8proj_core::{Project, ResourceProfile, ResourceRate, Schedule, Task};
+use utf8proj_core::{Project, ResourceProfile, ResourceRate, Schedule, Task, TaskConstraint};
 
 /// Get hover information for a position in the document
 pub fn get_hover_info(
@@ -232,6 +232,16 @@ fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Ho
         lines.push(format!("Depends on: {}", deps.join(", ")));
     }
 
+    // Show temporal constraints
+    if !task.constraints.is_empty() {
+        let constraint_strs: Vec<String> = task
+            .constraints
+            .iter()
+            .map(format_constraint)
+            .collect();
+        lines.push(format!("Constraints: {}", constraint_strs.join(", ")));
+    }
+
     if let Some(complete) = task.complete {
         if complete > 0.0 {
             lines.push(format!("Progress: {}%", (complete * 100.0) as i32));
@@ -262,6 +272,18 @@ fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Ho
                 lines.push("🔴 **Critical Path** (0 days slack)".to_string());
             } else if slack_days > 0 {
                 lines.push(format!("🟢 Slack: {} days", slack_days));
+            }
+
+            // Show constraint effects if any
+            if !task.constraints.is_empty() {
+                let effects = analyze_constraint_effects(task, st);
+                if !effects.is_empty() {
+                    lines.push("---".to_string());
+                    lines.push("**Constraint Effects:**".to_string());
+                    for effect in effects {
+                        lines.push(effect);
+                    }
+                }
             }
         }
     }
@@ -305,6 +327,140 @@ fn find_task_by_id<'a>(tasks: &'a [Task], id: &str) -> Option<&'a Task> {
         }
     }
     None
+}
+
+/// Format a constraint for display
+fn format_constraint(constraint: &TaskConstraint) -> String {
+    match constraint {
+        TaskConstraint::MustStartOn(d) => format!("must_start_on: {}", d),
+        TaskConstraint::MustFinishOn(d) => format!("must_finish_on: {}", d),
+        TaskConstraint::StartNoEarlierThan(d) => format!("start_no_earlier_than: {}", d),
+        TaskConstraint::StartNoLaterThan(d) => format!("start_no_later_than: {}", d),
+        TaskConstraint::FinishNoEarlierThan(d) => format!("finish_no_earlier_than: {}", d),
+        TaskConstraint::FinishNoLaterThan(d) => format!("finish_no_later_than: {}", d),
+    }
+}
+
+/// Analyze constraint effects on a scheduled task
+fn analyze_constraint_effects(
+    task: &Task,
+    scheduled: &utf8proj_core::ScheduledTask,
+) -> Vec<String> {
+    use utf8proj_core::Duration;
+
+    let mut effects = Vec::new();
+    let es = scheduled.start;
+    let ef = scheduled.finish;
+    let ls = scheduled.late_start;
+    let lf = scheduled.late_finish;
+    let zero_slack = Duration::zero();
+
+    for constraint in &task.constraints {
+        let effect = match constraint {
+            TaskConstraint::MustStartOn(date) => {
+                if es == *date && ls == *date {
+                    format!("📌 `must_start_on: {}` — Task pinned to this date", date)
+                } else if es == *date {
+                    format!("✓ `must_start_on: {}` — Pushed early start", date)
+                } else if es > *date {
+                    format!(
+                        "⚠️ `must_start_on: {}` — Superseded by dependencies (ES={})",
+                        date, es
+                    )
+                } else {
+                    format!("✓ `must_start_on: {}` — Capped late start", date)
+                }
+            }
+            TaskConstraint::MustFinishOn(date) => {
+                if ef == *date && lf == *date {
+                    format!("📌 `must_finish_on: {}` — Task pinned to this date", date)
+                } else if ef == *date {
+                    format!("✓ `must_finish_on: {}` — Pushed early finish", date)
+                } else if ef > *date {
+                    format!(
+                        "⚠️ `must_finish_on: {}` — Superseded by dependencies (EF={})",
+                        date, ef
+                    )
+                } else {
+                    format!("✓ `must_finish_on: {}` — Capped late finish", date)
+                }
+            }
+            TaskConstraint::StartNoEarlierThan(date) => {
+                if es == *date {
+                    format!(
+                        "✓ `start_no_earlier_than: {}` — Task starts on boundary",
+                        date
+                    )
+                } else if es > *date {
+                    format!(
+                        "○ `start_no_earlier_than: {}` — Redundant (ES={})",
+                        date, es
+                    )
+                } else {
+                    format!("✓ `start_no_earlier_than: {}` — Pushed early start", date)
+                }
+            }
+            TaskConstraint::StartNoLaterThan(date) => {
+                if ls == *date {
+                    if scheduled.slack == zero_slack {
+                        format!(
+                            "🔴 `start_no_later_than: {}` — Made task critical",
+                            date
+                        )
+                    } else {
+                        format!("✓ `start_no_later_than: {}` — Capped late start", date)
+                    }
+                } else if ls < *date {
+                    format!(
+                        "○ `start_no_later_than: {}` — Redundant (LS={})",
+                        date, ls
+                    )
+                } else {
+                    format!("✓ `start_no_later_than: {}` — Caps late start", date)
+                }
+            }
+            TaskConstraint::FinishNoEarlierThan(date) => {
+                if ef == *date {
+                    format!(
+                        "✓ `finish_no_earlier_than: {}` — Task finishes on boundary",
+                        date
+                    )
+                } else if ef > *date {
+                    format!(
+                        "○ `finish_no_earlier_than: {}` — Redundant (EF={})",
+                        date, ef
+                    )
+                } else {
+                    format!(
+                        "✓ `finish_no_earlier_than: {}` — Pushed early finish",
+                        date
+                    )
+                }
+            }
+            TaskConstraint::FinishNoLaterThan(date) => {
+                if lf == *date {
+                    if scheduled.slack == zero_slack {
+                        format!(
+                            "🔴 `finish_no_later_than: {}` — Made task critical",
+                            date
+                        )
+                    } else {
+                        format!("✓ `finish_no_later_than: {}` — Capped late finish", date)
+                    }
+                } else if lf < *date {
+                    format!(
+                        "○ `finish_no_later_than: {}` — Redundant (LF={})",
+                        date, lf
+                    )
+                } else {
+                    format!("✓ `finish_no_later_than: {}` — Caps late finish", date)
+                }
+            }
+        };
+        effects.push(effect);
+    }
+
+    effects
 }
 
 #[cfg(test)]
@@ -834,6 +990,103 @@ mod tests {
         assert!(content.contains("📅 **Schedule:**"));
         assert!(content.contains("🟢 Slack: 3 days"));
         assert!(!content.contains("Critical Path"));
+    }
+
+    #[test]
+    fn hover_task_with_constraints_shows_list() {
+        let mut task = Task::new("constrained_task");
+        task.constraints.push(TaskConstraint::StartNoEarlierThan(
+            NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+        ));
+        task.constraints.push(TaskConstraint::FinishNoLaterThan(
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
+        ));
+
+        let hover = hover_for_task(&task, "constrained_task", None);
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Constraints:"));
+        assert!(content.contains("start_no_earlier_than: 2025-01-13"));
+        assert!(content.contains("finish_no_later_than: 2025-01-20"));
+    }
+
+    #[test]
+    fn hover_task_with_constraint_effects_pinned() {
+        let mut task = Task::new("pinned_task");
+        task.duration = Some(Duration::days(3));
+        task.constraints.push(TaskConstraint::MustStartOn(
+            NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+        ));
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 8).unwrap();
+        let scheduled = make_scheduled_task(
+            "pinned_task",
+            start,
+            finish,
+            Duration::days(3),
+            Duration::days(0),
+            true,
+        );
+
+        let mut tasks = HashMap::new();
+        tasks.insert("pinned_task".to_string(), scheduled);
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec!["pinned_task".to_string()],
+            project_duration: Duration::days(3),
+            project_end: finish,
+            total_cost: None,
+            total_cost_range: None,
+        };
+
+        let hover = hover_for_task(&task, "pinned_task", Some(&schedule));
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Constraint Effects"));
+        assert!(content.contains("📌"));
+        assert!(content.contains("pinned"));
+    }
+
+    #[test]
+    fn hover_task_with_constraint_effects_redundant() {
+        let mut task = Task::new("redundant_task");
+        task.duration = Some(Duration::days(5));
+        // Constraint is earlier than actual ES - should be redundant
+        task.constraints.push(TaskConstraint::StartNoEarlierThan(
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+        ));
+
+        let start = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
+        let finish = NaiveDate::from_ymd_opt(2025, 1, 14).unwrap();
+        let scheduled = make_scheduled_task(
+            "redundant_task",
+            start,
+            finish,
+            Duration::days(5),
+            Duration::days(2),
+            false,
+        );
+
+        let mut tasks = HashMap::new();
+        tasks.insert("redundant_task".to_string(), scheduled);
+
+        let schedule = Schedule {
+            tasks,
+            critical_path: vec![],
+            project_duration: Duration::days(7),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+            total_cost: None,
+            total_cost_range: None,
+        };
+
+        let hover = hover_for_task(&task, "redundant_task", Some(&schedule));
+        let content = extract_hover_content(&hover);
+
+        assert!(content.contains("Constraint Effects"));
+        assert!(content.contains("○")); // Redundant marker
+        assert!(content.contains("Redundant"));
     }
 
     // =========================================================================

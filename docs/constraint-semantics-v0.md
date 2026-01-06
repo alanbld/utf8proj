@@ -51,7 +51,7 @@ All ceiling constraints wired to backward pass:
 ### 🚧 Phase 4: Diagnostics Integration — In Progress
 
 - [x] Add constraint info to `explain()` output
-- [ ] Include constraint effects in LSP hover
+- [x] Include constraint effects in LSP hover
 - [ ] Show constraint conflicts in feasibility report
 
 **Phase 4.1 (explain() enhancement) complete:**
@@ -62,6 +62,17 @@ All ceiling constraints wired to backward pass:
 - Added `Task::constraint()` builder method
 
 **Location:** `crates/utf8proj-solver/src/lib.rs` (lines 72-314)
+
+**Phase 4.2 (LSP hover) complete:**
+- Task hover now shows constraint list
+- With schedule: shows detailed constraint effects with visual markers:
+  - 📌 Pinned (MustStartOn/MustFinishOn active)
+  - ✓ Active constraint (pushed or capped dates)
+  - ○ Redundant (superseded by dependencies)
+  - 🔴 Made task critical (ceiling constraint reduced slack to zero)
+  - ⚠️ Superseded by dependencies
+
+**Location:** `crates/utf8proj-lsp/src/hover.rs` (lines 235-463)
 
 ---
 
@@ -216,6 +227,16 @@ Unit tests in `crates/utf8proj-solver/src/lib.rs`:
 | `explain_task_with_pinned_constraint` | MustStartOn pinned effect |
 | `explain_task_with_redundant_constraint` | Redundant constraint detection |
 | `explain_task_without_constraints_has_empty_effects` | No constraints = empty effects |
+
+### Phase 4.2 Tests (LSP hover)
+
+Unit tests in `crates/utf8proj-lsp/src/hover.rs`:
+
+| Test | Description |
+|------|-------------|
+| `hover_task_with_constraints_shows_list` | Constraints shown in hover |
+| `hover_task_with_constraint_effects_pinned` | Pinned effect with 📌 marker |
+| `hover_task_with_constraint_effects_redundant` | Redundant effect with ○ marker |
 
 ## Not In Scope (v0)
 
