@@ -385,7 +385,8 @@ boolean = { "true" | "false" }
 
 // String: "quoted text"
 string = @{ "\"" ~ string_inner ~ "\"" }
-string_inner = @{ (!"\"" ~ ANY)* }
+string_inner = @{ (escape_seq | !("\"" | "\\") ~ ANY)* }
+escape_seq = @{ "\\" ~ ANY }
 
 // Identifier: alphanumeric with underscores
 identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }

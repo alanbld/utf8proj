@@ -88,8 +88,32 @@ pub fn parse(input: &str) -> Result<Project, ParseError> {
 
 fn parse_string(pair: Pair<Rule>) -> String {
     let s = pair.as_str();
-    // Remove surrounding quotes
-    s[1..s.len() - 1].to_string()
+    // Remove surrounding quotes and unescape
+    let inner = &s[1..s.len() - 1];
+    let mut result = String::with_capacity(inner.len());
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                chars.next();
+                match next {
+                    '"' => result.push('"'),
+                    '\\' => result.push('\\'),
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    _ => {
+                        result.push('\\');
+                        result.push(next);
+                    }
+                }
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 fn parse_identifier(pair: Pair<Rule>) -> String {
