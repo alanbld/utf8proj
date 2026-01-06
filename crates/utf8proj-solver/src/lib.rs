@@ -1410,8 +1410,45 @@ impl Scheduler for CpmSolver {
                 _ => project_end_days,
             };
 
-            // LS = LF - duration
-            let ls = lf - duration;
+            // Apply ceiling constraints to LF/LS (backward pass)
+            // Note: internal late_finish is exclusive (first day after task)
+            let task = task_map.get(id);
+            let mut max_finish: Option<i64> = None;
+            let mut max_start: Option<i64> = None;
+            if let Some(task) = task {
+                for constraint in &task.constraints {
+                    match constraint {
+                        TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoLaterThan(date) => {
+                            // LF ≤ constraint date (inclusive)
+                            // Internal LF is exclusive, so add 1
+                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                            let exclusive_lf = constraint_days + 1;
+                            max_finish = Some(max_finish.map_or(exclusive_lf, |mf| mf.min(exclusive_lf)));
+                        }
+                        TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoLaterThan(date) => {
+                            // LS ≤ constraint date
+                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                            max_start = Some(max_start.map_or(constraint_days, |ms| ms.min(constraint_days)));
+                        }
+                        _ => {} // Floor constraints already handled in forward pass
+                    }
+                }
+            }
+
+            // Apply finish ceiling if specified
+            let lf = if let Some(mf) = max_finish {
+                lf.min(mf)
+            } else {
+                lf
+            };
+
+            // LS = LF - duration (initial calculation)
+            let mut ls = lf - duration;
+
+            // Apply start ceiling if specified
+            if let Some(ms) = max_start {
+                ls = ls.min(ms);
+            }
 
             // Slack = LS - ES (or LF - EF, they should be equal)
             let slack = ls - nodes[id].early_start;
