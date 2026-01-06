@@ -773,14 +773,15 @@ impl Task {
 
     /// Derive task status from actual dates and completion.
     /// Returns explicit status if set, otherwise derives from data.
+    /// For containers, uses effective_progress() to derive status from children.
     pub fn derived_status(&self) -> TaskStatus {
         // Use explicit status if set
         if let Some(ref status) = self.status {
             return status.clone();
         }
 
-        // Derive from actual data
-        let pct = self.effective_percent_complete();
+        // Derive from actual data - use effective_progress for container rollup
+        let pct = self.effective_progress();
         if pct >= 100 || self.actual_finish.is_some() {
             TaskStatus::Complete
         } else if pct > 0 || self.actual_start.is_some() {

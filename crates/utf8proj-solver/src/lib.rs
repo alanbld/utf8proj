@@ -1915,7 +1915,8 @@ impl Scheduler for CpmSolver {
 
             // Progress tracking calculations
             let task = node.task;
-            let percent_complete = task.effective_percent_complete();
+            // Use effective_progress() to get derived progress for containers
+            let percent_complete = task.effective_progress();
             let remaining = task.remaining_duration();
             let status = task.derived_status();
 
