@@ -1247,6 +1247,19 @@ pub struct ScheduledTask {
     pub status: TaskStatus,
 
     // ========================================================================
+    // Variance Fields (Baseline vs Forecast)
+    // ========================================================================
+
+    /// Baseline start (planned start ignoring progress)
+    pub baseline_start: NaiveDate,
+    /// Baseline finish (planned finish ignoring progress)
+    pub baseline_finish: NaiveDate,
+    /// Start variance in days (forecast_start - baseline_start, positive = late)
+    pub start_variance_days: i64,
+    /// Finish variance in days (forecast_finish - baseline_finish, positive = late)
+    pub finish_variance_days: i64,
+
+    // ========================================================================
     // RFC-0001: Cost Range Fields
     // ========================================================================
 
@@ -1286,6 +1299,10 @@ impl ScheduledTask {
             remaining_duration: duration,
             percent_complete: 0,
             status: TaskStatus::NotStarted,
+            baseline_start: start,
+            baseline_finish: finish,
+            start_variance_days: 0,
+            finish_variance_days: 0,
             cost_range: None,
             has_abstract_assignments: false,
         }
@@ -1541,6 +1558,8 @@ pub enum DiagnosticCode {
     W004ApproximateLeveling,
     /// Task constraint reduces slack to zero (now on critical path)
     W005ConstraintZeroSlack,
+    /// Task is slipping beyond threshold (forecast > baseline)
+    W006ScheduleVariance,
 
     // Hints (H) - Suggestions
     /// Task has both concrete and abstract assignments
@@ -1571,6 +1590,7 @@ impl DiagnosticCode {
             DiagnosticCode::W003UnknownTrait => "W003",
             DiagnosticCode::W004ApproximateLeveling => "W004",
             DiagnosticCode::W005ConstraintZeroSlack => "W005",
+            DiagnosticCode::W006ScheduleVariance => "W006",
             DiagnosticCode::H001MixedAbstraction => "H001",
             DiagnosticCode::H002UnusedProfile => "H002",
             DiagnosticCode::H003UnusedTrait => "H003",
@@ -1591,6 +1611,7 @@ impl DiagnosticCode {
             DiagnosticCode::W003UnknownTrait => Severity::Warning,
             DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
             DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
+            DiagnosticCode::W006ScheduleVariance => Severity::Warning,
             DiagnosticCode::H001MixedAbstraction => Severity::Hint,
             DiagnosticCode::H002UnusedProfile => Severity::Hint,
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
@@ -1614,6 +1635,8 @@ impl DiagnosticCode {
             DiagnosticCode::W004ApproximateLeveling => 11,
             // Constraint warnings
             DiagnosticCode::W005ConstraintZeroSlack => 12,
+            // Schedule variance warnings
+            DiagnosticCode::W006ScheduleVariance => 13,
             // Assignment-related warnings
             DiagnosticCode::W001AbstractAssignment => 20,
             DiagnosticCode::W003UnknownTrait => 21,

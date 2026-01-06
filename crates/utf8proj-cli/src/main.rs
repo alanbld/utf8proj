@@ -556,28 +556,36 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     }
 
     if show_progress {
-        // Progress-aware output format
+        // Progress-aware output format with variance
         output.push_str(&format!(
-            "{:<16} {:>6} {:<14} {:<12} {:<12} {:>8} {}\n",
-            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Critical"
+            "{:<16} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Variance", "Critical"
         ));
-        output.push_str(&format!("{}\n", "-".repeat(88)));
+        output.push_str(&format!("{}\n", "-".repeat(96)));
 
         // Sort tasks by start date
         let mut tasks: Vec<_> = schedule.tasks.values().collect();
         tasks.sort_by_key(|t| t.start);
 
-        // Task rows with progress
+        // Task rows with progress and variance
         for task in tasks {
             let critical = if task.is_critical { "*" } else { "" };
+            let variance_str = if task.finish_variance_days == 0 {
+                "—".to_string()
+            } else if task.finish_variance_days > 0 {
+                format!("+{}d", task.finish_variance_days)
+            } else {
+                format!("{}d", task.finish_variance_days)
+            };
             output.push_str(&format!(
-                "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {}\n",
+                "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
                 truncate(&task.task_id, 16),
                 task.percent_complete,
                 format!("{}", task.status),
                 task.forecast_start.format("%Y-%m-%d"),
                 task.forecast_finish.format("%Y-%m-%d"),
                 task.remaining_duration.as_days() as i64,
+                variance_str,
                 critical
             ));
         }
@@ -646,6 +654,14 @@ fn format_json_with_diagnostics(
                         "percent_complete": t.percent_complete,
                         "status": format!("{}", t.status),
                         "remaining_days": t.remaining_duration.as_days(),
+                    });
+                    task_json["variance"] = serde_json::json!({
+                        "baseline_start": t.baseline_start.to_string(),
+                        "baseline_finish": t.baseline_finish.to_string(),
+                        "forecast_start": t.forecast_start.to_string(),
+                        "forecast_finish": t.forecast_finish.to_string(),
+                        "start_variance_days": t.start_variance_days,
+                        "finish_variance_days": t.finish_variance_days,
                     });
                 }
                 task_json

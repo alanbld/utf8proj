@@ -397,6 +397,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -423,6 +427,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start2,
+                baseline_finish: finish2,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -449,6 +457,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start3,
+                baseline_finish: finish3,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -630,6 +642,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
         tasks.insert(
@@ -653,6 +669,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: ms_date,
+                baseline_finish: ms_date,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -747,8 +767,12 @@ mod tests {
             remaining_duration: Duration::zero(),
             percent_complete: 0,
             status: TaskStatus::NotStarted,
-                cost_range: None,
-                has_abstract_assignments: false,
+            cost_range: None,
+            has_abstract_assignments: false,
+            baseline_start: date,
+            baseline_finish: date,
+            start_variance_days: 0,
+            finish_variance_days: 0,
         };
         assert_eq!(PlantUmlRenderer::format_duration(&task), "0 days");
     }
@@ -773,8 +797,12 @@ mod tests {
             remaining_duration: Duration::days(1),
             percent_complete: 0,
             status: TaskStatus::NotStarted,
-                cost_range: None,
-                has_abstract_assignments: false,
+            cost_range: None,
+            has_abstract_assignments: false,
+            baseline_start: date,
+            baseline_finish: date,
+            start_variance_days: 0,
+            finish_variance_days: 0,
         };
         assert_eq!(PlantUmlRenderer::format_duration(&task), "1 day");
     }
@@ -812,6 +840,10 @@ mod tests {
                 status: TaskStatus::InProgress,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -862,6 +894,10 @@ mod tests {
                 status: TaskStatus::InProgress,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -910,6 +946,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: ms_date,
+                baseline_finish: ms_date,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -961,6 +1001,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
         tasks.insert(
@@ -984,6 +1028,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: ms_date,
+                baseline_finish: ms_date,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -1038,6 +1086,10 @@ mod tests {
                 status: TaskStatus::InProgress,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 

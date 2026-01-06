@@ -502,6 +502,10 @@ mod tests {
             status: TaskStatus::NotStarted,
             cost_range: None,
             has_abstract_assignments: false,
+            baseline_start: start,
+            baseline_finish: finish,
+            start_variance_days: 0,
+            finish_variance_days: 0,
         }
     }
 

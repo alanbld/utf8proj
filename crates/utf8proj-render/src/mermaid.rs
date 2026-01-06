@@ -355,6 +355,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -381,6 +385,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start2,
+                baseline_finish: finish2,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -407,6 +415,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start3,
+                baseline_finish: finish3,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -564,6 +576,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: ms_date,
+                baseline_finish: ms_date,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -644,6 +660,10 @@ mod tests {
                 status: TaskStatus::Complete,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start,
+                baseline_finish: finish,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -696,6 +716,10 @@ mod tests {
                 status: TaskStatus::InProgress,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start,
+                baseline_finish: finish,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -748,6 +772,10 @@ mod tests {
                 status: TaskStatus::Complete,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start,
+                baseline_finish: finish,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 

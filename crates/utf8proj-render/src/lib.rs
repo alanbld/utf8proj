@@ -591,6 +591,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -617,6 +621,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start2,
+                baseline_finish: finish2,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -745,6 +753,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
         let ms_date = NaiveDate::from_ymd_opt(2025, 1, 13).unwrap();
@@ -769,6 +781,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: ms_date,
+                baseline_finish: ms_date,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -823,6 +839,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -883,6 +903,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
         let start2 = NaiveDate::from_ymd_opt(2025, 3, 17).unwrap();
@@ -908,6 +932,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start2,
+                baseline_finish: finish2,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 
@@ -962,6 +990,10 @@ mod tests {
                 status: TaskStatus::NotStarted,
                 cost_range: None,
                 has_abstract_assignments: false,
+                baseline_start: start1,
+                baseline_finish: finish1,
+                start_variance_days: 0,
+                finish_variance_days: 0,
             },
         );
 

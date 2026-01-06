@@ -932,6 +932,11 @@ pub fn analyze_project(
         check_constraint_zero_slack(project, sched, config, emitter);
     }
 
+    // W006: Schedule variance (requires schedule)
+    if let Some(sched) = schedule {
+        check_schedule_variance(sched, config, emitter);
+    }
+
     // I001: Project cost summary (requires schedule)
     if let Some(sched) = schedule {
         emit_project_summary(project, sched, &assignments_info, config, emitter);
@@ -1427,6 +1432,35 @@ fn check_constraint_zero_slack(
     }
 }
 
+/// Default threshold for variance warnings (days)
+const VARIANCE_THRESHOLD_DAYS: i64 = 5;
+
+/// W006: Check for tasks with significant schedule variance
+fn check_schedule_variance(
+    schedule: &Schedule,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for (task_id, scheduled) in &schedule.tasks {
+        // Only warn if finish variance exceeds threshold
+        if scheduled.finish_variance_days > VARIANCE_THRESHOLD_DAYS {
+            let variance_str = format!("+{}d", scheduled.finish_variance_days);
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::W006ScheduleVariance,
+                    format!("task '{}' is slipping ({})", task_id, variance_str),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!(
+                    "baseline finish: {}, forecast finish: {}",
+                    scheduled.baseline_finish, scheduled.forecast_finish
+                ))
+                .with_hint("review progress or adjust plan"),
+            );
+        }
+    }
+}
+
 /// I001: Emit project cost summary
 fn emit_project_summary(
     project: &Project,
@@ -1917,8 +1951,17 @@ impl Scheduler for CpmSolver {
             let task = node.task;
             // Use effective_progress() to get derived progress for containers
             let percent_complete = task.effective_progress();
-            let remaining = task.remaining_duration();
             let status = task.derived_status();
+
+            // Calculate remaining_duration using SCHEDULED duration (not raw effort)
+            // This accounts for resource parallelism
+            let scheduled_duration_days = node.duration_days as f64;
+            let remaining = if percent_complete == 100 {
+                Duration::zero()
+            } else {
+                let remaining_pct = 1.0 - (percent_complete as f64 / 100.0);
+                Duration::days((scheduled_duration_days * remaining_pct).ceil() as i64)
+            };
 
             // Forecast start: use actual_start if available, otherwise planned start
             let forecast_start = task.actual_start.unwrap_or(start_date);
@@ -1934,6 +1977,10 @@ impl Scheduler for CpmSolver {
             } else {
                 forecast_start // Milestone or complete
             };
+
+            // Variance calculation (calendar days, positive = late)
+            let start_variance_days = (forecast_start - start_date).num_days();
+            let finish_variance_days = (forecast_finish - finish_date).num_days();
 
             scheduled_tasks.insert(
                 id.clone(),
@@ -1963,6 +2010,11 @@ impl Scheduler for CpmSolver {
                     remaining_duration: remaining,
                     percent_complete,
                     status,
+                    // Variance fields (baseline vs forecast)
+                    baseline_start: start_date,
+                    baseline_finish: finish_date,
+                    start_variance_days,
+                    finish_variance_days,
                     // RFC-0001: Cost range fields
                     cost_range: task_cost_range,
                     has_abstract_assignments: has_abstract,
