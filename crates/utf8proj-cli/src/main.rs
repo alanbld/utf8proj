@@ -295,14 +295,49 @@ fn cmd_schedule(
     let feasibility = solver.is_feasible(&project);
 
     if !feasibility.feasible {
-        eprintln!("Error: Project is not feasible");
+        // Emit proper diagnostics for feasibility failures
+        let diag_config = DiagnosticConfig {
+            strict,
+            quiet,
+            base_path: file.parent().map(|p| p.to_path_buf()),
+        };
+        let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config.clone());
+
         for conflict in &feasibility.conflicts {
-            eprintln!("  - {}: {}",
-                format!("{:?}", conflict.conflict_type),
-                conflict.description
-            );
+            use utf8proj_core::ConflictType;
+            let diag = match conflict.conflict_type {
+                ConflictType::ImpossibleConstraint => {
+                    // Extract task info from the description for better error reporting
+                    let note = conflict.description.clone();
+                    Diagnostic::new(
+                        DiagnosticCode::E003InfeasibleConstraint,
+                        "constraint cannot be satisfied".to_string(),
+                    )
+                    .with_file(file.to_path_buf())
+                    .with_note(note)
+                    .with_hint("check that constraints don't conflict with dependencies")
+                }
+                ConflictType::CircularDependency => {
+                    Diagnostic::new(
+                        DiagnosticCode::E001CircularSpecialization, // Reuse for now
+                        "circular dependency detected".to_string(),
+                    )
+                    .with_file(file.to_path_buf())
+                    .with_note(conflict.description.clone())
+                }
+                _ => {
+                    Diagnostic::new(
+                        DiagnosticCode::E003InfeasibleConstraint,
+                        format!("{:?}", conflict.conflict_type),
+                    )
+                    .with_file(file.to_path_buf())
+                    .with_note(conflict.description.clone())
+                }
+            };
+            term_emitter.emit(diag);
         }
-        return Err(anyhow::anyhow!("Cannot schedule infeasible project"));
+
+        return Err(anyhow::anyhow!("Failed to generate schedule"));
     }
 
     // Schedule the project

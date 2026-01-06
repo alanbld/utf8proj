@@ -1362,7 +1362,7 @@ pub struct Conflict {
     pub involved_resources: Vec<ResourceId>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConflictType {
     CircularDependency,
     ResourceOverallocation,

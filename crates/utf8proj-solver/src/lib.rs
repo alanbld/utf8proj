@@ -396,6 +396,19 @@ fn flatten_tasks_with_context<'a>(
     (task_map, context_map)
 }
 
+/// Extract task ID from an infeasible constraint error message
+/// Expected format: "task 'task_id' has infeasible constraints: ..."
+fn extract_task_from_infeasible_message(msg: &str) -> Option<String> {
+    // Look for pattern: task 'xxx'
+    if let Some(start) = msg.find("task '") {
+        let rest = &msg[start + 6..];
+        if let Some(end) = rest.find('\'') {
+            return Some(rest[..end].to_string());
+        }
+    }
+    None
+}
+
 /// Build a map from parent qualified ID to list of direct children qualified IDs
 fn build_children_map(task_map: &HashMap<String, &Task>) -> HashMap<String, Vec<String>> {
     let mut children_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -1989,25 +2002,77 @@ impl Scheduler for CpmSolver {
     }
 
     fn is_feasible(&self, project: &Project) -> FeasibilityResult {
-        // Try to schedule and check for errors
+        use utf8proj_core::{Conflict, ConflictType, ScheduleError, Suggestion};
+
+        // Step 1: Check for circular dependencies
         let (task_map, context_map) = flatten_tasks_with_context(&project.tasks);
 
-        match topological_sort(&task_map, &context_map) {
-            Ok(_topo_result) => FeasibilityResult {
-                feasible: true,
-                conflicts: vec![],
-                suggestions: vec![],
-            },
-            Err(e) => FeasibilityResult {
+        if let Err(e) = topological_sort(&task_map, &context_map) {
+            return FeasibilityResult {
                 feasible: false,
-                conflicts: vec![utf8proj_core::Conflict {
-                    conflict_type: utf8proj_core::ConflictType::CircularDependency,
+                conflicts: vec![Conflict {
+                    conflict_type: ConflictType::CircularDependency,
                     description: e.to_string(),
                     involved_tasks: vec![],
                     involved_resources: vec![],
                 }],
                 suggestions: vec![],
+            };
+        }
+
+        // Step 2: Try to schedule and check for constraint conflicts
+        match Scheduler::schedule(self, project) {
+            Ok(_schedule) => FeasibilityResult {
+                feasible: true,
+                conflicts: vec![],
+                suggestions: vec![],
             },
+            Err(e) => {
+                let (conflict_type, involved_tasks, suggestions) = match &e {
+                    ScheduleError::Infeasible(msg) => {
+                        // Extract task ID from the error message if possible
+                        let task_id = extract_task_from_infeasible_message(msg);
+                        let suggestions = if let Some(ref id) = task_id {
+                            vec![Suggestion {
+                                description: format!(
+                                    "Review constraints on task '{}' or relax conflicting dependencies",
+                                    id
+                                ),
+                                impact: "May allow schedule to be computed".to_string(),
+                            }]
+                        } else {
+                            vec![]
+                        };
+                        (
+                            ConflictType::ImpossibleConstraint,
+                            task_id.into_iter().collect(),
+                            suggestions,
+                        )
+                    }
+                    ScheduleError::CircularDependency(_) => (
+                        ConflictType::CircularDependency,
+                        vec![],
+                        vec![],
+                    ),
+                    ScheduleError::TaskNotFound(id) => (
+                        ConflictType::ImpossibleConstraint,
+                        vec![id.clone()],
+                        vec![],
+                    ),
+                    _ => (ConflictType::ImpossibleConstraint, vec![], vec![]),
+                };
+
+                FeasibilityResult {
+                    feasible: false,
+                    conflicts: vec![Conflict {
+                        conflict_type,
+                        description: e.to_string(),
+                        involved_tasks,
+                        involved_resources: vec![],
+                    }],
+                    suggestions,
+                }
+            }
         }
     }
 
@@ -2452,6 +2517,76 @@ mod tests {
 
         assert!(!result.feasible);
         assert!(!result.conflicts.is_empty());
+    }
+
+    #[test]
+    fn feasibility_check_constraint_conflict() {
+        use utf8proj_core::{ConflictType, Scheduler, TaskConstraint};
+
+        let mut project = Project::new("Constraint Conflict");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(10)),
+            Task::new("blocked")
+                .effort(Duration::days(5))
+                .depends_on("blocker")
+                // This constraint conflicts with the dependency -
+                // blocker finishes Jan 17, but constraint says start Jan 10
+                .constraint(TaskConstraint::MustStartOn(
+                    NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
+                )),
+        ];
+
+        let solver = CpmSolver::new();
+        let result = solver.is_feasible(&project);
+
+        assert!(!result.feasible);
+        assert!(!result.conflicts.is_empty());
+        assert_eq!(
+            result.conflicts[0].conflict_type,
+            ConflictType::ImpossibleConstraint
+        );
+        // Should have the involved task
+        assert!(!result.conflicts[0].involved_tasks.is_empty());
+        // Should have suggestions
+        assert!(!result.suggestions.is_empty());
+    }
+
+    #[test]
+    fn feasibility_check_valid_constraints() {
+        use utf8proj_core::{Scheduler, TaskConstraint};
+
+        let mut project = Project::new("Valid Constraints");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("task1")
+                .effort(Duration::days(5))
+                // Constraint is at project start - no conflict
+                .constraint(TaskConstraint::StartNoEarlierThan(
+                    NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+                )),
+        ];
+
+        let solver = CpmSolver::new();
+        let result = solver.is_feasible(&project);
+
+        assert!(result.feasible);
+        assert!(result.conflicts.is_empty());
+    }
+
+    #[test]
+    fn extract_task_from_infeasible_message_works() {
+        let msg = "task 'my_task' has infeasible constraints: ES (10) > LS (4), slack = -6 days";
+        let result = super::extract_task_from_infeasible_message(msg);
+        assert_eq!(result, Some("my_task".to_string()));
+
+        let msg2 = "task 'nested.task.id' has infeasible constraints";
+        let result2 = super::extract_task_from_infeasible_message(msg2);
+        assert_eq!(result2, Some("nested.task.id".to_string()));
+
+        let msg3 = "some other error message";
+        let result3 = super::extract_task_from_infeasible_message(msg3);
+        assert_eq!(result3, None);
     }
 
     #[test]

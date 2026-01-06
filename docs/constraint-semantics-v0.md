@@ -1,6 +1,6 @@
 # Constraint Semantics v0
 
-**Status:** Implemented (Phases 1-3)
+**Status:** Implemented (Phases 1-4)
 **Date:** 2026-01-06
 **Scope:** Task scheduling constraints (temporal)
 
@@ -48,11 +48,11 @@ All ceiling constraints wired to backward pass:
 - `crates/utf8proj-cli/src/main.rs` — E003 emission in check/schedule
 - `crates/utf8proj-solver/src/lib.rs` — W005 emission in analyze_project
 
-### 🚧 Phase 4: Diagnostics Integration — In Progress
+### ✅ Phase 4: Diagnostics Integration — Complete
 
 - [x] Add constraint info to `explain()` output
 - [x] Include constraint effects in LSP hover
-- [ ] Show constraint conflicts in feasibility report
+- [x] Show constraint conflicts in feasibility report
 
 **Phase 4.1 (explain() enhancement) complete:**
 - Added `ConstraintEffect` struct and `ConstraintEffectType` enum to utf8proj-core
@@ -73,6 +73,15 @@ All ceiling constraints wired to backward pass:
   - ⚠️ Superseded by dependencies
 
 **Location:** `crates/utf8proj-lsp/src/hover.rs` (lines 235-463)
+
+**Phase 4.3 (feasibility report) complete:**
+- Enhanced `is_feasible()` to detect constraint conflicts via scheduling
+- Returns `ConflictType::ImpossibleConstraint` with task ID and suggestions
+- CLI emits E003 diagnostic for constraint conflicts in feasibility check
+- Added `extract_task_from_infeasible_message()` helper
+- Added `PartialEq` derive to `ConflictType` for testability
+
+**Location:** `crates/utf8proj-solver/src/lib.rs` (lines 1991-2063, 399-410)
 
 ---
 
@@ -237,6 +246,16 @@ Unit tests in `crates/utf8proj-lsp/src/hover.rs`:
 | `hover_task_with_constraints_shows_list` | Constraints shown in hover |
 | `hover_task_with_constraint_effects_pinned` | Pinned effect with 📌 marker |
 | `hover_task_with_constraint_effects_redundant` | Redundant effect with ○ marker |
+
+### Phase 4.3 Tests (feasibility report)
+
+Unit tests in `crates/utf8proj-solver/src/lib.rs`:
+
+| Test | Description |
+|------|-------------|
+| `feasibility_check_constraint_conflict` | Detects constraint conflict in feasibility |
+| `feasibility_check_valid_constraints` | Valid constraints pass feasibility |
+| `extract_task_from_infeasible_message_works` | Helper function extraction |
 
 ## Not In Scope (v0)
 

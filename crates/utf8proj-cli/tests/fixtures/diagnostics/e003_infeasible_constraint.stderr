@@ -1,7 +1,7 @@
 error[E003]: constraint cannot be satisfied
   --> e003_infeasible_constraint.proj
    |
-   = task 'blocked' has infeasible constraints: ES (10) > LS (4), slack = -6 days
+   = Infeasible schedule: task 'blocked' has infeasible constraints: ES (10) > LS (4), slack = -6 days
    = hint: check that constraints don't conflict with dependencies
 
 Error: Failed to generate schedule
