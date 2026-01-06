@@ -1289,17 +1289,39 @@ impl Scheduler for CpmSolver {
                     }
                 }
 
-                // Also consider MustStartOn constraints
+                // Apply floor constraints to ES (forward pass)
+                // These constrain how early the task can start/finish
+                // Note: internal early_finish is exclusive (first day after task)
+                let mut min_finish: Option<i64> = None;
                 for constraint in &task.constraints {
-                    if let TaskConstraint::MustStartOn(date) = constraint {
-                        // Convert date to working days from project start
-                        let constraint_days = date_to_working_days(project.start, *date, &calendar);
-                        es = es.max(constraint_days);
+                    match constraint {
+                        TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoEarlierThan(date) => {
+                            // ES ≥ constraint date
+                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                            es = es.max(constraint_days);
+                        }
+                        TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoEarlierThan(date) => {
+                            // EF ≥ constraint date (inclusive)
+                            // Internal EF is exclusive, so add 1: if task must finish ON day 9,
+                            // internal EF must be 10 (first day after)
+                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                            let exclusive_ef = constraint_days + 1;
+                            min_finish = Some(min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
+                        }
+                        _ => {} // Ceiling constraints handled in backward pass
                     }
                 }
 
-                // EF = ES + duration
-                let ef = es + duration;
+                // EF = ES + duration (initial calculation)
+                let mut ef = es + duration;
+
+                // If finish constraint pushes EF forward, shift ES accordingly
+                if let Some(mf) = min_finish {
+                    if mf > ef {
+                        ef = mf;
+                        es = ef - duration;
+                    }
+                }
 
                 if let Some(node) = nodes.get_mut(id) {
                     node.early_start = es;
