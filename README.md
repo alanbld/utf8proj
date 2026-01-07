@@ -88,9 +88,13 @@ utf8proj schedule --quiet project.proj  # Suppress output except errors
 utf8proj gantt project.proj -o timeline.svg           # SVG (default)
 utf8proj gantt project.proj -o chart.mmd -f mermaid   # MermaidJS
 utf8proj gantt project.proj -o chart.puml -f plantuml # PlantUML
+utf8proj gantt project.proj -o chart.xlsx -f xlsx     # Excel workbook
 utf8proj gantt project.proj -o chart.svg -V           # Verbose: [task_id] Name
 utf8proj gantt project.proj -o chart.svg --task-ids   # Show task IDs only
 utf8proj gantt project.proj -o chart.svg -w 60        # Custom label width
+
+# Excel-specific options
+utf8proj gantt project.proj -o chart.xlsx -f xlsx --currency EUR --weeks 40
 ```
 
 ## Documentation
