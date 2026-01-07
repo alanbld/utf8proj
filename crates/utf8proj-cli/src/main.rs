@@ -604,10 +604,10 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     if show_progress {
         // Progress-aware output format with variance
         output.push_str(&format!(
-            "{:<16} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "{:<40} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
             "Task", "%Done", "Status", "Start", "Finish", "Remain", "Variance", "Critical"
         ));
-        output.push_str(&format!("{}\n", "-".repeat(96)));
+        output.push_str(&format!("{}\n", "-".repeat(120)));
 
         // Sort tasks by start date
         let mut tasks: Vec<_> = schedule.tasks.values().collect();
@@ -629,8 +629,8 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
                 get_task_display_name(&project.tasks, &task.task_id)
             };
             output.push_str(&format!(
-                "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
-                truncate(&display_name, 16),
+                "{:<40} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
+                truncate(&display_name, 40),
                 task.percent_complete,
                 format!("{}", task.status),
                 task.forecast_start.format("%Y-%m-%d"),
@@ -643,10 +643,10 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     } else {
         // Standard output format
         output.push_str(&format!(
-            "{:<20} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "{:<40} {:<12} {:<12} {:>8} {:>8} {}\n",
             "Task", "Start", "Finish", "Duration", "Slack", "Critical"
         ));
-        output.push_str(&format!("{}\n", "-".repeat(76)));
+        output.push_str(&format!("{}\n", "-".repeat(96)));
 
         // Sort tasks by start date
         let mut tasks: Vec<_> = schedule.tasks.values().collect();
@@ -661,8 +661,8 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
                 get_task_display_name(&project.tasks, &task.task_id)
             };
             output.push_str(&format!(
-                "{:<20} {:<12} {:<12} {:>6}d {:>6}d {}\n",
-                truncate(&display_name, 20),
+                "{:<40} {:<12} {:<12} {:>6}d {:>6}d {}\n",
+                truncate(&display_name, 40),
                 task.start.format("%Y-%m-%d"),
                 task.finish.format("%Y-%m-%d"),
                 task.duration.as_days() as i64,
@@ -752,21 +752,21 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 /// Find a task by ID in a nested task tree, returning (name/description, summary)
+/// Task IDs can be hierarchical like "parent.child.grandchild", where each level
+/// of the tree has simple IDs like "parent", "child", "grandchild".
 fn find_task_info(tasks: &[utf8proj_core::Task], id: &str) -> Option<(String, Option<String>)> {
     for task in tasks {
         if task.id == id {
             return Some((task.name.clone(), task.summary.clone()));
         }
-        // For nested tasks, the ID might be like "parent.child"
+        // For nested tasks, the ID might be like "parent.child.grandchild"
+        // Strip the current level's prefix before searching children
         let prefix = format!("{}.", task.id);
         if id.starts_with(&prefix) {
-            if let Some(result) = find_task_info(&task.children, id) {
+            let child_id = &id[prefix.len()..]; // Strip parent prefix
+            if let Some(result) = find_task_info(&task.children, child_id) {
                 return Some(result);
             }
-        }
-        // Also check children directly (for non-prefixed lookups)
-        if let Some(result) = find_task_info(&task.children, id) {
-            return Some(result);
         }
     }
     None
