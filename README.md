@@ -85,7 +85,12 @@ utf8proj schedule project.proj -o schedule.json --format json
 utf8proj schedule --quiet project.proj  # Suppress output except errors
 
 # Generate Gantt chart
-utf8proj gantt project.proj -o timeline.svg
+utf8proj gantt project.proj -o timeline.svg           # SVG (default)
+utf8proj gantt project.proj -o chart.mmd -f mermaid   # MermaidJS
+utf8proj gantt project.proj -o chart.puml -f plantuml # PlantUML
+utf8proj gantt project.proj -o chart.svg -V           # Verbose: [task_id] Name
+utf8proj gantt project.proj -o chart.svg --task-ids   # Show task IDs only
+utf8proj gantt project.proj -o chart.svg -w 60        # Custom label width
 ```
 
 ## Documentation
