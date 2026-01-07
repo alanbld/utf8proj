@@ -178,6 +178,46 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            max-width: var(--task-name-width, 200px);
+        }
+
+        .width-control {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .width-slider {
+            width: 60px;
+            height: 4px;
+            -webkit-appearance: none;
+            background: var(--primary);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .width-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .width-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: var(--accent);
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .width-value {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            min-width: 28px;
         }
         
         .task-progress {
@@ -477,6 +517,10 @@
                 <div class="panel-header">
                     <span class="panel-title">Tasks</span>
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div class="width-control" title="Adjust task name column width">
+                            <input type="range" class="width-slider" id="width-slider" min="100" max="400" value="200" oninput="updateTaskWidth(this.value)">
+                            <span class="width-value" id="width-value">200</span>
+                        </div>
                         <button class="btn btn-sm" id="toggle-display" onclick="toggleTaskDisplay()" title="Toggle between Task ID and Name">ID</button>
                         <span id="task-count">0 tasks</span>
                     </div>
@@ -724,6 +768,7 @@ task cutover "Go-Live Cutover" {
         let scheduleResult = null;
         let wasmReady = false;
         let displayMode = 'name'; // 'name', 'id', or 'verbose'
+        let taskNameWidth = 200; // pixels for task name column
 
         // Toggle task display mode
         window.toggleTaskDisplay = function() {
@@ -742,6 +787,14 @@ task cutover "Go-Live Cutover" {
                 btn.classList.remove('active');
             }
             updateUI();
+        };
+
+        // Update task name column width
+        window.updateTaskWidth = function(value) {
+            taskNameWidth = parseInt(value);
+            document.getElementById('width-value').textContent = value;
+            document.documentElement.style.setProperty('--task-name-width', value + 'px');
+            if (scheduleResult) renderGantt();
         };
         
         // Initialize WASM
@@ -915,7 +968,7 @@ task cutover "Go-Live Cutover" {
 
             // Dimensions
             const rowHeight = 32;
-            const labelWidth = 140;
+            const labelWidth = Math.max(100, taskNameWidth * 0.7); // Scale with slider
             const padding = 10;
             const headerHeight = 40;
 
@@ -979,7 +1032,8 @@ task cutover "Go-Live Cutover" {
                 ctx.fillStyle = task.is_milestone ? '#fbbf24' : '#eaeaea';
                 ctx.font = task.is_milestone ? 'bold 11px monospace' : '11px monospace';
                 ctx.textAlign = 'left';
-                ctx.fillText(truncate(ganttLabel, 16) + (task.is_milestone ? ' ◆' : ''), padding, y + 4);
+                const maxChars = Math.max(10, Math.floor(labelWidth / 8)); // ~8px per char
+                ctx.fillText(truncate(ganttLabel, maxChars) + (task.is_milestone ? ' ◆' : ''), padding, y + 4);
 
                 // Task bar position
                 const taskStart = new Date(task.start);
