@@ -103,7 +103,7 @@ enum Commands {
         #[arg(short, long)]
         output: std::path::PathBuf,
 
-        /// Output format (svg, mermaid, plantuml)
+        /// Output format (svg, mermaid, plantuml, xlsx)
         #[arg(short, long, default_value = "svg")]
         format: String,
 
@@ -118,6 +118,14 @@ enum Commands {
         /// Task name column width (default: 40)
         #[arg(short = 'w', long, default_value = "40")]
         width: usize,
+
+        /// Currency symbol for Excel export (default: EUR)
+        #[arg(long, default_value = "EUR")]
+        currency: String,
+
+        /// Number of weeks to show in Excel schedule (default: 40)
+        #[arg(long, default_value = "40")]
+        weeks: u32,
     },
 
     /// Run performance benchmarks
@@ -179,8 +187,8 @@ fn main() -> Result<()> {
         Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width)
         }
-        Some(Commands::Gantt { file, output, format, task_ids, verbose, width }) => {
-            cmd_gantt(&file, &output, &format, task_ids, verbose, width)
+        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks }) => {
+            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks)
         }
         Some(Commands::Benchmark {
             topology,
@@ -541,7 +549,7 @@ fn cmd_schedule(
 }
 
 /// Gantt command: generate Gantt chart in various formats
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize) -> Result<()> {
+fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
     let project = parse_file(file)
@@ -563,6 +571,21 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
 
     // Generate output based on format
     use utf8proj_core::Renderer;
+
+    // Handle xlsx separately (binary output)
+    if format.to_lowercase() == "xlsx" {
+        let renderer = utf8proj_render::ExcelRenderer::new()
+            .currency(currency)
+            .weeks(weeks);
+        let bytes = renderer.render(&project, &schedule)
+            .with_context(|| "Failed to render Excel workbook")?;
+        fs::write(output, &bytes)
+            .with_context(|| format!("Failed to write XLSX to '{}'", output.display()))?;
+        println!("Excel workbook written to: {}", output.display());
+        return Ok(());
+    }
+
+    // Text-based formats
     let content = match format.to_lowercase().as_str() {
         "svg" => {
             let renderer = utf8proj_render::SvgRenderer::new()
@@ -586,7 +609,7 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
                 .with_context(|| "Failed to render PlantUML Gantt chart")?
         }
         _ => {
-            anyhow::bail!("Unknown format '{}'. Supported formats: svg, mermaid, plantuml", format);
+            anyhow::bail!("Unknown format '{}'. Supported formats: svg, mermaid, plantuml, xlsx", format);
         }
     };
 

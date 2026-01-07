@@ -416,14 +416,21 @@ impl ExcelRenderer {
         // Set row height for header (rotated text)
         sheet.set_row_height(0, 50).ok();
 
-        // Sort tasks by start date
-        let mut tasks: Vec<&ScheduledTask> = schedule.tasks.values().collect();
-        tasks.sort_by_key(|t| t.start);
+        // Collect tasks in WBS order (depth-first traversal of project hierarchy)
+        let wbs_order = Self::collect_wbs_order(&project.tasks, 0);
+
+        // Map scheduled tasks to WBS order
+        let tasks: Vec<(&ScheduledTask, usize)> = wbs_order
+            .iter()
+            .filter_map(|(task_id, level)| {
+                schedule.tasks.get(task_id).map(|st| (st, *level))
+            })
+            .collect();
 
         // Build task row mapping for VLOOKUP (task_id -> row number)
         let mut task_row_map: HashMap<String, u32> = HashMap::new();
         let mut current_row = 2u32; // Excel rows are 1-indexed, data starts at row 2
-        for scheduled in &tasks {
+        for (scheduled, _level) in &tasks {
             task_row_map.insert(scheduled.task_id.clone(), current_row);
             if scheduled.assignments.is_empty() {
                 current_row += 1;
@@ -435,11 +442,17 @@ impl ExcelRenderer {
 
         // Write task rows
         let mut row = 1u32;
-        for scheduled in &tasks {
-            let task = project.get_task(&scheduled.task_id);
-            let task_name = task
+        for (scheduled, level) in &tasks {
+            // Extract the simple task ID from the path (e.g., "task_5.task_6.task_7" -> "task_7")
+            let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
+            let task = project.get_task(simple_id);
+
+            // Get base task name and add indentation for hierarchy
+            let base_name = task
                 .map(|t| t.name.clone())
-                .unwrap_or_else(|| scheduled.task_id.clone());
+                .unwrap_or_else(|| simple_id.to_string());
+            let indent = "  ".repeat(*level);
+            let task_name = format!("{}{}", indent, base_name);
 
             // Get first predecessor (if any) for dependency column
             let (predecessor, dep_type, lag) = task
@@ -944,6 +957,44 @@ impl ExcelRenderer {
                 break;
             }
             n = n / 26 - 1;
+        }
+        result
+    }
+
+    /// Collect task IDs in WBS (Work Breakdown Structure) order
+    ///
+    /// Performs depth-first traversal of the task hierarchy, returning
+    /// full path task IDs with their nesting level for indentation.
+    fn collect_wbs_order(tasks: &[utf8proj_core::Task], level: usize) -> Vec<(String, usize)> {
+        Self::collect_wbs_order_with_prefix(tasks, "", level)
+    }
+
+    /// Helper for collect_wbs_order that tracks the parent path
+    fn collect_wbs_order_with_prefix(
+        tasks: &[utf8proj_core::Task],
+        parent_path: &str,
+        level: usize,
+    ) -> Vec<(String, usize)> {
+        let mut result = Vec::new();
+        for task in tasks {
+            // Build the full path ID
+            let full_id = if parent_path.is_empty() {
+                task.id.clone()
+            } else {
+                format!("{}.{}", parent_path, task.id)
+            };
+
+            // Add this task
+            result.push((full_id.clone(), level));
+
+            // Recursively add children
+            if !task.children.is_empty() {
+                result.extend(Self::collect_wbs_order_with_prefix(
+                    &task.children,
+                    &full_id,
+                    level + 1,
+                ));
+            }
         }
         result
     }
