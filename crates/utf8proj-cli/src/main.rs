@@ -79,6 +79,10 @@ enum Commands {
         /// Quiet mode: suppress all output except errors
         #[arg(short, long)]
         quiet: bool,
+
+        /// Show task IDs instead of display names
+        #[arg(long)]
+        task_ids: bool,
     },
 
     /// Generate a Gantt chart
@@ -148,8 +152,8 @@ fn main() -> Result<()> {
         Some(Commands::Check { file, format, strict, quiet }) => {
             cmd_check(&file, &format, strict, quiet)
         }
-        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -281,6 +285,7 @@ fn cmd_schedule(
     show_progress: bool,
     strict: bool,
     quiet: bool,
+    task_ids: bool,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
@@ -449,7 +454,7 @@ fn cmd_schedule(
             }
 
             // Format output with diagnostics
-            let result = format_json_with_diagnostics(&project, &schedule, show_progress, &json_emitter)?;
+            let result = format_json_with_diagnostics(&project, &schedule, show_progress, task_ids, &json_emitter)?;
 
             // Write output
             match output {
@@ -478,7 +483,7 @@ fn cmd_schedule(
 
             // Format schedule output
             if !quiet {
-                let result = format_text(&project, &schedule, show_progress);
+                let result = format_text(&project, &schedule, show_progress, task_ids);
 
                 // Write output
                 match output {
@@ -538,7 +543,7 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
 }
 
 /// Format schedule as text table
-fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool) -> String {
+fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool) -> String {
     let mut output = String::new();
 
     // Header
@@ -618,7 +623,11 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
             } else {
                 format!("{}d", task.finish_variance_days)
             };
-            let display_name = get_task_display_name(&project.tasks, &task.task_id);
+            let display_name = if task_ids {
+                task.task_id.clone()
+            } else {
+                get_task_display_name(&project.tasks, &task.task_id)
+            };
             output.push_str(&format!(
                 "{:<16} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
                 truncate(&display_name, 16),
@@ -646,7 +655,11 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         // Task rows
         for task in tasks {
             let critical = if task.is_critical { "*" } else { "" };
-            let display_name = get_task_display_name(&project.tasks, &task.task_id);
+            let display_name = if task_ids {
+                task.task_id.clone()
+            } else {
+                get_task_display_name(&project.tasks, &task.task_id)
+            };
             output.push_str(&format!(
                 "{:<20} {:<12} {:<12} {:>6}d {:>6}d {}\n",
                 truncate(&display_name, 20),
@@ -668,6 +681,7 @@ fn format_json_with_diagnostics(
     project: &utf8proj_core::Project,
     schedule: &utf8proj_core::Schedule,
     show_progress: bool,
+    _task_ids: bool, // JSON always includes both id and name
     json_emitter: &JsonEmitter,
 ) -> Result<String> {
     // Create a summary structure for JSON output
