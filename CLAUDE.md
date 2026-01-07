@@ -136,6 +136,7 @@ utf8proj schedule --strict project.proj # Exit 1 with warnings
 utf8proj schedule --quiet --strict project.proj
 utf8proj schedule --format=json project.proj
 utf8proj schedule --task-ids project.proj  # Show task IDs instead of display names
+utf8proj schedule -V project.proj         # Verbose: show [task_id] Display Name
 utf8proj schedule -w 60 project.proj      # Custom task column width (default: 40)
 ```
 
