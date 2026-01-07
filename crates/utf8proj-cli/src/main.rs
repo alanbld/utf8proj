@@ -102,6 +102,22 @@ enum Commands {
         /// Output file path
         #[arg(short, long)]
         output: std::path::PathBuf,
+
+        /// Output format (svg, mermaid, plantuml)
+        #[arg(short, long, default_value = "svg")]
+        format: String,
+
+        /// Show task IDs instead of display names
+        #[arg(long)]
+        task_ids: bool,
+
+        /// Verbose output: show both task ID and display name
+        #[arg(short = 'V', long)]
+        verbose: bool,
+
+        /// Task name column width (default: 40)
+        #[arg(short = 'w', long, default_value = "40")]
+        width: usize,
     },
 
     /// Run performance benchmarks
@@ -163,7 +179,9 @@ fn main() -> Result<()> {
         Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width)
         }
-        Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
+        Some(Commands::Gantt { file, output, format, task_ids, verbose, width }) => {
+            cmd_gantt(&file, &output, &format, task_ids, verbose, width)
+        }
         Some(Commands::Benchmark {
             topology,
             count,
@@ -522,8 +540,9 @@ fn cmd_schedule(
     Ok(())
 }
 
-/// Gantt command: generate SVG Gantt chart
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path) -> Result<()> {
+/// Gantt command: generate Gantt chart in various formats
+fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize) -> Result<()> {
+    use utf8proj_render::DisplayMode;
     // Parse the file
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
@@ -533,17 +552,49 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path) -> Result<()> {
     let schedule = solver.schedule(&project)
         .with_context(|| "Failed to generate schedule")?;
 
-    // Use the renderer
+    // Determine display mode
+    let display_mode = if verbose {
+        DisplayMode::Verbose
+    } else if task_ids {
+        DisplayMode::Id
+    } else {
+        DisplayMode::Name
+    };
+
+    // Generate output based on format
     use utf8proj_core::Renderer;
-    let renderer = utf8proj_render::SvgRenderer::new();
-    let svg = renderer.render(&project, &schedule)
-        .with_context(|| "Failed to render Gantt chart")?;
+    let content = match format.to_lowercase().as_str() {
+        "svg" => {
+            let renderer = utf8proj_render::SvgRenderer::new()
+                .display_mode(display_mode)
+                .label_width(width as u32);
+            renderer.render(&project, &schedule)
+                .with_context(|| "Failed to render SVG Gantt chart")?
+        }
+        "mermaid" => {
+            let renderer = utf8proj_render::MermaidRenderer::new()
+                .display_mode(display_mode)
+                .label_width(width);
+            renderer.render(&project, &schedule)
+                .with_context(|| "Failed to render Mermaid Gantt chart")?
+        }
+        "plantuml" => {
+            let renderer = utf8proj_render::PlantUmlRenderer::new()
+                .display_mode(display_mode)
+                .label_width(width);
+            renderer.render(&project, &schedule)
+                .with_context(|| "Failed to render PlantUML Gantt chart")?
+        }
+        _ => {
+            anyhow::bail!("Unknown format '{}'. Supported formats: svg, mermaid, plantuml", format);
+        }
+    };
 
-    // Write SVG to file
-    fs::write(output, &svg)
-        .with_context(|| format!("Failed to write SVG to '{}'", output.display()))?;
+    // Write to file
+    fs::write(output, &content)
+        .with_context(|| format!("Failed to write {} to '{}'", format.to_uppercase(), output.display()))?;
 
-    println!("Gantt chart written to: {}", output.display());
+    println!("Gantt chart ({}) written to: {}", format, output.display());
     Ok(())
 }
 

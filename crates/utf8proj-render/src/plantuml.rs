@@ -22,6 +22,7 @@
 
 use std::collections::HashMap;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
+use crate::DisplayMode;
 
 /// PlantUML Gantt chart renderer
 #[derive(Clone, Debug)]
@@ -44,6 +45,10 @@ pub struct PlantUmlRenderer {
     pub scale: Option<String>,
     /// Whether to use today marker
     pub show_today: bool,
+    /// Display mode for task labels
+    pub display_mode: DisplayMode,
+    /// Maximum label width in characters
+    pub label_width: usize,
 }
 
 impl Default for PlantUmlRenderer {
@@ -58,6 +63,8 @@ impl Default for PlantUmlRenderer {
             show_aliases: true,
             scale: None,
             show_today: false,
+            display_mode: DisplayMode::Name,
+            label_width: 40,
         }
     }
 }
@@ -118,6 +125,18 @@ impl PlantUmlRenderer {
     /// Show today marker
     pub fn show_today(mut self) -> Self {
         self.show_today = true;
+        self
+    }
+
+    /// Configure display mode for task labels
+    pub fn display_mode(mut self, mode: DisplayMode) -> Self {
+        self.display_mode = mode;
+        self
+    }
+
+    /// Configure maximum label width in characters
+    pub fn label_width(mut self, width: usize) -> Self {
+        self.label_width = width;
         self
     }
 
@@ -206,7 +225,9 @@ impl Renderer for PlantUmlRenderer {
                 .unwrap_or_else(|| (*task_id).clone());
             let complete = task.and_then(|t| t.complete);
 
-            let sanitized_name = Self::sanitize_name(&name);
+            // Format label according to display mode
+            let label = self.display_mode.format_label(task_id, &name, self.label_width);
+            let sanitized_name = Self::sanitize_name(&label);
             let alias = Self::make_alias(task_id);
             let is_milestone = scheduled.duration.minutes == 0;
 

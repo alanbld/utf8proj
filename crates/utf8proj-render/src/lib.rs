@@ -54,6 +54,48 @@ use svg::node::element::{Group, Line, Rectangle, Text};
 use svg::Document;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
 
+/// Display mode for task labels in charts
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum DisplayMode {
+    /// Show task display name only (default)
+    #[default]
+    Name,
+    /// Show task ID only
+    Id,
+    /// Show both: [task_id] Display Name
+    Verbose,
+}
+
+impl DisplayMode {
+    /// Format a task label according to the display mode
+    pub fn format_label(&self, task_id: &str, task_name: &str, max_width: usize) -> String {
+        let label = match self {
+            DisplayMode::Name => {
+                if task_name.is_empty() || task_name == task_id {
+                    task_id.to_string()
+                } else {
+                    task_name.to_string()
+                }
+            }
+            DisplayMode::Id => task_id.to_string(),
+            DisplayMode::Verbose => {
+                if task_name.is_empty() || task_name == task_id {
+                    format!("[{}]", task_id)
+                } else {
+                    format!("[{}] {}", task_id, task_name)
+                }
+            }
+        };
+
+        // Truncate if needed
+        if label.len() > max_width && max_width > 3 {
+            format!("{}...", &label[..max_width - 3])
+        } else {
+            label
+        }
+    }
+}
+
 /// SVG Gantt chart renderer configuration
 #[derive(Clone, Debug)]
 pub struct SvgRenderer {
@@ -83,6 +125,8 @@ pub struct SvgRenderer {
     pub font_family: String,
     /// Font size in pixels
     pub font_size: u32,
+    /// Display mode for task labels
+    pub display_mode: DisplayMode,
 }
 
 impl Default for SvgRenderer {
@@ -101,6 +145,7 @@ impl Default for SvgRenderer {
             text_color: "#2c3e50".into(),
             font_family: "system-ui, -apple-system, sans-serif".into(),
             font_size: 12,
+            display_mode: DisplayMode::Name,
         }
     }
 }
@@ -119,6 +164,18 @@ impl SvgRenderer {
     /// Configure row height
     pub fn row_height(mut self, height: u32) -> Self {
         self.row_height = height;
+        self
+    }
+
+    /// Configure label column width
+    pub fn label_width(mut self, width: u32) -> Self {
+        self.label_width = width;
+        self
+    }
+
+    /// Configure display mode for task labels
+    pub fn display_mode(mut self, mode: DisplayMode) -> Self {
+        self.display_mode = mode;
         self
     }
 
@@ -287,8 +344,8 @@ impl SvgRenderer {
         let bar_height = (self.row_height as f64 * 0.6) as u32;
         let bar_y = y + (self.row_height - bar_height) / 2;
 
-        // Task label
-        let label = Text::new(truncate(task_name, 22))
+        // Task label (already formatted with display mode and truncated)
+        let label = Text::new(task_name)
             .set("x", self.padding + 8)
             .set("y", y + self.row_height / 2 + 4)
             .set("font-family", self.font_family.as_str())
@@ -491,6 +548,9 @@ impl Renderer for SvgRenderer {
         document = document.add(self.render_header(project_start, project_end, px_per_day));
 
         // Task bars
+        // Calculate max characters based on label width (~8px per char)
+        let max_chars = (self.label_width as usize / 8).max(10);
+
         for (row, scheduled_task) in tasks.iter().enumerate() {
             // Get the task name from the project
             let task_name = project
@@ -498,9 +558,16 @@ impl Renderer for SvgRenderer {
                 .map(|t| t.name.as_str())
                 .unwrap_or(&scheduled_task.task_id);
 
+            // Format label according to display mode
+            let label = self.display_mode.format_label(
+                &scheduled_task.task_id,
+                task_name,
+                max_chars,
+            );
+
             document = document.add(self.render_task(
                 scheduled_task,
-                task_name,
+                &label,
                 row,
                 project_start,
                 px_per_day,

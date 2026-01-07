@@ -20,6 +20,7 @@
 //! ```
 
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
+use crate::DisplayMode;
 
 /// MermaidJS Gantt chart renderer
 #[derive(Clone, Debug)]
@@ -36,6 +37,10 @@ pub struct MermaidRenderer {
     pub use_dependencies: bool,
     /// Exclude weekends from duration calculation
     pub exclude_weekends: bool,
+    /// Display mode for task labels
+    pub display_mode: DisplayMode,
+    /// Maximum label width in characters
+    pub label_width: usize,
 }
 
 impl Default for MermaidRenderer {
@@ -47,6 +52,8 @@ impl Default for MermaidRenderer {
             date_format: "YYYY-MM-DD".into(),
             use_dependencies: true,
             exclude_weekends: false,
+            display_mode: DisplayMode::Name,
+            label_width: 40,
         }
     }
 }
@@ -89,6 +96,18 @@ impl MermaidRenderer {
     /// Exclude weekends (use excludes directive)
     pub fn exclude_weekends(mut self) -> Self {
         self.exclude_weekends = true;
+        self
+    }
+
+    /// Configure display mode for task labels
+    pub fn display_mode(mut self, mode: DisplayMode) -> Self {
+        self.display_mode = mode;
+        self
+    }
+
+    /// Configure maximum label width in characters
+    pub fn label_width(mut self, width: usize) -> Self {
+        self.label_width = width;
         self
     }
 
@@ -269,7 +288,9 @@ impl MermaidRenderer {
             .unwrap_or_else(|| task_id.to_string());
         let complete = task.and_then(|t| t.complete);
 
-        let sanitized_name = Self::sanitize_name(&name);
+        // Format label according to display mode
+        let label = self.display_mode.format_label(task_id, &name, self.label_width);
+        let sanitized_name = Self::sanitize_name(&label);
         let mermaid_id = Self::make_id(task_id);
         let duration = Self::format_duration(scheduled);
         let modifiers = self.get_modifiers(scheduled, complete);
