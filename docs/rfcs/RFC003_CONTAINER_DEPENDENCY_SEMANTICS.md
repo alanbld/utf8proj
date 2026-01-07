@@ -1,9 +1,11 @@
 # RFC 003: Container Dependency Semantics
 
-**Status:** Accepted  
-**Created:** 2026-01-06  
-**Author:** Alan (utf8dok team)  
+**Status:** Approved
+**Created:** 2026-01-06
+**Approved:** 2026-01-07
+**Author:** Alan (utf8dok team)
 **Related:** RFC 001 (Architecture), DESIGN_PHILOSOPHY.md
+**Design Review:** DR-2026-01-W014-container-deps.md
 
 ---
 
@@ -563,6 +565,7 @@ task q1_release {
 
 ---
 
-**Status:** Accepted  
-**Implementation:** Required for v1.0 MS Project import  
+**Status:** Approved
+**Approved:** 2026-01-07
+**Implementation:** Required for v1.0 MS Project import
 **Breaking Change:** No (new feature)
