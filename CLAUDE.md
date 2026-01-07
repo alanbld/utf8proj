@@ -108,6 +108,7 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 |------|----------|---------|
 | E001 | Error | Circular specialization in profiles |
 | E002 | Warning | Profile without rate assigned to tasks |
+| E003 | Error | Infeasible constraint (cannot be satisfied) |
 | W001 | Warning | Task assigned to abstract profile |
 | W002 | Warning | Wide cost range (>100% spread) |
 | W003 | Warning | Unknown trait on profile |
@@ -116,6 +117,9 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 | H002 | Hint | Unused profile defined |
 | H003 | Hint | Unused trait defined |
 | I001 | Info | Project scheduled successfully (summary) |
+| I003 | Info | Resource utilization report |
+| I004 | Info | Project status (progress + variance) |
+| I005 | Info | Earned value summary (SPI) |
 
 ### Usage
 
@@ -131,6 +135,7 @@ utf8proj schedule project.proj          # Exit 0 with warnings
 utf8proj schedule --strict project.proj # Exit 1 with warnings
 utf8proj schedule --quiet --strict project.proj
 utf8proj schedule --format=json project.proj
+utf8proj schedule --task-ids project.proj  # Show task IDs instead of display names
 ```
 
 The `check` command is analogous to `cargo check`, `terraform validate`, or `tsc --noEmit` - it runs parse + semantic analysis without producing schedule output.
@@ -634,12 +639,24 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 - `role: "Solution Architect"`
 - `leave: 2026-03-02..2026-03-13`
 
+**Task naming:**
+```proj
+task impl_api "Implement Backend API" {   # Quoted string = display name
+    summary: "Backend API"                 # Optional short name (supplementary)
+    duration: 5d
+}
+```
+- `name` (quoted string): Primary display name, human-readable description
+- `summary:`: Optional short display name (supplementary info)
+- Display fallback: `name` → `id`
+
 **Task attributes:**
 - `effort: 15d` (person-time, divided among assignees)
 - `duration: 2w` (fixed calendar time)
 - `assign: sa1, sa2` or `assign: dev1@50%` or `assign: dev1(50%)`
 - `depends: task`, `depends: phase.task`, `depends: a, b`
 - `priority: 800` (higher = scheduled first)
+- `summary: "Short Name"` (optional display name)
 - `note: "Description text"`
 - `tag: critical, integration`
 - `cost: 500` (fixed cost)
@@ -687,3 +704,11 @@ report gantt "output/timeline.svg" {
 - `!~` for SF: `depends !task~`
 - Resource allocation: `allocate dev1, dev2`
 - Leaves: `leaves annual 2026-03-02 - 2026-03-13`
+- Holidays: `leaves holiday "Name" 2026-01-01` or `vacation 2026-01-01`
+- Task naming: quoted string → `summary`, `note` → supplementary info
+
+**String escape sequences (native DSL):**
+- `\"` - escaped quote
+- `\\` - escaped backslash
+- `\n` - newline
+- `\t` - tab
