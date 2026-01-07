@@ -83,6 +83,10 @@ enum Commands {
         /// Show task IDs instead of display names
         #[arg(long)]
         task_ids: bool,
+
+        /// Task name column width (default: 40)
+        #[arg(short = 'w', long, default_value = "40")]
+        width: usize,
     },
 
     /// Generate a Gantt chart
@@ -152,8 +156,8 @@ fn main() -> Result<()> {
         Some(Commands::Check { file, format, strict, quiet }) => {
             cmd_check(&file, &format, strict, quiet)
         }
-        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, width }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, width)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -286,6 +290,7 @@ fn cmd_schedule(
     strict: bool,
     quiet: bool,
     task_ids: bool,
+    width: usize,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
@@ -483,7 +488,7 @@ fn cmd_schedule(
 
             // Format schedule output
             if !quiet {
-                let result = format_text(&project, &schedule, show_progress, task_ids);
+                let result = format_text(&project, &schedule, show_progress, task_ids, width);
 
                 // Write output
                 match output {
@@ -543,7 +548,7 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
 }
 
 /// Format schedule as text table
-fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool) -> String {
+fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool, width: usize) -> String {
     let mut output = String::new();
 
     // Header
@@ -603,11 +608,14 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
 
     if show_progress {
         // Progress-aware output format with variance
+        // Other columns: %Done(7) + Status(15) + Start(13) + Finish(13) + Remain(9) + Variance(9) + Critical(8) = 74
+        let sep_width = width + 74;
         output.push_str(&format!(
-            "{:<40} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
-            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Variance", "Critical"
+            "{:<width$} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Variance", "Critical",
+            width = width
         ));
-        output.push_str(&format!("{}\n", "-".repeat(120)));
+        output.push_str(&format!("{}\n", "-".repeat(sep_width)));
 
         // Sort tasks by start date
         let mut tasks: Vec<_> = schedule.tasks.values().collect();
@@ -629,24 +637,28 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
                 get_task_display_name(&project.tasks, &task.task_id)
             };
             output.push_str(&format!(
-                "{:<40} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
-                truncate(&display_name, 40),
+                "{:<width$} {:>5}% {:<14} {:<12} {:<12} {:>6}d {:>8} {}\n",
+                truncate(&display_name, width),
                 task.percent_complete,
                 format!("{}", task.status),
                 task.forecast_start.format("%Y-%m-%d"),
                 task.forecast_finish.format("%Y-%m-%d"),
                 task.remaining_duration.as_days() as i64,
                 variance_str,
-                critical
+                critical,
+                width = width
             ));
         }
     } else {
         // Standard output format
+        // Other columns: Start(13) + Finish(13) + Duration(9) + Slack(9) + Critical(8) = 52
+        let sep_width = width + 52;
         output.push_str(&format!(
-            "{:<40} {:<12} {:<12} {:>8} {:>8} {}\n",
-            "Task", "Start", "Finish", "Duration", "Slack", "Critical"
+            "{:<width$} {:<12} {:<12} {:>8} {:>8} {}\n",
+            "Task", "Start", "Finish", "Duration", "Slack", "Critical",
+            width = width
         ));
-        output.push_str(&format!("{}\n", "-".repeat(96)));
+        output.push_str(&format!("{}\n", "-".repeat(sep_width)));
 
         // Sort tasks by start date
         let mut tasks: Vec<_> = schedule.tasks.values().collect();
@@ -661,13 +673,14 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
                 get_task_display_name(&project.tasks, &task.task_id)
             };
             output.push_str(&format!(
-                "{:<40} {:<12} {:<12} {:>6}d {:>6}d {}\n",
-                truncate(&display_name, 40),
+                "{:<width$} {:<12} {:<12} {:>6}d {:>6}d {}\n",
+                truncate(&display_name, width),
                 task.start.format("%Y-%m-%d"),
                 task.finish.format("%Y-%m-%d"),
                 task.duration.as_days() as i64,
                 task.slack.as_days() as i64,
-                critical
+                critical,
+                width = width
             ));
         }
     }
