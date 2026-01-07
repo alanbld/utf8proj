@@ -181,6 +181,29 @@ include::project.proj[]
 ----
 ```
 
+## Companion Tools
+
+### MS Project Converter
+
+A Python-based converter for migrating Microsoft Project (`.mpp`) files to utf8proj's native format.
+
+```bash
+cd tools/mpp_to_proj
+./setup_companion.sh           # Set up the environment (requires uv)
+source .venv/bin/activate
+python mpp_to_proj.py project.mpp   # Convert to .proj format
+```
+
+**Features:**
+- Hierarchical dependency resolution with fully qualified paths
+- MS Project constraint mapping (SNET, MSO, FNLT, etc.)
+- WBS preservation for traceability
+- 98% test coverage
+
+See [tools/mpp_to_proj/README.md](tools/mpp_to_proj/README.md) for full documentation.
+
+> **Note:** Companion tools are provided "as is" and maintained separately from the core Rust crates.
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting PRs.
