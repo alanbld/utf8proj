@@ -84,6 +84,10 @@ enum Commands {
         #[arg(long)]
         task_ids: bool,
 
+        /// Verbose output: show both task ID and display name
+        #[arg(short = 'V', long)]
+        verbose: bool,
+
         /// Task name column width (default: 40)
         #[arg(short = 'w', long, default_value = "40")]
         width: usize,
@@ -156,8 +160,8 @@ fn main() -> Result<()> {
         Some(Commands::Check { file, format, strict, quiet }) => {
             cmd_check(&file, &format, strict, quiet)
         }
-        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, width }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, width)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width)
         }
         Some(Commands::Gantt { file, output }) => cmd_gantt(&file, &output),
         Some(Commands::Benchmark {
@@ -290,6 +294,7 @@ fn cmd_schedule(
     strict: bool,
     quiet: bool,
     task_ids: bool,
+    verbose: bool,
     width: usize,
 ) -> Result<()> {
     // Parse the file
@@ -488,7 +493,7 @@ fn cmd_schedule(
 
             // Format schedule output
             if !quiet {
-                let result = format_text(&project, &schedule, show_progress, task_ids, width);
+                let result = format_text(&project, &schedule, show_progress, task_ids, verbose, width);
 
                 // Write output
                 match output {
@@ -548,7 +553,7 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
 }
 
 /// Format schedule as text table
-fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool, width: usize) -> String {
+fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool, verbose: bool, width: usize) -> String {
     let mut output = String::new();
 
     // Header
@@ -633,6 +638,9 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
             };
             let display_name = if task_ids {
                 task.task_id.clone()
+            } else if verbose {
+                let name = get_task_display_name(&project.tasks, &task.task_id);
+                format!("[{}] {}", task.task_id, name)
             } else {
                 get_task_display_name(&project.tasks, &task.task_id)
             };
@@ -669,6 +677,9 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
             let critical = if task.is_critical { "*" } else { "" };
             let display_name = if task_ids {
                 task.task_id.clone()
+            } else if verbose {
+                let name = get_task_display_name(&project.tasks, &task.task_id);
+                format!("[{}] {}", task.task_id, name)
             } else {
                 get_task_display_name(&project.tasks, &task.task_id)
             };
