@@ -95,6 +95,11 @@ utf8proj gantt project.proj -o chart.svg -w 60        # Custom label width
 
 # Excel-specific options
 utf8proj gantt project.proj -o chart.xlsx -f xlsx --currency EUR --weeks 40
+
+# Fix MS Project import issues (W014: container dependencies)
+utf8proj fix container-deps project.proj                    # Preview to stdout
+utf8proj fix container-deps project.proj -o fixed.proj      # Write to new file
+utf8proj fix container-deps project.proj --in-place         # Modify in place
 ```
 
 ## Documentation

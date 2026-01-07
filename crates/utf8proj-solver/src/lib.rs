@@ -1473,6 +1473,99 @@ fn check_container_deps_recursive(
     }
 }
 
+// =============================================================================
+// Container Dependency Fix
+// =============================================================================
+
+/// Fix container dependency issues (W014) by propagating container dependencies to children.
+///
+/// This function modifies the project in-place, adding missing dependencies to child tasks
+/// when their container has dependencies but the children don't have matching ones.
+///
+/// Returns the number of dependencies added.
+///
+/// # Example
+///
+/// ```rust
+/// use utf8proj_core::{Project, Task, Duration};
+/// use utf8proj_solver::fix_container_dependencies;
+///
+/// let mut project = Project::new("Test");
+///
+/// // Create a container with a dependency
+/// let mut container = Task::new("container");
+/// container.depends.push(utf8proj_core::Dependency {
+///     predecessor: "predecessor".to_string(),
+///     dep_type: utf8proj_core::DependencyType::FinishToStart,
+///     lag: None,
+/// });
+///
+/// // Child without the dependency
+/// container.children.push(Task::new("child").effort(Duration::days(3)));
+///
+/// project.tasks.push(Task::new("predecessor").effort(Duration::days(5)));
+/// project.tasks.push(container);
+///
+/// // Fix the issue
+/// let fixed_count = fix_container_dependencies(&mut project);
+/// assert_eq!(fixed_count, 1);
+/// ```
+pub fn fix_container_dependencies(project: &mut Project) -> usize {
+    fix_container_deps_recursive(&mut project.tasks)
+}
+
+/// Recursively fix container dependencies
+fn fix_container_deps_recursive(tasks: &mut [Task]) -> usize {
+    let mut fixed_count = 0;
+
+    for task in tasks.iter_mut() {
+        // Only process containers (tasks with children)
+        if !task.children.is_empty() && !task.depends.is_empty() {
+            // Collect container's predecessor IDs
+            let container_deps: std::collections::HashSet<_> = task
+                .depends
+                .iter()
+                .map(|d| d.predecessor.clone())
+                .collect();
+
+            // Fix each child
+            for child in &mut task.children {
+                // Get child's predecessor IDs
+                let child_deps: std::collections::HashSet<_> = child
+                    .depends
+                    .iter()
+                    .map(|d| d.predecessor.clone())
+                    .collect();
+
+                // Check if child has any of the container's dependencies
+                let has_container_dep = container_deps.iter().any(|d| child_deps.contains(d));
+
+                if !has_container_dep {
+                    // Add ALL container dependencies to the child (not just the first)
+                    for dep in &task.depends {
+                        if !child_deps.contains(&dep.predecessor) {
+                            child.depends.push(utf8proj_core::Dependency {
+                                predecessor: dep.predecessor.clone(),
+                                dep_type: dep.dep_type,
+                                lag: dep.lag,
+                            });
+                            fixed_count += 1;
+                        }
+                    }
+                }
+            }
+
+            // Recurse into children
+            fixed_count += fix_container_deps_recursive(&mut task.children);
+        } else if !task.children.is_empty() {
+            // Container without dependencies - still recurse
+            fixed_count += fix_container_deps_recursive(&mut task.children);
+        }
+    }
+
+    fixed_count
+}
+
 /// W005: Check for tasks where constraints reduced slack to zero
 fn check_constraint_zero_slack(
     project: &Project,

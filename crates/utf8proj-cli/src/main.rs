@@ -13,7 +13,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
-use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project, calculate_utilization};
+use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project, calculate_utilization, fix_container_dependencies};
 
 use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
 
@@ -169,6 +169,30 @@ enum Commands {
         #[arg(long)]
         series: bool,
     },
+
+    /// Fix issues in project files
+    Fix {
+        #[command(subcommand)]
+        fix_command: FixCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum FixCommands {
+    /// Propagate container dependencies to children (fixes W014)
+    ContainerDeps {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+
+        /// Modify file in-place (requires explicit flag for safety)
+        #[arg(long)]
+        in_place: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -203,6 +227,11 @@ fn main() -> Result<()> {
             resources,
             series,
         }) => cmd_bdd_benchmark(scenario, tasks, resources, series),
+        Some(Commands::Fix { fix_command }) => match fix_command {
+            FixCommands::ContainerDeps { file, output, in_place } => {
+                cmd_fix_container_deps(&file, output.as_deref(), in_place)
+            }
+        },
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
@@ -881,6 +910,222 @@ fn get_task_display_name(tasks: &[utf8proj_core::Task], id: &str) -> String {
         }
     }
     id.to_string()
+}
+
+/// Fix container dependencies command: propagate container deps to children
+fn cmd_fix_container_deps(
+    file: &std::path::Path,
+    output: Option<&std::path::Path>,
+    in_place: bool,
+) -> Result<()> {
+    // Validate arguments
+    if in_place && output.is_some() {
+        anyhow::bail!("Cannot specify both --in-place and --output");
+    }
+
+    // Parse the file
+    let mut project = parse_file(file)
+        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+
+    // Count W014 diagnostics before fix
+    let mut collector = utf8proj_core::CollectingEmitter::new();
+    let analysis_config = AnalysisConfig::new().with_file(file);
+    analyze_project(&project, None, &analysis_config, &mut collector);
+    let w014_before = collector
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == DiagnosticCode::W014ContainerDependency)
+        .count();
+
+    // Apply the fix
+    let fixed_count = fix_container_dependencies(&mut project);
+
+    // Serialize the project back to .proj format
+    let output_content = serialize_project(&project);
+
+    // Write output
+    if in_place {
+        fs::write(file, &output_content)
+            .with_context(|| format!("Failed to write '{}'", file.display()))?;
+        eprintln!("Fixed {} container dependencies in '{}'", fixed_count, file.display());
+    } else if let Some(out_path) = output {
+        fs::write(out_path, &output_content)
+            .with_context(|| format!("Failed to write '{}'", out_path.display()))?;
+        eprintln!("Fixed {} container dependencies, written to '{}'", fixed_count, out_path.display());
+    } else {
+        // Write to stdout
+        println!("{}", output_content);
+        eprintln!("Fixed {} container dependencies", fixed_count);
+    }
+
+    // Report results
+    if fixed_count > 0 {
+        eprintln!("  W014 warnings before: {}", w014_before);
+        eprintln!("  Dependencies added: {}", fixed_count);
+        eprintln!();
+        eprintln!("Run 'utf8proj check' to verify the fix.");
+    } else {
+        eprintln!("No container dependency issues found.");
+    }
+
+    Ok(())
+}
+
+/// Serialize a Project to .proj format
+fn serialize_project(project: &utf8proj_core::Project) -> String {
+    let mut output = String::new();
+
+    // Project header
+    output.push_str(&format!("project {} \"{}\" {{\n", project.id, project.name));
+    output.push_str(&format!("    start: {}\n", project.start));
+    output.push_str("}\n\n");
+
+    // Calendars
+    for calendar in &project.calendars {
+        output.push_str(&format!("calendar {} {{\n", calendar.id));
+        if !calendar.working_days.is_empty() {
+            let days: Vec<_> = calendar.working_days.iter().map(|d| format!("{:?}", d).to_lowercase()).collect();
+            output.push_str(&format!("    working_days: {}\n", days.join(", ")));
+        }
+        for holiday in &calendar.holidays {
+            if holiday.start == holiday.end {
+                output.push_str(&format!("    holiday \"{}\" {}\n", holiday.name, holiday.start));
+            } else {
+                output.push_str(&format!("    holiday \"{}\" {}..{}\n", holiday.name, holiday.start, holiday.end));
+            }
+        }
+        output.push_str("}\n\n");
+    }
+
+    // Resources
+    for resource in &project.resources {
+        output.push_str(&format!("resource {} \"{}\" {{\n", resource.id, resource.name));
+        if let Some(ref cal) = resource.calendar {
+            output.push_str(&format!("    calendar: {}\n", cal));
+        }
+        if resource.capacity != 1.0 {
+            output.push_str(&format!("    capacity: {}%\n", (resource.capacity * 100.0) as i32));
+        }
+        output.push_str("}\n\n");
+    }
+
+    // Tasks (recursive)
+    for task in &project.tasks {
+        serialize_task(&mut output, task, 0);
+    }
+
+    output
+}
+
+/// Serialize a task (recursive for nested tasks)
+fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize) {
+    let indent_str = "    ".repeat(indent);
+
+    // Task declaration
+    if task.name != task.id {
+        output.push_str(&format!("{}task {} \"{}\" {{\n", indent_str, task.id, task.name));
+    } else {
+        output.push_str(&format!("{}task {} {{\n", indent_str, task.id));
+    }
+
+    let inner_indent = "    ".repeat(indent + 1);
+
+    // Duration/effort
+    if let Some(ref dur) = task.duration {
+        output.push_str(&format!("{}duration: {}d\n", inner_indent, dur.as_days()));
+    } else if let Some(ref eff) = task.effort {
+        output.push_str(&format!("{}effort: {}d\n", inner_indent, eff.as_days()));
+    }
+
+    // Milestone
+    if task.milestone {
+        output.push_str(&format!("{}milestone: true\n", inner_indent));
+    }
+
+    // Dependencies
+    if !task.depends.is_empty() {
+        let deps: Vec<_> = task.depends.iter().map(|d| {
+            let mut dep_str = String::new();
+            // Add prefix for dependency type
+            match d.dep_type {
+                utf8proj_core::DependencyType::StartToStart => dep_str.push('!'),
+                utf8proj_core::DependencyType::StartToFinish => dep_str.push_str("!~"),
+                utf8proj_core::DependencyType::FinishToFinish => {}, // Will add ~ suffix
+                utf8proj_core::DependencyType::FinishToStart => {},
+            }
+            dep_str.push_str(&d.predecessor);
+            // Add suffix for FF
+            if matches!(d.dep_type, utf8proj_core::DependencyType::FinishToFinish) {
+                dep_str.push('~');
+            }
+            // Add lag
+            if let Some(ref lag) = d.lag {
+                let days = lag.as_days();
+                if days >= 0.0 {
+                    dep_str.push_str(&format!(" +{}d", days as i64));
+                } else {
+                    dep_str.push_str(&format!(" {}d", days as i64));
+                }
+            }
+            dep_str
+        }).collect();
+        output.push_str(&format!("{}depends: {}\n", inner_indent, deps.join(", ")));
+    }
+
+    // Assignments
+    if !task.assigned.is_empty() {
+        let assigns: Vec<_> = task.assigned.iter().map(|a| {
+            let percentage = (a.units * 100.0) as i32;
+            if percentage != 100 {
+                format!("{}@{}%", a.resource_id, percentage)
+            } else {
+                a.resource_id.clone()
+            }
+        }).collect();
+        output.push_str(&format!("{}assign: {}\n", inner_indent, assigns.join(", ")));
+    }
+
+    // Constraints
+    for constraint in &task.constraints {
+        match constraint {
+            utf8proj_core::TaskConstraint::MustStartOn(date) => {
+                output.push_str(&format!("{}must_start_on: {}\n", inner_indent, date));
+            }
+            utf8proj_core::TaskConstraint::MustFinishOn(date) => {
+                output.push_str(&format!("{}must_finish_on: {}\n", inner_indent, date));
+            }
+            utf8proj_core::TaskConstraint::StartNoEarlierThan(date) => {
+                output.push_str(&format!("{}start_no_earlier_than: {}\n", inner_indent, date));
+            }
+            utf8proj_core::TaskConstraint::StartNoLaterThan(date) => {
+                output.push_str(&format!("{}start_no_later_than: {}\n", inner_indent, date));
+            }
+            utf8proj_core::TaskConstraint::FinishNoEarlierThan(date) => {
+                output.push_str(&format!("{}finish_no_earlier_than: {}\n", inner_indent, date));
+            }
+            utf8proj_core::TaskConstraint::FinishNoLaterThan(date) => {
+                output.push_str(&format!("{}finish_no_later_than: {}\n", inner_indent, date));
+            }
+        }
+    }
+
+    // Completion
+    if let Some(complete) = task.complete {
+        output.push_str(&format!("{}complete: {}%\n", inner_indent, complete as i32));
+    }
+
+    // Priority (only if non-default)
+    if task.priority != 500 {
+        output.push_str(&format!("{}priority: {}\n", inner_indent, task.priority));
+    }
+
+    // Children (recursive)
+    for child in &task.children {
+        output.push('\n');
+        serialize_task(output, child, indent + 1);
+    }
+
+    output.push_str(&format!("{}}}\n", indent_str));
 }
 
 /// Benchmark command: run performance benchmarks

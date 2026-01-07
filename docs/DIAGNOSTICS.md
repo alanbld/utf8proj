@@ -232,6 +232,19 @@ warning[W014]: container 'Development Phase' depends on [design_approval] but ch
 
 **Related**: See `docs/DESIGN_PHILOSOPHY.md` and `docs/rfcs/RFC003_CONTAINER_DEPENDENCY_SEMANTICS.md` for the design rationale.
 
+**Auto-Fix**: Use `utf8proj fix container-deps` to automatically propagate container dependencies to children:
+
+```bash
+# Preview changes (output to stdout)
+utf8proj fix container-deps project.proj
+
+# Write to a new file
+utf8proj fix container-deps project.proj -o project_fixed.proj
+
+# Modify in place (use with caution)
+utf8proj fix container-deps project.proj --in-place
+```
+
 ---
 
 ### H001: Mixed Abstraction Level

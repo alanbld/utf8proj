@@ -1,13 +1,14 @@
-//! Tests for W014: Container Dependency Diagnostics
+//! Tests for W014: Container Dependency Diagnostics and Fix
 //!
 //! These tests verify that utf8proj correctly detects when container tasks
-//! have dependencies but their children don't have matching dependencies.
+//! have dependencies but their children don't have matching dependencies,
+//! and that the fix_container_dependencies function correctly propagates them.
 
 use utf8proj_core::{
     Dependency, DependencyType, Diagnostic, DiagnosticCode, DiagnosticEmitter, Duration, Project,
     Task,
 };
-use utf8proj_solver::{analyze_project, AnalysisConfig};
+use utf8proj_solver::{analyze_project, fix_container_dependencies, AnalysisConfig};
 
 /// Simple diagnostic collector for testing
 struct TestEmitter {
@@ -233,4 +234,194 @@ fn w014_message_includes_task_names() {
     assert!(w014.message.contains("Development Phase"));
     assert!(w014.message.contains("Feature X"));
     assert!(w014.message.contains("design_approval"));
+}
+
+// =============================================================================
+// Fix Tests
+// =============================================================================
+
+#[test]
+fn fix_adds_missing_container_dep() {
+    let mut project = Project::new("test");
+
+    // Add predecessor task
+    project
+        .tasks
+        .push(Task::new("predecessor").effort(Duration::days(5)));
+
+    // Add container with dependency but child without
+    let child = Task::new("child").effort(Duration::days(3));
+    let container = container_with_children("container", &["predecessor"], vec![child]);
+    project.tasks.push(container);
+
+    // Verify W014 is triggered before fix
+    let config = AnalysisConfig::default();
+    let mut emitter = TestEmitter::new();
+    analyze_project(&project, None, &config, &mut emitter);
+    assert!(emitter.has(DiagnosticCode::W014ContainerDependency));
+
+    // Apply fix
+    let fixed_count = fix_container_dependencies(&mut project);
+    assert_eq!(fixed_count, 1);
+
+    // Verify W014 is no longer triggered
+    let mut emitter = TestEmitter::new();
+    analyze_project(&project, None, &config, &mut emitter);
+    assert!(!emitter.has(DiagnosticCode::W014ContainerDependency));
+
+    // Verify the child now has the dependency
+    let container = &project.tasks[1];
+    let child = &container.children[0];
+    assert_eq!(child.depends.len(), 1);
+    assert_eq!(child.depends[0].predecessor, "predecessor");
+}
+
+#[test]
+fn fix_is_idempotent() {
+    let mut project = Project::new("test");
+
+    // Add predecessor task
+    project
+        .tasks
+        .push(Task::new("predecessor").effort(Duration::days(5)));
+
+    // Add container with dependency but child without
+    let child = Task::new("child").effort(Duration::days(3));
+    let container = container_with_children("container", &["predecessor"], vec![child]);
+    project.tasks.push(container);
+
+    // Apply fix twice
+    let fixed_count_1 = fix_container_dependencies(&mut project);
+    let fixed_count_2 = fix_container_dependencies(&mut project);
+
+    // First fix should add 1 dependency
+    assert_eq!(fixed_count_1, 1);
+    // Second fix should add 0 (already fixed)
+    assert_eq!(fixed_count_2, 0);
+
+    // Child should still have exactly 1 dependency
+    let container = &project.tasks[1];
+    let child = &container.children[0];
+    assert_eq!(child.depends.len(), 1);
+}
+
+#[test]
+fn fix_handles_multiple_container_deps() {
+    let mut project = Project::new("test");
+
+    // Add two predecessor tasks
+    project.tasks.push(Task::new("pred1").effort(Duration::days(5)));
+    project.tasks.push(Task::new("pred2").effort(Duration::days(3)));
+
+    // Container with two dependencies
+    let child = Task::new("child").effort(Duration::days(3));
+    let container = container_with_children("container", &["pred1", "pred2"], vec![child]);
+    project.tasks.push(container);
+
+    // Apply fix
+    let fixed_count = fix_container_dependencies(&mut project);
+    assert_eq!(fixed_count, 2); // Both dependencies added
+
+    // Verify child has both dependencies
+    let container = &project.tasks[2];
+    let child = &container.children[0];
+    assert_eq!(child.depends.len(), 2);
+
+    let dep_ids: Vec<_> = child.depends.iter().map(|d| d.predecessor.as_str()).collect();
+    assert!(dep_ids.contains(&"pred1"));
+    assert!(dep_ids.contains(&"pred2"));
+}
+
+#[test]
+fn fix_preserves_existing_child_deps() {
+    let mut project = Project::new("test");
+
+    // Add predecessor tasks
+    project.tasks.push(Task::new("pred1").effort(Duration::days(5)));
+    project.tasks.push(Task::new("pred2").effort(Duration::days(3)));
+
+    // Child already has pred2 dependency
+    let child = task_with_deps("child", &["pred2"]);
+    let container = container_with_children("container", &["pred1"], vec![child]);
+    project.tasks.push(container);
+
+    // Apply fix
+    let fixed_count = fix_container_dependencies(&mut project);
+    assert_eq!(fixed_count, 1); // Only pred1 added
+
+    // Verify child has both dependencies
+    let container = &project.tasks[2];
+    let child = &container.children[0];
+    assert_eq!(child.depends.len(), 2);
+
+    let dep_ids: Vec<_> = child.depends.iter().map(|d| d.predecessor.as_str()).collect();
+    assert!(dep_ids.contains(&"pred1"));
+    assert!(dep_ids.contains(&"pred2"));
+}
+
+#[test]
+fn fix_handles_nested_containers() {
+    let mut project = Project::new("test");
+
+    // Add predecessor tasks
+    project.tasks.push(Task::new("dep_outer").effort(Duration::days(5)));
+    project.tasks.push(Task::new("dep_inner").effort(Duration::days(3)));
+
+    // Nested structure:
+    // outer (depends: dep_outer)
+    //   inner (depends: dep_inner)
+    //     leaf (no deps) <- should get dep_inner AND dep_outer (inherited)
+    let leaf = Task::new("leaf").effort(Duration::days(2));
+    let inner = container_with_children("inner", &["dep_inner"], vec![leaf]);
+    let outer = container_with_children("outer", &["dep_outer"], vec![inner]);
+    project.tasks.push(outer);
+
+    // Apply fix
+    let fixed_count = fix_container_dependencies(&mut project);
+    // outer->inner gets dep_outer (+1)
+    // inner->leaf gets dep_inner (+1)
+    // inner->leaf also gets dep_outer (because inner now has it) (+1)
+    assert_eq!(fixed_count, 3);
+
+    // Verify inner has dep_outer (propagated from outer)
+    let outer = &project.tasks[2];
+    let inner = &outer.children[0];
+    assert!(inner.depends.iter().any(|d| d.predecessor == "dep_outer"));
+
+    // Verify leaf has both dep_inner and dep_outer
+    let leaf = &inner.children[0];
+    assert!(leaf.depends.iter().any(|d| d.predecessor == "dep_inner"));
+    assert!(leaf.depends.iter().any(|d| d.predecessor == "dep_outer"));
+}
+
+#[test]
+fn fix_w014_count_goes_to_zero() {
+    let mut project = Project::new("test");
+
+    // Add predecessor
+    project.tasks.push(Task::new("predecessor").effort(Duration::days(5)));
+
+    // Container with 3 children, none with the dependency
+    let child1 = Task::new("child1").effort(Duration::days(3));
+    let child2 = Task::new("child2").effort(Duration::days(2));
+    let child3 = Task::new("child3").effort(Duration::days(4));
+    let container = container_with_children("container", &["predecessor"], vec![child1, child2, child3]);
+    project.tasks.push(container);
+
+    // Count W014 before fix
+    let config = AnalysisConfig::default();
+    let mut emitter = TestEmitter::new();
+    analyze_project(&project, None, &config, &mut emitter);
+    let w014_before = emitter.count(DiagnosticCode::W014ContainerDependency);
+    assert_eq!(w014_before, 3);
+
+    // Apply fix
+    let fixed_count = fix_container_dependencies(&mut project);
+    assert_eq!(fixed_count, 3);
+
+    // Count W014 after fix
+    let mut emitter = TestEmitter::new();
+    analyze_project(&project, None, &config, &mut emitter);
+    let w014_after = emitter.count(DiagnosticCode::W014ContainerDependency);
+    assert_eq!(w014_after, 0);
 }
