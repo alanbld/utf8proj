@@ -359,7 +359,16 @@
         .btn:hover {
             opacity: 0.9;
         }
-        
+
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .btn-sm.active {
+            background: var(--accent);
+        }
+
         /* Loading */
         .loading-overlay {
             position: absolute;
@@ -467,7 +476,10 @@
             <div class="panel">
                 <div class="panel-header">
                     <span class="panel-title">Tasks</span>
-                    <span id="task-count">0 tasks</span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <button class="btn btn-sm" id="toggle-display" onclick="toggleTaskDisplay()" title="Toggle between Task ID and Name">ID</button>
+                        <span id="task-count">0 tasks</span>
+                    </div>
                 </div>
                 
                 <div class="upload-zone" id="upload-zone">
@@ -711,6 +723,26 @@ task cutover "Go-Live Cutover" {
         let currentSource = DEMOS.simple;
         let scheduleResult = null;
         let wasmReady = false;
+        let displayMode = 'name'; // 'name', 'id', or 'verbose'
+
+        // Toggle task display mode
+        window.toggleTaskDisplay = function() {
+            const btn = document.getElementById('toggle-display');
+            if (displayMode === 'name') {
+                displayMode = 'id';
+                btn.textContent = 'Name';
+                btn.classList.add('active');
+            } else if (displayMode === 'id') {
+                displayMode = 'verbose';
+                btn.textContent = 'Both';
+                btn.classList.add('active');
+            } else {
+                displayMode = 'name';
+                btn.textContent = 'ID';
+                btn.classList.remove('active');
+            }
+            updateUI();
+        };
         
         // Initialize WASM
         async function initWasm() {
@@ -819,7 +851,15 @@ task cutover "Go-Live Cutover" {
                     ? '<span class="derived-marker">(derived)</span>'
                     : '';
                 const containerIcon = task.is_container ? '📁 ' : '';
-                const displayName = task.name && task.name !== task.id ? task.name : task.id;
+                const taskName = task.name && task.name !== task.id ? task.name : task.id;
+                let displayName;
+                if (displayMode === 'id') {
+                    displayName = task.id;
+                } else if (displayMode === 'verbose') {
+                    displayName = '[' + task.id + '] ' + taskName;
+                } else {
+                    displayName = taskName;
+                }
 
                 div.innerHTML = `
                     <div class="task-name" title="${task.id}${task.is_container ? ' [' + task.child_count + ' children]' : ''}${task.name ? '\n' + task.name : ''}">${containerIcon}${displayName}${derivedMarker}</div>
@@ -926,11 +966,20 @@ task cutover "Go-Live Cutover" {
                     ctx.fillRect(0, headerHeight + i * rowHeight, canvas.width, rowHeight);
                 }
 
-                // Task label
+                // Task label - use displayMode for label
+                const ganttTaskName = task.name && task.name !== task.id ? task.name : task.id;
+                let ganttLabel;
+                if (displayMode === 'id') {
+                    ganttLabel = task.id;
+                } else if (displayMode === 'verbose') {
+                    ganttLabel = '[' + task.id + '] ' + ganttTaskName;
+                } else {
+                    ganttLabel = ganttTaskName;
+                }
                 ctx.fillStyle = task.is_milestone ? '#fbbf24' : '#eaeaea';
                 ctx.font = task.is_milestone ? 'bold 11px monospace' : '11px monospace';
                 ctx.textAlign = 'left';
-                ctx.fillText(truncate(task.id, 16) + (task.is_milestone ? ' ◆' : ''), padding, y + 4);
+                ctx.fillText(truncate(ganttLabel, 16) + (task.is_milestone ? ' ◆' : ''), padding, y + 4);
 
                 // Task bar position
                 const taskStart = new Date(task.start);
