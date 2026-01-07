@@ -567,9 +567,13 @@ target/release/utf8proj schedule -l project.tjp
 target/release/utf8proj gantt project.tjp -o gantt.svg              # SVG (default)
 target/release/utf8proj gantt project.tjp -o chart.mmd -f mermaid   # MermaidJS
 target/release/utf8proj gantt project.tjp -o chart.puml -f plantuml # PlantUML
+target/release/utf8proj gantt project.tjp -o chart.xlsx -f xlsx     # Excel workbook
 target/release/utf8proj gantt project.tjp -o chart.svg -V           # Verbose: [id] Name
 target/release/utf8proj gantt project.tjp -o chart.svg --task-ids   # Task IDs only
 target/release/utf8proj gantt project.tjp -o chart.svg -w 60        # Custom label width
+
+# Excel-specific options
+target/release/utf8proj gantt project.tjp -o chart.xlsx -f xlsx --currency EUR --weeks 40
 
 # Run benchmarks
 target/release/utf8proj benchmark -t chain -c 10000 --series
