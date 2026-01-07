@@ -4,6 +4,12 @@ warning[W001]: task 'api_development' is assigned to abstract profile 'backend_d
    = cost range is $100 - $200 (67% spread)
    = hint: assign a concrete resource to lock in exact cost
 
+hint[H004]: task 'API Development' has no predecessors or date constraints
+  --> w001_abstract_assignment.proj
+   |
+   = 'API Development' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
 info[I001]: project 'W001 Test' scheduled successfully
    |
    = duration: 5 days (2025-01-06 to 2025-01-10)

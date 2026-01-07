@@ -137,6 +137,11 @@ fn h003_unused_trait() {
     assert_stderr_matches("h003_unused_trait", false);
 }
 
+#[test]
+fn h004_unconstrained_task() {
+    assert_stderr_matches("h004_unconstrained_task", false);
+}
+
 // =============================================================================
 // Error Tests
 // =============================================================================

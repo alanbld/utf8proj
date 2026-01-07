@@ -1,3 +1,9 @@
+hint[H004]: task 'Design' has no predecessors or date constraints
+  --> i001_success.proj
+   |
+   = 'Design' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
 info[I001]: project 'I001 Test' scheduled successfully
    |
    = duration: 18 days (2025-01-06 to 2025-01-29)

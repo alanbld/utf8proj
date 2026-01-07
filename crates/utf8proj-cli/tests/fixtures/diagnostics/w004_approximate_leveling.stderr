@@ -4,6 +4,18 @@ warning[W005]: constraint reduces slack to zero for task 'task_c'
    = must_finish_on: 2025-01-10 makes task critical
    = hint: consider relaxing constraint or adding buffer
 
+hint[H004]: task 'Task A' has no predecessors or date constraints
+  --> w004_approximate_leveling.proj
+   |
+   = 'Task A' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
+hint[H004]: task 'Task B' has no predecessors or date constraints
+  --> w004_approximate_leveling.proj
+   |
+   = 'Task B' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
 info[I001]: project 'W004 Test' scheduled successfully
    |
    = duration: 5 days (2025-01-06 to 2025-01-10)

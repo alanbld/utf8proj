@@ -1,0 +1,33 @@
+hint[H004]: task 'Task A' has no predecessors or date constraints
+  --> h004_unconstrained_task.proj
+   |
+   = 'Task A' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
+hint[H004]: task 'Task C' has no predecessors or date constraints
+  --> h004_unconstrained_task.proj
+   |
+   = 'Task C' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
+info[I001]: project 'H004 Test' scheduled successfully
+   |
+   = duration: 10 days (2025-01-06 to 2025-01-17)
+   = cost: $1500
+   = tasks: 4 (4 concrete, 0 abstract assignments)
+   = critical path: 2 tasks
+
+info[I003]: Resource utilization (2025-01-06 - 2025-01-17)
+  alice: 150% (15.0/10 days) [OVER]
+  --> h004_unconstrained_task.proj
+
+info[I004]: project 0% complete, on schedule 🟢
+  --> h004_unconstrained_task.proj
+   |
+   = baseline finish: 2025-01-17, forecast finish: 2025-01-17
+
+info[I005]: SPI 0.00: behind schedule 🔴
+  --> h004_unconstrained_task.proj
+   |
+   = EV 0%, PV 100% (earned vs planned progress)
+

@@ -927,6 +927,9 @@ pub fn analyze_project(
     // H003: Unused traits
     check_unused_traits(project, config, emitter);
 
+    // H004: Unconstrained tasks (no predecessors or date constraints)
+    check_unconstrained_tasks(project, config, emitter);
+
     // W014: Container dependencies without child dependencies (MS Project compatibility)
     check_container_dependencies(project, config, emitter);
 
@@ -1376,6 +1379,65 @@ fn check_unused_traits(
                 .with_file(config.file.clone().unwrap_or_default())
                 .with_hint("add to profile traits or remove if no longer needed"),
             );
+        }
+    }
+}
+
+/// H004: Check for unconstrained tasks (dangling/orphan tasks)
+///
+/// This diagnostic fires when a leaf task has no predecessors and no date constraints.
+/// Such tasks will start at the project start date (ASAP scheduling), which may be
+/// unintentional - the task might be missing a dependency that defines its logical
+/// position in the schedule.
+///
+/// This is a PMI/CPM best practice check for network completeness.
+fn check_unconstrained_tasks(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    check_unconstrained_recursive(&project.tasks, "", config, emitter);
+}
+
+/// Recursively check for H004 (unconstrained tasks)
+fn check_unconstrained_recursive(
+    tasks: &[Task],
+    parent_path: &str,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for task in tasks {
+        let task_path = if parent_path.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", parent_path, task.id)
+        };
+
+        if task.children.is_empty() {
+            // Leaf task - check if unconstrained
+            let has_predecessors = !task.depends.is_empty();
+            let has_date_constraint = !task.constraints.is_empty();
+
+            if !has_predecessors && !has_date_constraint {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::H004TaskUnconstrained,
+                        format!(
+                            "task '{}' has no predecessors or date constraints",
+                            task.name
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note(format!(
+                        "'{}' will start on project start date (ASAP scheduling)",
+                        task.name
+                    ))
+                    .with_hint("add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic"),
+                );
+            }
+        } else {
+            // Container task - recurse into children
+            check_unconstrained_recursive(&task.children, &task_path, config, emitter);
         }
     }
 }
@@ -4174,5 +4236,160 @@ mod tests {
         // Should handle gracefully even if cache is exceeded
         assert_eq!(schedule.tasks.len(), 1);
         assert!(schedule.project_duration.minutes >= Duration::days(2500).minutes);
+    }
+
+    #[test]
+    fn explain_constraint_must_finish_on_pinned() {
+        // Test MustFinishOn constraint that pins the task
+        let mut project = Project::new("MFO Pinned");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("pinned_task");
+        task.duration = Some(Duration::days(5));
+        task.constraints.push(TaskConstraint::MustFinishOn(
+            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap()
+        ));
+        project.tasks = vec![task.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &task);
+        assert_eq!(effects.len(), 1);
+        assert!(effects[0].description.contains("pinned") || effects[0].description.contains("finish"));
+    }
+
+    #[test]
+    fn explain_constraint_start_no_later_than_capped() {
+        // Test StartNoLaterThan constraint that caps late start
+        let mut project = Project::new("SNLT Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("capped_task");
+        task.duration = Some(Duration::days(5));
+        task.constraints.push(TaskConstraint::StartNoLaterThan(
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+        ));
+        project.tasks = vec![task.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &task);
+        assert_eq!(effects.len(), 1);
+        // The constraint should either cap late start or be redundant
+        assert!(!effects[0].description.is_empty());
+    }
+
+    #[test]
+    fn explain_constraint_finish_no_earlier_than_pushed() {
+        // Test FinishNoEarlierThan constraint that pushes finish
+        let mut project = Project::new("FNET Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("pushed_task");
+        task.duration = Some(Duration::days(5));
+        task.constraints.push(TaskConstraint::FinishNoEarlierThan(
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+        ));
+        project.tasks = vec![task.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &task);
+        assert_eq!(effects.len(), 1);
+        // Should describe the push effect
+        assert!(!effects[0].description.is_empty());
+    }
+
+    #[test]
+    fn explain_constraint_finish_no_later_than_capped() {
+        // Test FinishNoLaterThan constraint
+        let mut project = Project::new("FNLT Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("fnlt_task");
+        task.duration = Some(Duration::days(5));
+        task.constraints.push(TaskConstraint::FinishNoLaterThan(
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+        ));
+        project.tasks = vec![task.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &task);
+        assert_eq!(effects.len(), 1);
+        assert!(!effects[0].description.is_empty());
+    }
+
+    #[test]
+    fn explain_constraint_multiple_constraints() {
+        // Test task with multiple constraints
+        let mut project = Project::new("Multi Constraint");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let mut task = Task::new("multi");
+        task.duration = Some(Duration::days(5));
+        task.constraints.push(TaskConstraint::StartNoEarlierThan(
+            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap()
+        ));
+        task.constraints.push(TaskConstraint::FinishNoLaterThan(
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+        ));
+        project.tasks = vec![task.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &task);
+        assert_eq!(effects.len(), 2);
+    }
+
+    #[test]
+    fn explain_constraint_redundant_snet() {
+        use utf8proj_core::Dependency;
+        // Test SNET constraint made redundant by dependencies
+        let mut project = Project::new("Redundant SNET");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        let predecessor = Task::new("pred").duration(Duration::days(10));
+        let mut successor = Task::new("succ");
+        successor.duration = Some(Duration::days(5));
+        successor.depends.push(Dependency {
+            predecessor: "pred".to_string(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        });
+        // SNET is before when task would start due to dependency
+        successor.constraints.push(TaskConstraint::StartNoEarlierThan(
+            NaiveDate::from_ymd_opt(2025, 1, 8).unwrap()
+        ));
+
+        project.tasks = vec![predecessor, successor.clone()];
+
+        let solver = CpmSolver::new();
+        let effects = solver.analyze_constraint_effects(&project, &successor);
+        assert_eq!(effects.len(), 1);
+        // The constraint should be marked as redundant
+        assert!(effects[0].description.contains("redundant") ||
+                effects[0].description.contains("superseded") ||
+                effects[0].description.contains("already"));
+    }
+
+    #[test]
+    fn explain_constraint_format_all_types() {
+        // Test format_constraint for all constraint types
+        use TaskConstraint::*;
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+
+        let formatted = CpmSolver::format_constraint(&MustStartOn(date));
+        assert!(formatted.contains("MustStartOn"));
+
+        let formatted = CpmSolver::format_constraint(&MustFinishOn(date));
+        assert!(formatted.contains("MustFinishOn"));
+
+        let formatted = CpmSolver::format_constraint(&StartNoEarlierThan(date));
+        assert!(formatted.contains("StartNoEarlierThan"));
+
+        let formatted = CpmSolver::format_constraint(&StartNoLaterThan(date));
+        assert!(formatted.contains("StartNoLaterThan"));
+
+        let formatted = CpmSolver::format_constraint(&FinishNoEarlierThan(date));
+        assert!(formatted.contains("FinishNoEarlierThan"));
+
+        let formatted = CpmSolver::format_constraint(&FinishNoLaterThan(date));
+        assert!(formatted.contains("FinishNoLaterThan"));
     }
 }

@@ -30,6 +30,12 @@ hint[H002]: profile 'lead_developer' is defined but never assigned
   --> e001_circular_specialization.proj
    = hint: assign to tasks or remove if no longer needed
 
+hint[H004]: task 'Development' has no predecessors or date constraints
+  --> e001_circular_specialization.proj
+   |
+   = 'Development' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
 info[I001]: project 'E001 Test' scheduled successfully
    |
    = duration: 5 days (2025-01-06 to 2025-01-10)

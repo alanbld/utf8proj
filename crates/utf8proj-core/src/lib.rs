@@ -1597,6 +1597,8 @@ pub enum DiagnosticCode {
     H002UnusedProfile,
     /// Trait is defined but never referenced
     H003UnusedTrait,
+    /// Task has no predecessors or date constraints (dangling/orphan task)
+    H004TaskUnconstrained,
 
     // Info (I) - Informational
     /// Project scheduling summary
@@ -1628,6 +1630,7 @@ impl DiagnosticCode {
             DiagnosticCode::H001MixedAbstraction => "H001",
             DiagnosticCode::H002UnusedProfile => "H002",
             DiagnosticCode::H003UnusedTrait => "H003",
+            DiagnosticCode::H004TaskUnconstrained => "H004",
             DiagnosticCode::I001ProjectCostSummary => "I001",
             DiagnosticCode::I002RefinementProgress => "I002",
             DiagnosticCode::I003ResourceUtilization => "I003",
@@ -1652,6 +1655,7 @@ impl DiagnosticCode {
             DiagnosticCode::H001MixedAbstraction => Severity::Hint,
             DiagnosticCode::H002UnusedProfile => Severity::Hint,
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
+            DiagnosticCode::H004TaskUnconstrained => Severity::Hint,
             DiagnosticCode::I001ProjectCostSummary => Severity::Info,
             DiagnosticCode::I002RefinementProgress => Severity::Info,
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
@@ -1685,6 +1689,7 @@ impl DiagnosticCode {
             DiagnosticCode::H001MixedAbstraction => 30,
             DiagnosticCode::H002UnusedProfile => 31,
             DiagnosticCode::H003UnusedTrait => 32,
+            DiagnosticCode::H004TaskUnconstrained => 33,
             // Info last
             DiagnosticCode::I001ProjectCostSummary => 40,
             DiagnosticCode::I002RefinementProgress => 41,
@@ -3048,5 +3053,159 @@ mod tests {
 
         assert_eq!(sorted[0].message, "first");
         assert_eq!(sorted[1].message, "second");
+    }
+
+    #[test]
+    fn diagnostic_code_as_str_all_codes() {
+        // Test all diagnostic codes have correct string representation
+        assert_eq!(DiagnosticCode::E002ProfileWithoutRate.as_str(), "E002");
+        assert_eq!(DiagnosticCode::E003InfeasibleConstraint.as_str(), "E003");
+        assert_eq!(DiagnosticCode::W002WideCostRange.as_str(), "W002");
+        assert_eq!(DiagnosticCode::W003UnknownTrait.as_str(), "W003");
+        assert_eq!(DiagnosticCode::W004ApproximateLeveling.as_str(), "W004");
+        assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.as_str(), "W005");
+        assert_eq!(DiagnosticCode::W006ScheduleVariance.as_str(), "W006");
+        assert_eq!(DiagnosticCode::W014ContainerDependency.as_str(), "W014");
+        assert_eq!(DiagnosticCode::H002UnusedProfile.as_str(), "H002");
+        assert_eq!(DiagnosticCode::H003UnusedTrait.as_str(), "H003");
+        assert_eq!(DiagnosticCode::H004TaskUnconstrained.as_str(), "H004");
+        assert_eq!(DiagnosticCode::I002RefinementProgress.as_str(), "I002");
+        assert_eq!(DiagnosticCode::I003ResourceUtilization.as_str(), "I003");
+        assert_eq!(DiagnosticCode::I004ProjectStatus.as_str(), "I004");
+        assert_eq!(DiagnosticCode::I005EarnedValueSummary.as_str(), "I005");
+    }
+
+    #[test]
+    fn diagnostic_code_default_severity_all() {
+        // Errors
+        assert_eq!(DiagnosticCode::E003InfeasibleConstraint.default_severity(), Severity::Error);
+        // Warnings (W002 onwards - E002 is warning by default, error in strict)
+        assert_eq!(DiagnosticCode::E002ProfileWithoutRate.default_severity(), Severity::Warning);
+        assert_eq!(DiagnosticCode::W004ApproximateLeveling.default_severity(), Severity::Warning);
+        assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.default_severity(), Severity::Warning);
+        assert_eq!(DiagnosticCode::W006ScheduleVariance.default_severity(), Severity::Warning);
+        // Hints
+        assert_eq!(DiagnosticCode::H002UnusedProfile.default_severity(), Severity::Hint);
+        assert_eq!(DiagnosticCode::H003UnusedTrait.default_severity(), Severity::Hint);
+        assert_eq!(DiagnosticCode::H004TaskUnconstrained.default_severity(), Severity::Hint);
+        // Info
+        assert_eq!(DiagnosticCode::I002RefinementProgress.default_severity(), Severity::Info);
+        assert_eq!(DiagnosticCode::I003ResourceUtilization.default_severity(), Severity::Info);
+        assert_eq!(DiagnosticCode::I004ProjectStatus.default_severity(), Severity::Info);
+        assert_eq!(DiagnosticCode::I005EarnedValueSummary.default_severity(), Severity::Info);
+    }
+
+    #[test]
+    fn diagnostic_code_ordering_priority_all() {
+        // Errors have lowest priority (emitted first)
+        assert!(DiagnosticCode::E002ProfileWithoutRate.ordering_priority() < 10);
+        assert!(DiagnosticCode::E003InfeasibleConstraint.ordering_priority() < 10);
+        // Cost warnings
+        assert_eq!(DiagnosticCode::W002WideCostRange.ordering_priority(), 10);
+        assert_eq!(DiagnosticCode::W004ApproximateLeveling.ordering_priority(), 11);
+        assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.ordering_priority(), 12);
+        assert_eq!(DiagnosticCode::W006ScheduleVariance.ordering_priority(), 13);
+        assert_eq!(DiagnosticCode::W014ContainerDependency.ordering_priority(), 14);
+        // Assignment warnings
+        assert_eq!(DiagnosticCode::W003UnknownTrait.ordering_priority(), 21);
+        // Hints
+        assert_eq!(DiagnosticCode::H002UnusedProfile.ordering_priority(), 31);
+        assert_eq!(DiagnosticCode::H003UnusedTrait.ordering_priority(), 32);
+        assert_eq!(DiagnosticCode::H004TaskUnconstrained.ordering_priority(), 33);
+        // Info (highest priority = emitted last)
+        assert_eq!(DiagnosticCode::I002RefinementProgress.ordering_priority(), 41);
+        assert_eq!(DiagnosticCode::I003ResourceUtilization.ordering_priority(), 42);
+        assert_eq!(DiagnosticCode::I004ProjectStatus.ordering_priority(), 43);
+        assert_eq!(DiagnosticCode::I005EarnedValueSummary.ordering_priority(), 44);
+    }
+
+    #[test]
+    fn diagnostic_code_display() {
+        // Test Display trait implementation
+        assert_eq!(format!("{}", DiagnosticCode::E001CircularSpecialization), "E001");
+        assert_eq!(format!("{}", DiagnosticCode::W014ContainerDependency), "W014");
+        assert_eq!(format!("{}", DiagnosticCode::H004TaskUnconstrained), "H004");
+    }
+
+    #[test]
+    fn rate_range_spread_percent_zero_expected() {
+        use rust_decimal::Decimal;
+        // When min == max == 0, spread should be 0% (not NaN or error)
+        let range = RateRange::new(Decimal::ZERO, Decimal::ZERO);
+        assert_eq!(range.spread_percent(), 0.0);
+    }
+
+    #[test]
+    fn cost_range_spread_percent_zero_expected() {
+        use rust_decimal::Decimal;
+        // When expected is zero, spread should be 0% (not NaN or error)
+        let range = CostRange::new(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, "USD");
+        assert_eq!(range.spread_percent(), 0.0);
+    }
+
+    #[test]
+    fn resource_profile_builder_calendar() {
+        let profile = ResourceProfile::new("dev")
+            .calendar("work_calendar");
+        assert_eq!(profile.calendar, Some("work_calendar".to_string()));
+    }
+
+    #[test]
+    fn resource_profile_builder_efficiency() {
+        let profile = ResourceProfile::new("dev")
+            .efficiency(0.8);
+        assert_eq!(profile.efficiency, Some(0.8));
+    }
+
+    #[test]
+    fn task_builder_summary() {
+        let task = Task::new("task1").summary("Short name");
+        assert_eq!(task.summary, Some("Short name".to_string()));
+    }
+
+    #[test]
+    fn task_builder_effort() {
+        let task = Task::new("task1").effort(Duration::days(5));
+        assert_eq!(task.effort, Some(Duration::days(5)));
+    }
+
+    #[test]
+    fn task_builder_duration() {
+        let task = Task::new("task1").duration(Duration::days(3));
+        assert_eq!(task.duration, Some(Duration::days(3)));
+    }
+
+    #[test]
+    fn task_builder_depends_on() {
+        let task = Task::new("task2").depends_on("task1");
+        assert_eq!(task.depends.len(), 1);
+        assert_eq!(task.depends[0].predecessor, "task1");
+        assert_eq!(task.depends[0].dep_type, DependencyType::FinishToStart);
+        assert_eq!(task.depends[0].lag, None);
+    }
+
+    #[test]
+    fn task_builder_assign() {
+        let task = Task::new("task1").assign("alice");
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "alice");
+        assert_eq!(task.assigned[0].units, 1.0);
+    }
+
+    #[test]
+    fn task_builder_assign_with_units() {
+        let task = Task::new("task1").assign_with_units("bob", 0.5);
+        assert_eq!(task.assigned.len(), 1);
+        assert_eq!(task.assigned[0].resource_id, "bob");
+        assert_eq!(task.assigned[0].units, 0.5);
+    }
+
+    #[test]
+    fn source_span_with_label_and_display() {
+        let span = SourceSpan::new(10, 5, 8).with_label("highlight");
+        assert_eq!(span.line, 10);
+        assert_eq!(span.column, 5);
+        assert_eq!(span.length, 8);
+        assert_eq!(span.label, Some("highlight".to_string()));
     }
 }

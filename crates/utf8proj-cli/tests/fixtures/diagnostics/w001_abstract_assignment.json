@@ -14,6 +14,19 @@
       "spans": []
     },
     {
+      "code": "H004",
+      "file": "w001_abstract_assignment.proj",
+      "hints": [
+        "add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic"
+      ],
+      "message": "task 'API Development' has no predecessors or date constraints",
+      "notes": [
+        "'API Development' will start on project start date (ASAP scheduling)"
+      ],
+      "severity": "hint",
+      "spans": []
+    },
+    {
       "code": "I001",
       "hints": [],
       "message": "project 'W001 Test' scheduled successfully",

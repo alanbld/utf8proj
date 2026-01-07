@@ -22,11 +22,12 @@ This document specifies the diagnostic messages emitted by utf8proj during sched
 
 For determinism and testability, diagnostics are emitted in this order:
 
-1. **Structural errors** (E001, E002) - fatal issues first
+1. **Structural errors** (E001, E002, E003) - fatal issues first
 2. **Cost-related warnings** (W002, W004) - budget risk
 3. **Assignment-related warnings** (W001, W003) - planning gaps
-4. **Hints** (H001, H002, H003) - suggestions
-5. **Info** (I001, I002, I003) - summary last
+4. **MS Project compatibility warnings** (W014) - migration issues
+5. **Hints** (H001, H002, H003, H004) - suggestions
+6. **Info** (I001, I002, I003) - summary last
 
 Within each category, diagnostics are ordered by source location (file, line, column).
 
@@ -334,6 +335,43 @@ hint[H003]: trait '{trait_id}' is defined but never referenced
 
 ---
 
+### H004: Task Without Scheduling Constraint
+
+**Severity**: Hint
+
+**Trigger**: A leaf task has no predecessors and no date constraints (dangling/orphan task in CPM network).
+
+**Condition**:
+```
+task.children.is_empty()  // leaf task only
+  && task.depends.is_empty()  // no predecessors
+  && task.constraints.is_empty()  // no date constraints
+```
+
+**Message Template**:
+```
+hint[H004]: task '{task_name}' has no predecessors or date constraints
+  --> {file}
+   |
+   = '{task_name}' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+```
+
+**Example**:
+```
+hint[H004]: task 'Data Migration' has no predecessors or date constraints
+  --> project.proj
+   |
+   = 'Data Migration' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+```
+
+**Rationale**: In PMI/CPM methodology, every task except the project start should have at least one predecessor or date constraint to define its logical position in the schedule. Tasks without these are "dangling" or "orphan" tasks that will default to ASAP scheduling (project start date), which may be unintentional. This diagnostic helps ensure network completeness and identifies tasks that might be missing dependencies.
+
+**Note**: Container tasks are not checked - only leaf tasks that represent actual work units.
+
+---
+
 ### E001: Circular Specialization
 
 **Severity**: Error
@@ -600,9 +638,11 @@ pub enum DiagnosticCode {
     W003, // Unknown trait
     W004, // Approximate leveling
     W005, // Constraint zero slack
+    W014, // Container dependency without child dependencies
     H001, // Mixed abstraction
     H002, // Unused profile
     H003, // Unused trait
+    H004, // Task without scheduling constraint
     I001, // Project cost summary
     I002, // Refinement progress
     I003, // Resource utilization
@@ -634,5 +674,5 @@ These may be added in future versions:
 
 - `W006`: Deadline at risk (critical path exceeds constraint)
 - `W007`: Resource over-committed across projects
-- `H004`: Task with no assignments
-- `H005`: Redundant dependency (transitive)
+- `H005`: Task with no assignments
+- `H006`: Redundant dependency (transitive)

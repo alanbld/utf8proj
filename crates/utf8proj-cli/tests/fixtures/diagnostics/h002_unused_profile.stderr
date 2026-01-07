@@ -6,6 +6,12 @@ hint[H002]: profile 'backend_developer' is defined but never assigned
   --> h002_unused_profile.proj
    = hint: assign to tasks or remove if no longer needed
 
+hint[H004]: task 'Development' has no predecessors or date constraints
+  --> h002_unused_profile.proj
+   |
+   = 'Development' will start on project start date (ASAP scheduling)
+   = hint: add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic
+
 info[I001]: project 'H002 Test' scheduled successfully
    |
    = duration: 5 days (2025-01-06 to 2025-01-10)
