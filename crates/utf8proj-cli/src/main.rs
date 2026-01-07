@@ -975,17 +975,56 @@ fn cmd_fix_container_deps(
 fn serialize_project(project: &utf8proj_core::Project) -> String {
     let mut output = String::new();
 
-    // Project header
-    output.push_str(&format!("project {} \"{}\" {{\n", project.id, project.name));
+    // Project header - use id only if it's a valid simple identifier different from name
+    let id_is_valid = project.id.chars().all(|c| c.is_alphanumeric() || c == '_');
+    if id_is_valid && project.id != project.name && !project.id.is_empty() {
+        output.push_str(&format!("project {} \"{}\" {{\n", project.id, project.name));
+    } else {
+        output.push_str(&format!("project \"{}\" {{\n", project.name));
+    }
     output.push_str(&format!("    start: {}\n", project.start));
     output.push_str("}\n\n");
 
     // Calendars
     for calendar in &project.calendars {
-        output.push_str(&format!("calendar {} {{\n", calendar.id));
+        output.push_str(&format!("calendar \"{}\" {{\n", calendar.id));
         if !calendar.working_days.is_empty() {
-            let days: Vec<_> = calendar.working_days.iter().map(|d| format!("{:?}", d).to_lowercase()).collect();
-            output.push_str(&format!("    working_days: {}\n", days.join(", ")));
+            // Working days: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+            // Use mon-fri shorthand if it's standard working days (1-5)
+            let is_standard = calendar.working_days.len() == 5
+                && calendar.working_days.contains(&1)  // Mon
+                && calendar.working_days.contains(&2)  // Tue
+                && calendar.working_days.contains(&3)  // Wed
+                && calendar.working_days.contains(&4)  // Thu
+                && calendar.working_days.contains(&5); // Fri
+            if is_standard {
+                output.push_str("    working_days: mon-fri\n");
+            } else {
+                let days: Vec<_> = calendar.working_days.iter().map(|d| {
+                    match d {
+                        0 => "sun",
+                        1 => "mon",
+                        2 => "tue",
+                        3 => "wed",
+                        4 => "thu",
+                        5 => "fri",
+                        6 => "sat",
+                        _ => "?",
+                    }
+                }).collect();
+                output.push_str(&format!("    working_days: {}\n", days.join(", ")));
+            }
+        }
+        // Working hours
+        if !calendar.working_hours.is_empty() {
+            let hours: Vec<_> = calendar.working_hours.iter().map(|tr| {
+                let start_h = tr.start / 60;
+                let start_m = tr.start % 60;
+                let end_h = tr.end / 60;
+                let end_m = tr.end % 60;
+                format!("{:02}:{:02}-{:02}:{:02}", start_h, start_m, end_h, end_m)
+            }).collect();
+            output.push_str(&format!("    working_hours: {}\n", hours.join(", ")));
         }
         for holiday in &calendar.holidays {
             if holiday.start == holiday.end {
