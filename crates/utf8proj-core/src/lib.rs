@@ -1587,6 +1587,8 @@ pub enum DiagnosticCode {
     W005ConstraintZeroSlack,
     /// Task is slipping beyond threshold (forecast > baseline)
     W006ScheduleVariance,
+    /// Container has dependencies but child task has none (MS Project compatibility)
+    W014ContainerDependency,
 
     // Hints (H) - Suggestions
     /// Task has both concrete and abstract assignments
@@ -1622,6 +1624,7 @@ impl DiagnosticCode {
             DiagnosticCode::W004ApproximateLeveling => "W004",
             DiagnosticCode::W005ConstraintZeroSlack => "W005",
             DiagnosticCode::W006ScheduleVariance => "W006",
+            DiagnosticCode::W014ContainerDependency => "W014",
             DiagnosticCode::H001MixedAbstraction => "H001",
             DiagnosticCode::H002UnusedProfile => "H002",
             DiagnosticCode::H003UnusedTrait => "H003",
@@ -1645,6 +1648,7 @@ impl DiagnosticCode {
             DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
             DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
             DiagnosticCode::W006ScheduleVariance => Severity::Warning,
+            DiagnosticCode::W014ContainerDependency => Severity::Warning,
             DiagnosticCode::H001MixedAbstraction => Severity::Hint,
             DiagnosticCode::H002UnusedProfile => Severity::Hint,
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
@@ -1672,6 +1676,8 @@ impl DiagnosticCode {
             DiagnosticCode::W005ConstraintZeroSlack => 12,
             // Schedule variance warnings
             DiagnosticCode::W006ScheduleVariance => 13,
+            // MS Project compatibility warnings
+            DiagnosticCode::W014ContainerDependency => 14,
             // Assignment-related warnings
             DiagnosticCode::W001AbstractAssignment => 20,
             DiagnosticCode::W003UnknownTrait => 21,

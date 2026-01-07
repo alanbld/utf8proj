@@ -196,6 +196,44 @@ warning[W004]: resource leveling incomplete - 2 conflict(s) unresolved
 
 ---
 
+### W014: Container Dependency Without Child Dependencies
+
+**Severity**: Warning
+
+**Trigger**: A container task has dependencies, but one or more of its children do not depend on any of the container's predecessors.
+
+**Condition**:
+```
+container.depends.is_not_empty()
+  && child.depends.intersection(container.depends).is_empty()
+```
+
+**Message Template**:
+```
+warning[W014]: container '{container_name}' depends on [{deps}] but child '{child_name}' has no matching dependencies
+  --> {file}:{line}
+   |
+   = MS Project behavior: '{child_name}' would be blocked until [{deps}] completes
+   = utf8proj behavior: '{child_name}' can start immediately (explicit dependencies only)
+   = hint: add 'depends: {first_dep}' to match MS Project behavior
+```
+
+**Example**:
+```
+warning[W014]: container 'Development Phase' depends on [design_approval] but child 'Feature X' has no matching dependencies
+  --> project.proj:45
+   |
+   = MS Project behavior: 'Feature X' would be blocked until [design_approval] completes
+   = utf8proj behavior: 'Feature X' can start immediately (explicit dependencies only)
+   = hint: add 'depends: design_approval' to match MS Project behavior
+```
+
+**Rationale**: MS Project implicitly propagates container dependencies to children. utf8proj requires explicit dependencies. This warning helps users migrating from MS Project understand when their schedule will behave differently, and suggests how to match MS Project semantics if desired.
+
+**Related**: See `docs/DESIGN_PHILOSOPHY.md` and `docs/rfcs/RFC003_CONTAINER_DEPENDENCY_SEMANTICS.md` for the design rationale.
+
+---
+
 ### H001: Mixed Abstraction Level
 
 **Severity**: Hint

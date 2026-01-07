@@ -927,6 +927,9 @@ pub fn analyze_project(
     // H003: Unused traits
     check_unused_traits(project, config, emitter);
 
+    // W014: Container dependencies without child dependencies (MS Project compatibility)
+    check_container_dependencies(project, config, emitter);
+
     // W005: Constraint zero slack (requires schedule)
     if let Some(sched) = schedule {
         check_constraint_zero_slack(project, sched, config, emitter);
@@ -1373,6 +1376,99 @@ fn check_unused_traits(
                 .with_file(config.file.clone().unwrap_or_default())
                 .with_hint("add to profile traits or remove if no longer needed"),
             );
+        }
+    }
+}
+
+/// W014: Check for container dependencies without child dependencies
+///
+/// This diagnostic fires when a container has dependencies but one or more of its
+/// children do not depend on any of the container's predecessors.
+///
+/// In MS Project, container dependencies implicitly block all children.
+/// In utf8proj, dependencies must be explicit - container dependencies are metadata only.
+fn check_container_dependencies(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    check_container_deps_recursive(&project.tasks, "", config, emitter);
+}
+
+/// Recursively check containers for W014
+fn check_container_deps_recursive(
+    tasks: &[Task],
+    parent_path: &str,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for task in tasks {
+        let task_path = if parent_path.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", parent_path, task.id)
+        };
+
+        // Only check containers (tasks with children)
+        if !task.children.is_empty() {
+            // Check if container has dependencies
+            if !task.depends.is_empty() {
+                // Collect container's predecessor IDs
+                let container_deps: std::collections::HashSet<_> = task
+                    .depends
+                    .iter()
+                    .map(|d| d.predecessor.clone())
+                    .collect();
+
+                // Check each child
+                for child in &task.children {
+                    // Get child's predecessor IDs
+                    let child_deps: std::collections::HashSet<_> = child
+                        .depends
+                        .iter()
+                        .map(|d| d.predecessor.clone())
+                        .collect();
+
+                    // Check if child has any of the container's dependencies
+                    let has_container_dep = container_deps.iter().any(|d| child_deps.contains(d));
+
+                    if !has_container_dep {
+                        // Format container dependencies for message
+                        let deps_str = task
+                            .depends
+                            .iter()
+                            .map(|d| d.predecessor.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        emitter.emit(
+                            Diagnostic::new(
+                                DiagnosticCode::W014ContainerDependency,
+                                format!(
+                                    "container '{}' depends on [{}] but child '{}' has no matching dependencies",
+                                    task.name, deps_str, child.name
+                                ),
+                            )
+                            .with_file(config.file.clone().unwrap_or_default())
+                            .with_note(format!(
+                                "MS Project behavior: '{}' would be blocked until [{}] completes",
+                                child.name, deps_str
+                            ))
+                            .with_note(format!(
+                                "utf8proj behavior: '{}' can start immediately (explicit dependencies only)",
+                                child.name
+                            ))
+                            .with_hint(format!(
+                                "add 'depends: {}' to match MS Project behavior",
+                                task.depends[0].predecessor
+                            )),
+                        );
+                    }
+                }
+            }
+
+            // Recurse into children
+            check_container_deps_recursive(&task.children, &task_path, config, emitter);
         }
     }
 }
