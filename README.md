@@ -66,19 +66,33 @@ task launch "Launch" {
 ### Generate schedule
 
 ```bash
-# Compute schedule
-utf8proj schedule project.proj -o schedule.json
+# Show version
+utf8proj --version
+
+# Validate project (fast, no scheduling output)
+utf8proj check project.proj
+utf8proj check --strict project.proj    # Warnings become errors
+
+# Compute and display schedule
+utf8proj schedule project.proj
+utf8proj schedule -l project.proj       # Enable resource leveling
+utf8proj schedule -w 80 project.proj    # Custom column width (default: 40)
+utf8proj schedule -V project.proj       # Verbose: show [task_id] Display Name
+utf8proj schedule --task-ids project.proj  # Show task IDs only
+
+# Output formats
+utf8proj schedule project.proj -o schedule.json --format json
+utf8proj schedule --quiet project.proj  # Suppress output except errors
 
 # Generate Gantt chart
-utf8proj render project.proj --format svg -o timeline.svg
-
-# What-if analysis
-utf8proj what-if project.proj --constraint "resource.developer.capacity = 0.5"
+utf8proj gantt project.proj -o timeline.svg
 ```
 
 ## Documentation
 
 - [Quick Reference](QUICK_REFERENCE.md) - DSL syntax cheat sheet
+- [Grammar Specification](docs/GRAMMAR.md) - BNF grammar for `.proj` files
+- [Diagnostics Reference](docs/DIAGNOSTICS.md) - Error codes and messages
 - [User Guide](docs/user-guide.md) - Comprehensive documentation
 - [API Reference](https://docs.rs/utf8proj) - Rust API documentation
 
@@ -120,11 +134,11 @@ println!("Critical path: {:?}", schedule.critical_path);
 
 ```toml
 [dependencies]
-utf8proj = "0.1"                    # Heuristic scheduler only
-utf8proj = { version = "0.1", features = ["bdd"] }      # + BDD analysis
-utf8proj = { version = "0.1", features = ["sat"] }      # + SAT solver
-utf8proj = { version = "0.1", features = ["lua"] }      # + Lua scripting
-utf8proj = { version = "0.1", features = ["full"] }     # All features
+utf8proj = "0.2"                    # Heuristic scheduler only
+utf8proj = { version = "0.2", features = ["bdd"] }      # + BDD analysis
+utf8proj = { version = "0.2", features = ["sat"] }      # + SAT solver
+utf8proj = { version = "0.2", features = ["lua"] }      # + Lua scripting
+utf8proj = { version = "0.2", features = ["full"] }     # All features
 ```
 
 ## utf8dok Integration

@@ -420,6 +420,7 @@
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <img src="logos/logo-icon.svg" alt="utf8proj" width="40" height="40">
                 <h1>utf8proj Dashboard</h1>
+                <span style="font-size: 0.75rem; color: var(--text-dim); background: var(--primary); padding: 0.2rem 0.5rem; border-radius: 4px;">v0.2.0</span>
             </div>
             <div class="status">
                 <div class="status-dot" id="status-dot"></div>
@@ -455,6 +456,10 @@
             <div class="info-card">
                 <div class="info-label">Overall Progress</div>
                 <div class="info-value" id="info-progress">-</div>
+            </div>
+            <div class="info-card">
+                <div class="info-label">SPI (Earned Value)</div>
+                <div class="info-value" id="info-spi">-</div>
             </div>
         </div>
         
@@ -768,7 +773,23 @@ task cutover "Go-Live Cutover" {
             document.getElementById('info-critical').textContent = scheduleResult.critical_path.length + ' tasks';
             document.getElementById('info-progress').textContent = (p.overall_progress || 0) + '%';
 
+            // Calculate SPI (Schedule Performance Index)
+            const spi = p.spi !== undefined ? p.spi : calculateSPI(p.overall_progress || 0, p.planned_value || 0);
+            const spiEl = document.getElementById('info-spi');
+            if (spi !== null && !isNaN(spi)) {
+                const spiIcon = spi >= 1.0 ? '🟢' : spi >= 0.95 ? '🟡' : '🔴';
+                spiEl.textContent = spi.toFixed(2) + ' ' + spiIcon;
+            } else {
+                spiEl.textContent = '-';
+            }
+
             document.getElementById('gantt-dates').textContent = `${p.start} to ${p.end}`;
+        }
+
+        // Calculate SPI if not provided by WASM
+        function calculateSPI(earnedValue, plannedValue) {
+            if (plannedValue === 0) return earnedValue > 0 ? 1.0 : 0.0;
+            return earnedValue / plannedValue;
         }
         
         // Update task list
@@ -798,9 +819,10 @@ task cutover "Go-Live Cutover" {
                     ? '<span class="derived-marker">(derived)</span>'
                     : '';
                 const containerIcon = task.is_container ? '📁 ' : '';
+                const displayName = task.name && task.name !== task.id ? task.name : task.id;
 
                 div.innerHTML = `
-                    <div class="task-name" title="${task.id}${task.is_container ? ' [' + task.child_count + ' children]' : ''}">${containerIcon}${task.id}${derivedMarker}</div>
+                    <div class="task-name" title="${task.id}${task.is_container ? ' [' + task.child_count + ' children]' : ''}${task.name ? '\n' + task.name : ''}">${containerIcon}${displayName}${derivedMarker}</div>
                     <div class="task-progress">
                         <input type="number"
                                class="progress-input"
