@@ -959,6 +959,77 @@ impl std::fmt::Display for TaskStatus {
     }
 }
 
+/// Scheduling mode classification for capability awareness
+///
+/// This describes *what kind of schedule* a project represents, not whether
+/// it's correct or complete. All modes are valid and appropriate for different
+/// planning contexts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SchedulingMode {
+    /// Tasks use `duration:` only, no effort or resource assignments
+    /// Suitable for: roadmaps, timelines, regulatory deadlines, migration plans
+    /// Capabilities: timeline ✓, utilization ✗, cost tracking ✗
+    #[default]
+    DurationBased,
+    /// Tasks use `effort:` with resource assignments
+    /// Suitable for: project planning with team workload tracking
+    /// Capabilities: timeline ✓, utilization ✓, cost tracking depends on rates
+    EffortBased,
+    /// Tasks use `effort:` with resource assignments AND resources have rates
+    /// Suitable for: full project management with budget tracking
+    /// Capabilities: timeline ✓, utilization ✓, cost tracking ✓
+    ResourceLoaded,
+}
+
+impl SchedulingMode {
+    /// Human-readable description for diagnostics
+    pub fn description(&self) -> &'static str {
+        match self {
+            SchedulingMode::DurationBased => "duration-based (no effort tracking)",
+            SchedulingMode::EffortBased => "effort-based (no cost tracking)",
+            SchedulingMode::ResourceLoaded => "resource-loaded (full tracking)",
+        }
+    }
+
+    /// What capabilities are available in this mode
+    pub fn capabilities(&self) -> SchedulingCapabilities {
+        match self {
+            SchedulingMode::DurationBased => SchedulingCapabilities {
+                timeline: true,
+                utilization: false,
+                cost_tracking: false,
+            },
+            SchedulingMode::EffortBased => SchedulingCapabilities {
+                timeline: true,
+                utilization: true,
+                cost_tracking: false,
+            },
+            SchedulingMode::ResourceLoaded => SchedulingCapabilities {
+                timeline: true,
+                utilization: true,
+                cost_tracking: true,
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for SchedulingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.description())
+    }
+}
+
+/// Capabilities available for a given scheduling mode
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SchedulingCapabilities {
+    /// Can calculate task start/end dates
+    pub timeline: bool,
+    /// Can track resource utilization
+    pub utilization: bool,
+    /// Can track project costs
+    pub cost_tracking: bool,
+}
+
 /// Reference to a resource with allocation units
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceRef {
@@ -3207,5 +3278,66 @@ mod tests {
         assert_eq!(span.column, 5);
         assert_eq!(span.length, 8);
         assert_eq!(span.label, Some("highlight".to_string()));
+    }
+
+    // =========================================================================
+    // Scheduling Mode Tests
+    // =========================================================================
+
+    #[test]
+    fn scheduling_mode_default_is_duration_based() {
+        assert_eq!(SchedulingMode::default(), SchedulingMode::DurationBased);
+    }
+
+    #[test]
+    fn scheduling_mode_description() {
+        assert_eq!(
+            SchedulingMode::DurationBased.description(),
+            "duration-based (no effort tracking)"
+        );
+        assert_eq!(
+            SchedulingMode::EffortBased.description(),
+            "effort-based (no cost tracking)"
+        );
+        assert_eq!(
+            SchedulingMode::ResourceLoaded.description(),
+            "resource-loaded (full tracking)"
+        );
+    }
+
+    #[test]
+    fn scheduling_mode_display() {
+        assert_eq!(
+            format!("{}", SchedulingMode::DurationBased),
+            "duration-based (no effort tracking)"
+        );
+        assert_eq!(
+            format!("{}", SchedulingMode::ResourceLoaded),
+            "resource-loaded (full tracking)"
+        );
+    }
+
+    #[test]
+    fn scheduling_mode_capabilities_duration_based() {
+        let caps = SchedulingMode::DurationBased.capabilities();
+        assert!(caps.timeline);
+        assert!(!caps.utilization);
+        assert!(!caps.cost_tracking);
+    }
+
+    #[test]
+    fn scheduling_mode_capabilities_effort_based() {
+        let caps = SchedulingMode::EffortBased.capabilities();
+        assert!(caps.timeline);
+        assert!(caps.utilization);
+        assert!(!caps.cost_tracking);
+    }
+
+    #[test]
+    fn scheduling_mode_capabilities_resource_loaded() {
+        let caps = SchedulingMode::ResourceLoaded.capabilities();
+        assert!(caps.timeline);
+        assert!(caps.utilization);
+        assert!(caps.cost_tracking);
     }
 }

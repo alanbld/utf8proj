@@ -16,6 +16,7 @@ info[I001]: project 'W002 Test' scheduled successfully
    = cost: $1800.0 - $3600.0 (expected: $2700.0)
    = tasks: 1 (0 concrete, 1 abstract assignments)
    = critical path: 1 tasks
+   = scheduling: resource-loaded (full tracking)
 
 info[I004]: project 0% complete, on schedule 🟢
   --> w002_wide_cost_range.proj

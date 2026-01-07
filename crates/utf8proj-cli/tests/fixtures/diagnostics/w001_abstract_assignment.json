@@ -34,7 +34,8 @@
         "duration: 5 days (2025-01-06 to 2025-01-10)",
         "cost: $500 - $1000 (expected: $750)",
         "tasks: 1 (0 concrete, 1 abstract assignments)",
-        "critical path: 1 tasks"
+        "critical path: 1 tasks",
+        "scheduling: resource-loaded (full tracking)"
       ],
       "severity": "info",
       "spans": []
@@ -85,7 +86,8 @@
         "id": "api_development",
         "is_critical": true,
         "name": "API Development",
-        "start": "2025-01-06"
+        "start": "2025-01-06",
+        "summary": null
       }
     ]
   }

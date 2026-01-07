@@ -42,6 +42,7 @@ info[I001]: project 'E001 Test' scheduled successfully
    = cost: $400 - $600 (expected: $500)
    = tasks: 1 (0 concrete, 1 abstract assignments)
    = critical path: 1 tasks
+   = scheduling: resource-loaded (full tracking)
 
 info[I004]: project 0% complete, on schedule 🟢
   --> e001_circular_specialization.proj

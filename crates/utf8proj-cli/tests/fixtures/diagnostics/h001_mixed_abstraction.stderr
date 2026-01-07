@@ -22,6 +22,7 @@ info[I001]: project 'H001 Test' scheduled successfully
    = cost: $900 - $1100 (expected: $1000)
    = tasks: 1 (0 concrete, 1 abstract assignments)
    = critical path: 1 tasks
+   = scheduling: resource-loaded (full tracking)
 
 info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
   alice: 100% (5.0/5 days) [HIGH]

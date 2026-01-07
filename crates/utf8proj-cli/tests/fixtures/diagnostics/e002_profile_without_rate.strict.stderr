@@ -28,6 +28,7 @@ info[I001]: project 'E002 Test' scheduled successfully
    = cost: unknown (no cost data)
    = tasks: 2 (0 concrete, 2 abstract assignments)
    = critical path: 2 tasks
+   = scheduling: effort-based (no cost tracking)
 
 info[I004]: project 0% complete, on schedule 🟢
   --> e002_profile_without_rate.proj

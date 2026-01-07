@@ -30,7 +30,7 @@ use std::collections::{HashMap, VecDeque};
 use utf8proj_core::{
     Assignment, Calendar, CostRange, DependencyType, Duration, Explanation, FeasibilityResult,
     Money, Project, RateRange, ResourceProfile, Schedule, ScheduleError, ScheduledTask, Scheduler,
-    Task, TaskConstraint, TaskId, TaskStatus,
+    SchedulingMode, Task, TaskConstraint, TaskId, TaskStatus,
     // Diagnostics
     Diagnostic, DiagnosticCode, DiagnosticEmitter,
 };
@@ -1791,6 +1791,44 @@ fn check_earned_value(
     );
 }
 
+/// Classify the scheduling mode of a project based on its characteristics
+///
+/// This is capability awareness, not validation. All modes are valid.
+pub fn classify_scheduling_mode(project: &Project) -> SchedulingMode {
+    // Collect all leaf tasks (recursively)
+    fn collect_leaf_tasks(tasks: &[Task]) -> Vec<&Task> {
+        let mut leaves = Vec::new();
+        for task in tasks {
+            if task.children.is_empty() {
+                leaves.push(task);
+            } else {
+                leaves.extend(collect_leaf_tasks(&task.children));
+            }
+        }
+        leaves
+    }
+
+    let leaf_tasks = collect_leaf_tasks(&project.tasks);
+
+    // Check if any task uses effort
+    let has_effort = leaf_tasks
+        .iter()
+        .any(|t| t.effort.is_some() && !t.assigned.is_empty());
+
+    // Check if any resource has a rate
+    let has_rates = project.resources.iter().any(|r| r.rate.is_some())
+        || project.profiles.iter().any(|p| p.rate.is_some());
+
+    // Classify based on what's present
+    if has_effort && has_rates {
+        SchedulingMode::ResourceLoaded
+    } else if has_effort {
+        SchedulingMode::EffortBased
+    } else {
+        SchedulingMode::DurationBased
+    }
+}
+
 /// I001: Emit project cost summary
 fn emit_project_summary(
     project: &Project,
@@ -1823,6 +1861,9 @@ fn emit_project_summary(
         "unknown (no cost data)".to_string()
     };
 
+    // Classify scheduling mode for capability awareness
+    let scheduling_mode = classify_scheduling_mode(project);
+
     emitter.emit(
         Diagnostic::new(
             DiagnosticCode::I001ProjectCostSummary,
@@ -1841,7 +1882,8 @@ fn emit_project_summary(
             concrete_count,
             abstract_count
         ))
-        .with_note(format!("critical path: {} tasks", schedule.critical_path.len())),
+        .with_note(format!("critical path: {} tasks", schedule.critical_path.len()))
+        .with_note(format!("scheduling: {}", scheduling_mode)),
     );
 }
 
@@ -4391,5 +4433,103 @@ mod tests {
 
         let formatted = CpmSolver::format_constraint(&FinishNoLaterThan(date));
         assert!(formatted.contains("FinishNoLaterThan"));
+    }
+
+    // =========================================================================
+    // Scheduling Mode Classification Tests
+    // =========================================================================
+
+    #[test]
+    fn classify_duration_only_project() {
+        let mut project = Project::new("Duration Only");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Task with duration only, no effort or assignments
+        let mut task = Task::new("simple_task");
+        task.duration = Some(Duration::days(5));
+        project.tasks = vec![task];
+
+        let mode = classify_scheduling_mode(&project);
+        assert_eq!(mode, SchedulingMode::DurationBased);
+    }
+
+    #[test]
+    fn classify_effort_based_project() {
+        use utf8proj_core::Resource;
+        use std::collections::HashMap;
+
+        let mut project = Project::new("Effort Based");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Resource without rate
+        let resource = Resource {
+            id: "dev".to_string(),
+            name: "Developer".to_string(),
+            rate: None,
+            calendar: None,
+            capacity: 1.0,
+            efficiency: 1.0,
+            attributes: HashMap::new(),
+            specializes: None,
+            availability: None,
+        };
+        project.resources = vec![resource];
+
+        // Task with effort and assignment
+        let mut task = Task::new("effort_task");
+        task.effort = Some(Duration::days(5));
+        task.assigned = vec![utf8proj_core::ResourceRef {
+            resource_id: "dev".to_string(),
+            units: 1.0,
+        }];
+        project.tasks = vec![task];
+
+        let mode = classify_scheduling_mode(&project);
+        assert_eq!(mode, SchedulingMode::EffortBased);
+    }
+
+    #[test]
+    fn classify_resource_loaded_project() {
+        use utf8proj_core::Resource;
+        use std::collections::HashMap;
+
+        let mut project = Project::new("Resource Loaded");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Resource with rate
+        let resource = Resource {
+            id: "dev".to_string(),
+            name: "Developer".to_string(),
+            rate: Some(Money::new(100, "USD")),
+            calendar: None,
+            capacity: 1.0,
+            efficiency: 1.0,
+            attributes: HashMap::new(),
+            specializes: None,
+            availability: None,
+        };
+        project.resources = vec![resource];
+
+        // Task with effort and assignment
+        let mut task = Task::new("costed_task");
+        task.effort = Some(Duration::days(5));
+        task.assigned = vec![utf8proj_core::ResourceRef {
+            resource_id: "dev".to_string(),
+            units: 1.0,
+        }];
+        project.tasks = vec![task];
+
+        let mode = classify_scheduling_mode(&project);
+        assert_eq!(mode, SchedulingMode::ResourceLoaded);
+    }
+
+    #[test]
+    fn classify_empty_project_is_duration_based() {
+        let mut project = Project::new("Empty");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![];
+
+        let mode = classify_scheduling_mode(&project);
+        assert_eq!(mode, SchedulingMode::DurationBased);
     }
 }

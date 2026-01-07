@@ -20,6 +20,7 @@ info[I001]: project 'W003 Test' scheduled successfully
    = cost: $600
    = tasks: 1 (1 concrete, 0 abstract assignments)
    = critical path: 1 tasks
+   = scheduling: resource-loaded (full tracking)
 
 info[I003]: Resource utilization (2025-01-06 - 2025-01-10)
   alice: 100% (5.0/5 days) [HIGH]
