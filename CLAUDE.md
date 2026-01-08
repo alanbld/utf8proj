@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Rust-based project scheduling engine with CPM (Critical Path Method) solver, resource leveling, and BDD-based conflict analysis. Parses TaskJuggler (.tjp) and native DSL (.proj) formats, schedules tasks, and renders output. Implements PMI/PMBOK scheduling standards.
+Rust-based **explainable** project scheduling engine with CPM (Critical Path Method) solver and deterministic resource leveling. Parses TaskJuggler (.tjp) and native DSL (.proj) formats, schedules tasks, and renders output. Core philosophy: **"describe, don't prescribe"** — diagnostics explain scheduling decisions rather than silently fixing them.
 
 ## Workspace Structure
 
@@ -10,9 +10,9 @@ Rust-based project scheduling engine with CPM (Critical Path Method) solver, res
 crates/
 ├── utf8proj-core/      # Core types: Task, Resource, Dependency, Calendar, Schedule
 ├── utf8proj-parser/    # Parsers for TJP and native DSL (pest grammar)
-├── utf8proj-solver/    # CPM scheduler with resource leveling
-│   ├── src/leveling.rs # Resource over-allocation detection and resolution
-│   └── src/bdd.rs      # BDD-based conflict analysis (Biodivine)
+├── utf8proj-solver/    # CPM scheduler with deterministic resource leveling
+│   ├── src/leveling.rs # RFC-0003 resource leveling with audit trail
+│   └── src/bdd.rs      # BDD-based conflict analysis (experimental)
 ├── utf8proj-render/    # Output rendering (multiple formats)
 │   ├── src/gantt.rs    # Interactive HTML Gantt chart renderer
 │   ├── src/mermaid.rs  # MermaidJS Gantt diagram
@@ -41,8 +41,9 @@ playground/             # Browser-based playground
 - **Constraints**: Declarative constraint blocks for what-if analysis
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
-- **Resource leveling**: Automatic over-allocation detection and task shifting
-- **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (Biodivine)
+- **Resource leveling**: RFC-0003 deterministic leveling with full audit trail (L001-L004 diagnostics)
+- **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
+- **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
@@ -74,7 +75,7 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 606 passing, 1 ignored (render doctest)
+**Tests:** 738 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 12 leveling + 4 progress + 19 semantic = 177 tests
@@ -120,6 +121,13 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 | I003 | Info | Resource utilization report |
 | I004 | Info | Project status (progress + variance) |
 | I005 | Info | Earned value summary (SPI) |
+| **Leveling (L)** | | |
+| L001 | Info | Overallocation resolved (task shifted) |
+| L002 | Warning | Unresolvable conflict (no valid shift) |
+| L003 | Info | Project duration increased due to leveling |
+| L004 | Warning | Milestone delayed by leveling |
+| **Calendar (C)** | | |
+| C001-C023 | Various | Calendar impact diagnostics (working days vs calendar days, weekend impact, holiday impact, etc.) |
 
 ### Usage
 
@@ -242,14 +250,17 @@ Task::new("work").effort(Duration::days(5)).assign_with_units("dev", 0.5)
 Task::new("meeting").duration(Duration::days(1)).assign("dev")
 ```
 
-## Resource Leveling
+## Resource Leveling (RFC-0003)
 
-The solver now supports automatic resource leveling to resolve over-allocation conflicts.
+Deterministic, explainable resource leveling per RFC-0003. Key principles:
+- **Opt-in only**: Leveling never runs unless explicitly requested
+- **Deterministic**: Same inputs always produce identical outputs (stable sorting)
+- **Auditable**: Every shift has a `LevelingReason` explaining why
 
 ### Usage
 
 ```rust
-use utf8proj_solver::CpmSolver;
+use utf8proj_solver::{CpmSolver, level_resources_with_options, LevelingOptions, LevelingStrategy};
 use utf8proj_core::Scheduler;
 
 // Without leveling (default)
@@ -258,32 +269,62 @@ let solver = CpmSolver::new();
 // With resource leveling enabled
 let solver = CpmSolver::with_leveling();
 let schedule = solver.schedule(&project).unwrap();
+
+// Manual leveling with options
+let options = LevelingOptions {
+    strategy: LevelingStrategy::CriticalPathFirst,
+    max_project_delay_factor: Some(1.5), // Max 50% project extension
+};
+let result = level_resources_with_options(&project, &schedule, &calendar, &options);
 ```
 
 ### API
 
 ```rust
-use utf8proj_solver::{detect_overallocations, level_resources, LevelingResult};
+use utf8proj_solver::{detect_overallocations, level_resources_with_options, LevelingResult, LevelingReason, LevelingMetrics};
 
 // Detect over-allocations without resolving
 let conflicts = detect_overallocations(&project, &schedule);
 
-// Manually level resources with full result
-let result: LevelingResult = level_resources(&project, &schedule, &calendar);
-// result.shifted_tasks - tasks that were moved
+// Full leveling with options
+let result: LevelingResult = level_resources_with_options(&project, &schedule, &calendar, &options);
+// result.original_schedule - unchanged input schedule (audit trail)
+// result.leveled_schedule - schedule after leveling
+// result.shifted_tasks - Vec<(task_id, original_start, new_start, LevelingReason)>
 // result.unresolved_conflicts - conflicts that couldn't be resolved
-// result.project_extended - whether project duration increased
+// result.metrics - LevelingMetrics (duration increase, utilization, delays)
+// result.diagnostics - L001-L004 diagnostics emitted
 ```
 
-### Algorithm
+### LevelingReason Enum
+
+```rust
+pub enum LevelingReason {
+    ResourceOverallocated {
+        resource: String,
+        peak_demand: f32,
+        capacity: f32,
+        dates: (NaiveDate, NaiveDate),
+    },
+    DependencyChain {
+        predecessor: String,
+        predecessor_delay: i64,
+    },
+}
+```
+
+### Algorithm (CriticalPathFirst Strategy)
 
 1. Build resource usage timeline for each resource
 2. Detect over-allocation periods (usage > capacity)
-3. For each conflict:
-   - Find candidate tasks to shift (prioritize non-critical, higher slack, lower priority)
-   - Shift task to next available slot
-4. Repeat until resolved or impossible
-5. Recalculate critical path if project was extended
+3. Sort conflicts deterministically by (resource_id, start_date)
+4. For each conflict:
+   - Find candidate tasks to shift
+   - Sort candidates by: (is_critical ASC, slack DESC, priority DESC, task_id ASC)
+   - Shift first viable candidate to next available slot
+5. Emit L001 diagnostic for each resolution
+6. Emit L002/L003/L004 as appropriate
+7. Return both original and leveled schedules for comparison
 
 ## Interactive Gantt Chart
 
@@ -420,7 +461,31 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+1. **RFC-0003: Deterministic Resource Leveling** (2026-01-08)
+   - Implemented Phase 1 of RFC-0003 in `crates/utf8proj-solver/src/leveling.rs`
+   - Added `LevelingOptions`, `LevelingStrategy`, `LevelingReason`, `LevelingMetrics` types
+   - Deterministic conflict sorting: (resource_id, start_date), task_id tie-breaker
+   - `LevelingResult` preserves `original_schedule` for audit trail
+   - Added L001-L004 diagnostic codes for leveling decisions
+   - CLI `--max-delay-factor` option for limiting project extension
+   - 20 leveling tests including determinism, no-op, critical path preservation
+
+2. **Calendar Diagnostics (C001-C023)** (2026-01-07)
+   - `CalendarImpact` struct tracking working days vs calendar days per task
+   - 23 calendar-specific diagnostic codes
+   - `filter_task_diagnostics()` for diagnostic→task linking
+   - Excel export with Calendar Analysis and Diagnostics sheets
+   - LSP hover with CalendarImpact display
+   - Dashboard calendar visualization
+
+3. **README Rewrite** (2026-01-08)
+   - Updated tagline to "Explainable Project Scheduling"
+   - Fixed broken badges and documentation links
+   - Added "Why utf8proj?" comparison table
+   - Linked to EXPLAINABILITY.md manifesto
+   - Updated library examples to use correct CpmSolver API
+
+4. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
@@ -629,11 +694,11 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 
 ## Remaining Work
 
-- CLI test coverage (32.1% currently)
-- WASM test coverage (14.9% currently)
-- Edge cases in calendar parsing (lines 312-316, 326, 329)
+- CLI test coverage (42.5% currently, target 60%+)
+- WASM test coverage (91.4% - good shape)
+- RFC-0003 Phase 2: Additional leveling strategies if needed
+- Edge cases in calendar parsing
 - Some resource/task attribute combinations in native parser
-- Error handling paths in leveling
 
 ## Grammar Notes
 
