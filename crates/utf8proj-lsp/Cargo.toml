@@ -28,6 +28,9 @@ serde_json.workspace = true
 # Error handling
 anyhow.workspace = true
 
+# Date/time for calendar impact
+chrono = "0.4"
+
 # Logging
 tracing.workspace = true
 tracing-subscriber.workspace = true

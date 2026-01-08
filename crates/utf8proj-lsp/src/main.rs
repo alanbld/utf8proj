@@ -16,7 +16,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use utf8proj_core::{CollectingEmitter, Project, Schedule, Scheduler};
+use utf8proj_core::{CollectingEmitter, Diagnostic as CoreDiagnostic, Project, Schedule, Scheduler};
 use utf8proj_parser::parse_project;
 use utf8proj_solver::{analyze_project, AnalysisConfig, CpmSolver};
 
@@ -34,6 +34,8 @@ struct DocumentState {
     schedule: Option<Schedule>,
     /// Parse error (if failed)
     parse_error: Option<String>,
+    /// Collected diagnostics for hover info
+    diagnostics: Vec<CoreDiagnostic>,
 }
 
 /// The utf8proj language server
@@ -57,6 +59,7 @@ impl Backend {
             project: None,
             schedule: None,
             parse_error: None,
+            diagnostics: Vec::new(),
         };
 
         // Try to parse the document
@@ -70,6 +73,8 @@ impl Backend {
                 let config = AnalysisConfig::new().with_file(uri.path());
                 analyze_project(&project, schedule.as_ref(), &config, &mut emitter);
 
+                // Store diagnostics for hover info
+                state.diagnostics = emitter.diagnostics.clone();
                 state.schedule = schedule;
                 state.project = Some(project);
                 to_lsp_diagnostics(&emitter.diagnostics)
@@ -162,6 +167,7 @@ impl LanguageServer for Backend {
                 return Ok(get_hover_info(
                     project,
                     state.schedule.as_ref(),
+                    &state.diagnostics,
                     &state.text,
                     position,
                 ));

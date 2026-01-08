@@ -3,16 +3,19 @@
 //! Provides contextual information when hovering over:
 //! - Profile identifiers: shows rate range, specialization chain, traits
 //! - Resource identifiers: shows rate, capacity, efficiency
-//! - Task identifiers: shows dates, slack, criticality, dependencies, assignments
+//! - Task identifiers: shows dates, slack, criticality, dependencies, assignments,
+//!   calendar impact, and related diagnostics
 
+use chrono::Datelike;
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use utf8proj_core::{Project, ResourceProfile, ResourceRate, Schedule, Task, TaskConstraint};
+use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, ResourceProfile, ResourceRate, Schedule, Task, TaskConstraint};
 
 /// Get hover information for a position in the document
 pub fn get_hover_info(
     project: &Project,
     schedule: Option<&Schedule>,
+    diagnostics: &[Diagnostic],
     text: &str,
     position: Position,
 ) -> Option<Hover> {
@@ -29,7 +32,7 @@ pub fn get_hover_info(
     }
 
     if let Some(task) = find_task_by_id(&project.tasks, &word) {
-        return Some(hover_for_task(task, &word, schedule));
+        return Some(hover_for_task(task, &word, project, schedule, diagnostics));
     }
 
     if let Some(t) = project.get_trait(&word) {
@@ -191,7 +194,7 @@ fn hover_for_resource(resource: &utf8proj_core::Resource) -> Hover {
 }
 
 /// Build hover content for a task
-fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Hover {
+fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Option<&Schedule>, diagnostics: &[Diagnostic]) -> Hover {
     let mut lines = vec![format!("**Task: {}**", task.id)];
 
     if task.name != task.id {
@@ -274,6 +277,28 @@ fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Ho
                 lines.push(format!("🟢 Slack: {} days", slack_days));
             }
 
+            // Calendar Impact section
+            let project_calendar = project.calendars.iter()
+                .find(|c| c.id == project.calendar)
+                .cloned()
+                .unwrap_or_else(Calendar::default);
+
+            let (working_days, weekend_days, holiday_days) =
+                calculate_calendar_impact(st.start, st.finish, &project_calendar);
+
+            if weekend_days > 0 || holiday_days > 0 {
+                lines.push("---".to_string());
+                lines.push("**📆 Calendar Impact:**".to_string());
+                let mut impact_parts = Vec::new();
+                if weekend_days > 0 {
+                    impact_parts.push(format!("{} weekend days", weekend_days));
+                }
+                if holiday_days > 0 {
+                    impact_parts.push(format!("{} holidays", holiday_days));
+                }
+                lines.push(format!("• {} working days, {}", working_days, impact_parts.join(", ")));
+            }
+
             // Show constraint effects if any
             if !task.constraints.is_empty() {
                 let effects = analyze_constraint_effects(task, st);
@@ -288,12 +313,88 @@ fn hover_for_task(task: &Task, task_id: &str, schedule: Option<&Schedule>) -> Ho
         }
     }
 
+    // Related Diagnostics section
+    let task_diags = filter_task_diagnostics(task_id, diagnostics);
+    if !task_diags.is_empty() {
+        lines.push("---".to_string());
+        lines.push("**⚠️ Diagnostics:**".to_string());
+        for code in &task_diags {
+            let severity_icon = match code.as_str().chars().next() {
+                Some('E') | Some('C') => "🔴",
+                Some('W') => "🟡",
+                Some('H') => "💡",
+                _ => "ℹ️",
+            };
+            lines.push(format!("• {} `{}`", severity_icon, code.as_str()));
+        }
+    }
+
     Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: lines.join("\n\n"),
         }),
         range: None,
+    }
+}
+
+/// Calculate calendar impact for a date range
+fn calculate_calendar_impact(
+    start: chrono::NaiveDate,
+    finish: chrono::NaiveDate,
+    calendar: &Calendar,
+) -> (u32, u32, u32) {
+    let mut working_days = 0u32;
+    let mut weekend_days = 0u32;
+    let mut holiday_days = 0u32;
+
+    let mut current = start;
+    while current <= finish {
+        let weekday = current.weekday().num_days_from_sunday() as u8;
+
+        // Check if it's a holiday
+        let is_holiday = calendar.holidays.iter()
+            .any(|h| current >= h.start && current <= h.end);
+
+        if is_holiday {
+            holiday_days += 1;
+        } else if !calendar.working_days.contains(&weekday) {
+            weekend_days += 1;
+        } else {
+            working_days += 1;
+        }
+
+        current = current.succ_opt().unwrap_or(current);
+        if current == finish && current == start {
+            break; // Avoid infinite loop for zero-duration tasks
+        }
+    }
+
+    (working_days, weekend_days, holiday_days)
+}
+
+/// Filter diagnostics relevant to a specific task
+fn filter_task_diagnostics(task_id: &str, diagnostics: &[Diagnostic]) -> Vec<DiagnosticCode> {
+    diagnostics
+        .iter()
+        .filter(|d| is_diagnostic_for_task(d, task_id))
+        .map(|d| d.code.clone())
+        .collect()
+}
+
+/// Check if a diagnostic is relevant to a specific task
+fn is_diagnostic_for_task(diagnostic: &Diagnostic, task_id: &str) -> bool {
+    let quoted_id = format!("'{}'", task_id);
+    match diagnostic.code {
+        DiagnosticCode::C010NonWorkingDay | DiagnosticCode::C011CalendarMismatch => {
+            diagnostic.message.contains(&quoted_id)
+        }
+        DiagnosticCode::H004TaskUnconstrained => diagnostic.message.contains(&quoted_id),
+        DiagnosticCode::W001AbstractAssignment | DiagnosticCode::H001MixedAbstraction => {
+            diagnostic.message.contains(&quoted_id)
+        }
+        DiagnosticCode::W014ContainerDependency => diagnostic.message.contains(&quoted_id),
+        _ => false,
     }
 }
 
@@ -850,7 +951,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "task1").unwrap();
 
-        let hover = hover_for_task(task, "task1", None);
+        let hover = hover_for_task(task, "task1", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: task1**"));
@@ -867,7 +968,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "milestone1").unwrap();
 
-        let hover = hover_for_task(task, "milestone1", None);
+        let hover = hover_for_task(task, "milestone1", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: milestone1**"));
@@ -879,7 +980,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "container").unwrap();
 
-        let hover = hover_for_task(task, "container", None);
+        let hover = hover_for_task(task, "container", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: container**"));
@@ -892,7 +993,7 @@ mod tests {
         let project = make_test_project();
         let task = find_task_by_id(&project.tasks, "simple").unwrap();
 
-        let hover = hover_for_task(task, "simple", None);
+        let hover = hover_for_task(task, "simple", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("**Task: simple**"));
@@ -913,7 +1014,7 @@ mod tests {
         project.tasks.push(zero_task);
 
         let task = find_task_by_id(&project.tasks, "zero_progress").unwrap();
-        let hover = hover_for_task(task, "zero_progress", None);
+        let hover = hover_for_task(task, "zero_progress", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         // 0% progress should not be shown
@@ -956,7 +1057,7 @@ mod tests {
             spi: 1.0,
         };
 
-        let hover = hover_for_task(task, "task1", Some(&schedule));
+        let hover = hover_for_task(task, "task1", &project, Some(&schedule), &[]);
         let content = extract_hover_content(&hover);
 
         // Should show schedule info
@@ -1002,7 +1103,7 @@ mod tests {
             spi: 1.0,
         };
 
-        let hover = hover_for_task(task, "task1", Some(&schedule));
+        let hover = hover_for_task(task, "task1", &project, Some(&schedule), &[]);
         let content = extract_hover_content(&hover);
 
         // Should show slack info
@@ -1013,6 +1114,7 @@ mod tests {
 
     #[test]
     fn hover_task_with_constraints_shows_list() {
+        let project = make_test_project();
         let mut task = Task::new("constrained_task");
         task.constraints.push(TaskConstraint::StartNoEarlierThan(
             NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
@@ -1021,7 +1123,7 @@ mod tests {
             NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
         ));
 
-        let hover = hover_for_task(&task, "constrained_task", None);
+        let hover = hover_for_task(&task, "constrained_task", &project, None, &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("Constraints:"));
@@ -1031,6 +1133,7 @@ mod tests {
 
     #[test]
     fn hover_task_with_constraint_effects_pinned() {
+        let project = make_test_project();
         let mut task = Task::new("pinned_task");
         task.duration = Some(Duration::days(3));
         task.constraints.push(TaskConstraint::MustStartOn(
@@ -1067,7 +1170,7 @@ mod tests {
             spi: 1.0,
         };
 
-        let hover = hover_for_task(&task, "pinned_task", Some(&schedule));
+        let hover = hover_for_task(&task, "pinned_task", &project, Some(&schedule), &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("Constraint Effects"));
@@ -1077,6 +1180,7 @@ mod tests {
 
     #[test]
     fn hover_task_with_constraint_effects_redundant() {
+        let project = make_test_project();
         let mut task = Task::new("redundant_task");
         task.duration = Some(Duration::days(5));
         // Constraint is earlier than actual ES - should be redundant
@@ -1115,7 +1219,7 @@ mod tests {
             spi: 1.0,
         };
 
-        let hover = hover_for_task(&task, "redundant_task", Some(&schedule));
+        let hover = hover_for_task(&task, "redundant_task", &project, Some(&schedule), &[]);
         let content = extract_hover_content(&hover);
 
         assert!(content.contains("Constraint Effects"));
@@ -1222,7 +1326,7 @@ mod tests {
         let project = make_test_project();
         let text = "assign: developer";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -1234,7 +1338,7 @@ mod tests {
         let project = make_test_project();
         let text = "resource: alice";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 12));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 12));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -1246,7 +1350,7 @@ mod tests {
         let project = make_test_project();
         let text = "depends: task1";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -1258,7 +1362,7 @@ mod tests {
         let project = make_test_project();
         let text = "traits: senior";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 10));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 10));
 
         assert!(hover.is_some());
         let content = extract_hover_content(&hover.unwrap());
@@ -1270,7 +1374,7 @@ mod tests {
         let project = make_test_project();
         let text = "unknown_identifier";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 5));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 5));
 
         assert!(hover.is_none());
     }
@@ -1280,7 +1384,7 @@ mod tests {
         let project = make_test_project();
         let text = "   ";
 
-        let hover = get_hover_info(&project, None, text, Position::new(0, 1));
+        let hover = get_hover_info(&project, None, &[], text, Position::new(0, 1));
 
         assert!(hover.is_none());
     }
