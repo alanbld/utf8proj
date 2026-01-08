@@ -33,7 +33,7 @@ playground/             # Browser-based playground
 ## Key Features Implemented
 
 - **Hierarchical tasks**: Nested task parsing, container date derivation (min/max of children)
-- **Dependency types**: FS (default), SS (!), FF (~), SF (!~) with lag support
+- **Dependency types**: FS (default), SS, FF, SF with lag support (+2d, -1d)
 - **Calendars**: Working days, working hours, holidays (single-date and range)
 - **Resources**: Rate, capacity, efficiency, calendar, email, role, leave
 - **Task attributes**: Priority, complete %, constraints, note, tag, cost, payment
@@ -710,9 +710,14 @@ report gantt "output/timeline.svg" {
 
 ### TaskJuggler (.tjp)
 
+**Dependency syntax (TJP-specific, not native DSL):**
+- `depends task` - FS (Finish-to-Start, default)
+- `depends task { onstart }` - SS (Start-to-Start)
+- `depends task { onend }` - FF (Finish-to-Finish)
+- `depends task { gapduration 2d }` - FS with lag
+
+**Other TJP syntax:**
 - `!` prefix for sibling references: `depends !kickoff`
-- `~` suffix for FF: `depends task~`
-- `!~` for SF: `depends !task~`
 - Resource allocation: `allocate dev1, dev2`
 - Leaves: `leaves annual 2026-03-02 - 2026-03-13`
 - Holidays: `leaves holiday "Name" 2026-01-01` or `vacation 2026-01-01`
