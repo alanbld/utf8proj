@@ -2822,7 +2822,6 @@ impl Scheduler for CpmSolver {
     }
 
     fn explain(&self, project: &Project, task_id: &TaskId) -> Explanation {
-
         // Try to find the task and explain its scheduling
         let mut task_map: HashMap<String, &Task> = HashMap::new();
         flatten_tasks(&project.tasks, &mut task_map);
@@ -2836,6 +2835,9 @@ impl Scheduler for CpmSolver {
 
             // Build constraint effects from temporal constraints
             let constraint_effects = self.analyze_constraint_effects(project, task);
+
+            // Calculate calendar impact
+            let calendar_impact = self.calculate_calendar_impact(project, task);
 
             Explanation {
                 task_id: task_id.clone(),
@@ -2856,6 +2858,8 @@ impl Scheduler for CpmSolver {
                 constraints_applied: dependency_constraints,
                 alternatives_considered: vec![],
                 constraint_effects,
+                calendar_impact,
+                related_diagnostics: vec![], // Will be populated by analyze_project
             }
         } else {
             Explanation {
@@ -2864,8 +2868,104 @@ impl Scheduler for CpmSolver {
                 constraints_applied: vec![],
                 alternatives_considered: vec![],
                 constraint_effects: vec![],
+                calendar_impact: None,
+                related_diagnostics: vec![],
             }
         }
+    }
+
+}
+
+// Helper methods for CpmSolver (not part of the Scheduler trait)
+impl CpmSolver {
+    /// Calculate the impact of the calendar on task scheduling
+    fn calculate_calendar_impact(
+        &self,
+        project: &Project,
+        task: &Task,
+    ) -> Option<utf8proj_core::CalendarImpact> {
+        use chrono::Datelike;
+        use utf8proj_core::CalendarImpact;
+
+        // Schedule the project to get actual dates
+        let schedule = Scheduler::schedule(self, project).ok()?;
+        let scheduled_task = schedule.tasks.get(&task.id)?;
+
+        // Get the calendar for this task (use project calendar)
+        let calendar = project
+            .calendars
+            .iter()
+            .find(|c| c.id == project.calendar)
+            .cloned()
+            .unwrap_or_default();
+
+        let start = scheduled_task.start;
+        let finish = scheduled_task.finish;
+        let calendar_days = (finish - start).num_days() + 1;
+
+        // Count non-working days in the task period
+        let mut non_working_days = 0u32;
+        let mut weekend_days = 0u32;
+        let mut holiday_days = 0u32;
+
+        let mut current = start;
+        while current <= finish {
+            let weekday = current.weekday().num_days_from_sunday() as u8;
+
+            // Check if it's a non-working day
+            if !calendar.working_days.contains(&weekday) {
+                non_working_days += 1;
+                // Check if weekend (Saturday=6, Sunday=0)
+                if weekday == 0 || weekday == 6 {
+                    weekend_days += 1;
+                }
+            }
+
+            // Check if it's a holiday
+            if calendar.holidays.iter().any(|h| h.start <= current && current <= h.end) {
+                holiday_days += 1;
+                // If holiday is on a working day, it adds to non-working
+                if calendar.working_days.contains(&weekday) {
+                    non_working_days += 1;
+                }
+            }
+
+            current = current.succ_opt()?;
+        }
+
+        let working_days = calendar_days - non_working_days as i64;
+        let total_delay_days = non_working_days as i64;
+
+        // Generate human-readable description
+        let description = if non_working_days > 0 {
+            let mut parts = vec![];
+            if weekend_days > 0 {
+                parts.push(format!("{} weekend day(s)", weekend_days));
+            }
+            if holiday_days > 0 {
+                parts.push(format!("{} holiday(s)", holiday_days));
+            }
+            format!(
+                "Task spans {} calendar days ({} working): {}",
+                calendar_days,
+                working_days,
+                parts.join(", ")
+            )
+        } else {
+            format!(
+                "Task scheduled entirely within {} working days",
+                working_days
+            )
+        };
+
+        Some(CalendarImpact {
+            calendar_id: calendar.id.clone(),
+            non_working_days,
+            weekend_days,
+            holiday_days,
+            total_delay_days,
+            description,
+        })
     }
 }
 
@@ -3492,6 +3592,99 @@ mod tests {
         let explanation = solver.explain(&project, &"design".to_string());
 
         assert!(explanation.constraint_effects.is_empty());
+    }
+
+    #[test]
+    fn explain_task_with_calendar_impact() {
+        // Test that explain includes calendar impact analysis
+        let mut project = Project::new("Calendar Impact Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+
+        // Create a standard calendar with Mon-Fri working days
+        let mut calendar = utf8proj_core::Calendar::default();
+        calendar.id = "standard".to_string();
+        calendar.working_days = vec![1, 2, 3, 4, 5]; // Mon-Fri
+        project.calendars.push(calendar);
+        project.calendar = "standard".to_string();
+
+        // Task spanning 10 calendar days (should include weekends)
+        project.tasks = vec![Task::new("work").duration(Duration::days(10))];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"work".to_string());
+
+        // Should have calendar impact calculated
+        assert!(
+            explanation.calendar_impact.is_some(),
+            "Calendar impact should be calculated"
+        );
+
+        let impact = explanation.calendar_impact.unwrap();
+        assert_eq!(impact.calendar_id, "standard");
+        assert!(impact.non_working_days > 0, "Should have non-working days");
+        assert!(impact.weekend_days > 0, "Should have weekend days");
+        assert!(
+            impact.description.contains("working"),
+            "Description should mention working days"
+        );
+
+        eprintln!("Calendar impact: {}", impact.description);
+        eprintln!(
+            "Non-working: {}, Weekends: {}, Holidays: {}",
+            impact.non_working_days, impact.weekend_days, impact.holiday_days
+        );
+    }
+
+    #[test]
+    fn explain_task_with_holiday_impact() {
+        use utf8proj_core::Holiday;
+
+        let mut project = Project::new("Holiday Impact Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+
+        // Create a calendar with a holiday
+        let mut calendar = utf8proj_core::Calendar::default();
+        calendar.id = "with_holiday".to_string();
+        calendar.working_days = vec![1, 2, 3, 4, 5]; // Mon-Fri
+        calendar.holidays = vec![Holiday {
+            name: "Test Holiday".to_string(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 8).unwrap(), // Wednesday
+            end: NaiveDate::from_ymd_opt(2025, 1, 8).unwrap(),
+        }];
+        project.calendars.push(calendar);
+        project.calendar = "with_holiday".to_string();
+
+        // Task spanning the holiday
+        project.tasks = vec![Task::new("work").duration(Duration::days(5))];
+
+        let solver = CpmSolver::new();
+        let explanation = solver.explain(&project, &"work".to_string());
+
+        assert!(explanation.calendar_impact.is_some());
+        let impact = explanation.calendar_impact.unwrap();
+
+        // Should detect the holiday
+        assert!(
+            impact.holiday_days > 0,
+            "Should detect holiday: {}",
+            impact.description
+        );
+        eprintln!("Holiday impact: {}", impact.description);
+    }
+
+    #[test]
+    fn explain_includes_related_diagnostics_field() {
+        // Test that the Explanation struct has the related_diagnostics field
+        let project = make_test_project();
+        let solver = CpmSolver::new();
+
+        let explanation = solver.explain(&project, &"design".to_string());
+
+        // Initially should be empty (populated by analyze_project)
+        assert!(
+            explanation.related_diagnostics.is_empty(),
+            "related_diagnostics should start empty"
+        );
     }
 
     #[test]

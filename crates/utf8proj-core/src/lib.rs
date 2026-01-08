@@ -1517,6 +1517,23 @@ pub struct ConstraintEffect {
     pub description: String,
 }
 
+/// Impact of calendar on task scheduling
+#[derive(Clone, Debug, Default)]
+pub struct CalendarImpact {
+    /// Calendar ID used for this task
+    pub calendar_id: CalendarId,
+    /// Number of non-working days in task period
+    pub non_working_days: u32,
+    /// Number of weekend days in task period
+    pub weekend_days: u32,
+    /// Number of holidays in task period
+    pub holiday_days: u32,
+    /// Total calendar delay (days added due to non-working time)
+    pub total_delay_days: i64,
+    /// Human-readable impact description
+    pub description: String,
+}
+
 /// Explanation of a scheduling decision
 #[derive(Clone, Debug)]
 pub struct Explanation {
@@ -1526,6 +1543,10 @@ pub struct Explanation {
     pub alternatives_considered: Vec<String>,
     /// Detailed effects of temporal constraints (Phase 4)
     pub constraint_effects: Vec<ConstraintEffect>,
+    /// Calendar impact on task duration
+    pub calendar_impact: Option<CalendarImpact>,
+    /// Diagnostics relevant to this task's scheduling
+    pub related_diagnostics: Vec<DiagnosticCode>,
 }
 
 /// Constraint for what-if analysis
