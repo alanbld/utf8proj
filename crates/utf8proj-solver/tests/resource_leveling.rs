@@ -505,3 +505,213 @@ fn leveling_single_task() {
     assert_eq!(schedule.tasks.len(), 1);
     assert_eq!(schedule.tasks["task1"].start, project.start);
 }
+
+// =============================================================================
+// Diagnostic Emission Tests (L001-L004)
+// =============================================================================
+
+/// Verify L001 diagnostic is emitted when overallocation is resolved
+#[test]
+fn leveling_emits_l001_on_resolution() {
+    use utf8proj_core::DiagnosticCode;
+
+    let mut project = Project::new("L001 Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // Should have shifted at least one task
+    assert!(!result.shifted_tasks.is_empty(), "Should have shifted tasks");
+
+    // Should have emitted L001 diagnostic
+    let l001_count = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == DiagnosticCode::L001OverallocationResolved)
+        .count();
+
+    assert!(
+        l001_count > 0,
+        "Should emit L001 diagnostic when resolving overallocation"
+    );
+}
+
+/// Verify L003 diagnostic is emitted when project duration increases
+#[test]
+fn leveling_emits_l003_on_duration_increase() {
+    use utf8proj_core::DiagnosticCode;
+
+    let mut project = Project::new("L003 Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // Project should be extended
+    assert!(result.project_extended, "Project should be extended");
+
+    // Should have emitted L003 diagnostic
+    let l003_exists = result
+        .diagnostics
+        .iter()
+        .any(|d| d.code == DiagnosticCode::L003DurationIncreased);
+
+    assert!(
+        l003_exists,
+        "Should emit L003 diagnostic when project duration increases"
+    );
+}
+
+// =============================================================================
+// LevelingReason and Metrics Verification
+// =============================================================================
+
+/// Verify LevelingReason::ResourceOverallocated is populated correctly
+#[test]
+fn leveling_reason_resource_overallocated() {
+    use utf8proj_solver::LevelingReason;
+
+    let mut project = Project::new("Reason Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("alice").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(3)).assign("alice"),
+        Task::new("task2").effort(Duration::days(3)).assign("alice"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // At least one task should have been shifted
+    assert!(!result.shifted_tasks.is_empty());
+
+    // Verify the reason is ResourceOverallocated with correct resource
+    let shifted = &result.shifted_tasks[0];
+    match &shifted.reason {
+        LevelingReason::ResourceOverallocated {
+            resource,
+            peak_demand,
+            capacity,
+            dates,
+        } => {
+            assert_eq!(resource, "alice", "Resource should be 'alice'");
+            assert!(*peak_demand > *capacity, "Peak demand should exceed capacity");
+            assert!(!dates.is_empty(), "Should have conflict dates");
+        }
+        LevelingReason::DependencyChain { .. } => {
+            panic!("Expected ResourceOverallocated, got DependencyChain");
+        }
+    }
+
+    // Verify resources_involved is populated
+    assert!(
+        shifted.resources_involved.contains(&"alice".to_string()),
+        "resources_involved should contain 'alice'"
+    );
+}
+
+/// Verify LevelingMetrics are calculated correctly
+#[test]
+fn leveling_metrics_calculated() {
+    let mut project = Project::new("Metrics Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+        Task::new("task3").effort(Duration::days(5)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // Verify metrics
+    assert!(
+        result.metrics.tasks_delayed > 0,
+        "Should have delayed tasks"
+    );
+    assert!(
+        result.metrics.total_delay_days > 0,
+        "Should have total delay days"
+    );
+    assert!(
+        result.metrics.project_duration_increase > 0,
+        "Should have duration increase"
+    );
+
+    // Peak utilization should have decreased (from >1.0 to <=1.0)
+    assert!(
+        result.metrics.peak_utilization_before > 1.0,
+        "Peak utilization before should be >100% (overallocated)"
+    );
+    assert!(
+        result.metrics.peak_utilization_after <= 1.0,
+        "Peak utilization after should be <=100% (resolved)"
+    );
+}
+
+/// Verify original schedule is preserved in result
+#[test]
+fn leveling_preserves_original_schedule() {
+    let mut project = Project::new("Original Preserved Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let original_task1_start = schedule.tasks["task1"].start;
+    let original_task2_start = schedule.tasks["task2"].start;
+    let original_end = schedule.project_end;
+
+    let calendar = utf8proj_core::Calendar::default();
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // Original schedule in result should match input
+    assert_eq!(
+        result.original_schedule.tasks["task1"].start,
+        original_task1_start,
+        "Original task1 start should be preserved"
+    );
+    assert_eq!(
+        result.original_schedule.tasks["task2"].start,
+        original_task2_start,
+        "Original task2 start should be preserved"
+    );
+    assert_eq!(
+        result.original_schedule.project_end, original_end,
+        "Original project end should be preserved"
+    );
+
+    // Leveled schedule should be different (extended)
+    assert!(
+        result.leveled_schedule.project_end > result.original_schedule.project_end,
+        "Leveled schedule should extend beyond original"
+    );
+}
