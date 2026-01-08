@@ -13,7 +13,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
-use utf8proj_solver::{AnalysisConfig, CpmSolver, analyze_project, calculate_utilization, fix_container_dependencies};
+use utf8proj_solver::{
+    AnalysisConfig, CpmSolver, LevelingOptions, analyze_project, calculate_utilization,
+    fix_container_dependencies, level_resources_with_options,
+};
 
 use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
 
@@ -68,9 +71,13 @@ enum Commands {
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
 
-        /// Enable resource leveling
+        /// Enable resource leveling (explicit opt-in, RFC-0003)
         #[arg(short, long)]
         leveling: bool,
+
+        /// Maximum project delay factor when leveling (e.g., 1.5 = 50% max increase)
+        #[arg(long)]
+        max_delay_factor: Option<f64>,
 
         /// Show progress tracking information
         #[arg(short = 'p', long)]
@@ -224,8 +231,8 @@ fn main() -> Result<()> {
         Some(Commands::Check { file, format, strict, quiet, calendars }) => {
             cmd_check(&file, &format, strict, quiet, calendars)
         }
-        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars)
+        Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars)
         }
         Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics }) => {
             cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics)
@@ -381,6 +388,7 @@ fn cmd_schedule(
     format: &str,
     output: Option<&std::path::Path>,
     leveling: bool,
+    max_delay_factor: Option<f64>,
     show_progress: bool,
     strict: bool,
     quiet: bool,
@@ -393,12 +401,8 @@ fn cmd_schedule(
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
-    // Check feasibility first
-    let solver = if leveling {
-        CpmSolver::with_leveling()
-    } else {
-        CpmSolver::new()
-    };
+    // Check feasibility first (always use base solver for feasibility)
+    let solver = CpmSolver::new();
     let feasibility = solver.is_feasible(&project);
 
     if !feasibility.feasible {
@@ -473,7 +477,7 @@ fn cmd_schedule(
         }
     }
 
-    let schedule = match schedule_result {
+    let base_schedule = match schedule_result {
         Ok(s) => s,
         Err(_) => {
             // Emit the collected E003 diagnostic before returning
@@ -489,6 +493,35 @@ fn cmd_schedule(
             return Err(anyhow::anyhow!("Failed to generate schedule"));
         }
     };
+
+    // Apply resource leveling if enabled (RFC-0003: explicit opt-in)
+    let (schedule, leveling_diagnostics) = if leveling {
+        let calendar = project.calendars.first().cloned().unwrap_or_default();
+        let options = LevelingOptions {
+            strategy: utf8proj_solver::LevelingStrategy::CriticalPathFirst,
+            max_project_delay_factor: max_delay_factor,
+        };
+        let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);
+
+        // Report leveling metrics if not quiet
+        if !quiet {
+            eprintln!(
+                "Leveling: {} task(s) delayed, project duration {} by {} day(s)",
+                result.metrics.tasks_delayed,
+                if result.project_extended { "increased" } else { "unchanged" },
+                result.metrics.project_duration_increase
+            );
+        }
+
+        (result.leveled_schedule, result.diagnostics)
+    } else {
+        (base_schedule, vec![])
+    };
+
+    // Add leveling diagnostics to collector
+    for diag in leveling_diagnostics {
+        collector.emit(diag);
+    }
 
     analyze_project(&project, Some(&schedule), &analysis_config, &mut collector);
 

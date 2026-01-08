@@ -1,10 +1,117 @@
 //! Resource Leveling Algorithm
 //!
 //! Detects and resolves resource over-allocation by shifting tasks within their slack.
+//!
+//! ## RFC-0003 Compliance
+//!
+//! This module implements deterministic, explainable resource leveling:
+//! - Explicit opt-in only (`--level` flag)
+//! - Every delay has a structured reason (`LevelingReason`)
+//! - Original schedule preserved alongside leveled schedule
+//! - L001-L004 diagnostics emitted for transparency
 
 use chrono::NaiveDate;
 use std::collections::{BinaryHeap, HashMap};
-use utf8proj_core::{Calendar, Duration, Project, ResourceId, Schedule, ScheduledTask, TaskId};
+use utf8proj_core::{
+    Calendar, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule, ScheduledTask,
+    Severity, TaskId,
+};
+
+// =============================================================================
+// RFC-0003 Data Structures
+// =============================================================================
+
+/// Leveling configuration (explicit user choice)
+#[derive(Debug, Clone)]
+pub struct LevelingOptions {
+    /// Strategy for selecting tasks to delay
+    pub strategy: LevelingStrategy,
+    /// Maximum allowed project duration increase factor (e.g., 2.0 = can't double duration)
+    pub max_project_delay_factor: Option<f64>,
+}
+
+impl Default for LevelingOptions {
+    fn default() -> Self {
+        Self {
+            strategy: LevelingStrategy::CriticalPathFirst,
+            max_project_delay_factor: None,
+        }
+    }
+}
+
+/// Strategy for selecting which tasks to delay during leveling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LevelingStrategy {
+    /// Delay non-critical tasks before critical ones (default)
+    CriticalPathFirst,
+    // Future strategies (not implemented in v1):
+    // PreferShorterDelay,
+    // PreserveEarlySchedule,
+}
+
+/// Structured reason for a leveling delay
+#[derive(Debug, Clone)]
+pub enum LevelingReason {
+    /// Task delayed due to resource overallocation
+    ResourceOverallocated {
+        resource: ResourceId,
+        peak_demand: f32,
+        capacity: f32,
+        dates: Vec<NaiveDate>,
+    },
+    /// Task delayed because predecessor was delayed (cascade)
+    DependencyChain {
+        predecessor: TaskId,
+        predecessor_delay: i64,
+    },
+}
+
+impl std::fmt::Display for LevelingReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LevelingReason::ResourceOverallocated {
+                resource,
+                peak_demand,
+                capacity,
+                dates,
+            } => {
+                write!(
+                    f,
+                    "Resource '{}' overallocated (demand={:.0}%, capacity={:.0}%) on {} day(s)",
+                    resource,
+                    peak_demand * 100.0,
+                    capacity * 100.0,
+                    dates.len()
+                )
+            }
+            LevelingReason::DependencyChain {
+                predecessor,
+                predecessor_delay,
+            } => {
+                write!(
+                    f,
+                    "Predecessor '{}' was delayed by {} days",
+                    predecessor, predecessor_delay
+                )
+            }
+        }
+    }
+}
+
+/// Metrics summarizing the leveling transformation
+#[derive(Debug, Clone)]
+pub struct LevelingMetrics {
+    /// Days added to project duration due to leveling
+    pub project_duration_increase: i64,
+    /// Peak resource utilization before leveling (0.0-1.0+)
+    pub peak_utilization_before: f32,
+    /// Peak resource utilization after leveling (0.0-1.0+)
+    pub peak_utilization_after: f32,
+    /// Number of tasks that were delayed
+    pub tasks_delayed: usize,
+    /// Total delay days across all tasks
+    pub total_delay_days: i64,
+}
 
 /// Resource usage on a specific day
 #[derive(Debug, Clone)]
@@ -172,12 +279,14 @@ pub struct OverallocationPeriod {
     pub involved_tasks: Vec<TaskId>,
 }
 
-/// Result of resource leveling
+/// Result of resource leveling (RFC-0003 compliant)
 #[derive(Debug, Clone)]
 pub struct LevelingResult {
-    /// Updated schedule with leveled tasks
-    pub schedule: Schedule,
-    /// Tasks that were shifted
+    /// Original schedule (preserved, authoritative)
+    pub original_schedule: Schedule,
+    /// Leveled schedule (delta transformation)
+    pub leveled_schedule: Schedule,
+    /// Tasks that were shifted (each with structured reason)
     pub shifted_tasks: Vec<ShiftedTask>,
     /// Conflicts that could not be resolved
     pub unresolved_conflicts: Vec<UnresolvedConflict>,
@@ -185,6 +294,18 @@ pub struct LevelingResult {
     pub project_extended: bool,
     /// New project end date
     pub new_project_end: NaiveDate,
+    /// Metrics summarizing the transformation
+    pub metrics: LevelingMetrics,
+    /// Diagnostics emitted during leveling (L001-L004)
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+// Backwards compatibility alias
+impl LevelingResult {
+    /// Get the leveled schedule (alias for backwards compatibility)
+    pub fn schedule(&self) -> &Schedule {
+        &self.leveled_schedule
+    }
 }
 
 /// A task that was shifted during leveling
@@ -194,7 +315,10 @@ pub struct ShiftedTask {
     pub original_start: NaiveDate,
     pub new_start: NaiveDate,
     pub days_shifted: i64,
-    pub reason: String,
+    /// Structured reason for the delay (RFC-0003)
+    pub reason: LevelingReason,
+    /// Resources involved in the conflict
+    pub resources_involved: Vec<ResourceId>,
 }
 
 /// A conflict that could not be resolved
@@ -216,17 +340,19 @@ struct ShiftCandidate {
 
 impl Ord for ShiftCandidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Prefer tasks that:
-        // 1. Are not critical
-        // 2. Have more slack
-        // 3. Have lower priority
+        // Deterministic ordering (RFC-0003):
+        // 1. Non-critical before critical (prefer shifting non-critical)
+        // 2. More slack before less slack
+        // 3. Lower priority before higher priority
+        // 4. Task ID as final tie-breaker (determinism guarantee)
         match (self.is_critical, other.is_critical) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
             _ => self
                 .slack_days
                 .cmp(&other.slack_days)
-                .then(other.priority.cmp(&self.priority)),
+                .then(other.priority.cmp(&self.priority))
+                .then(other.task_id.cmp(&self.task_id)), // Deterministic tie-breaker
         }
     }
 }
@@ -237,15 +363,34 @@ impl PartialOrd for ShiftCandidate {
     }
 }
 
-/// Perform resource leveling on a schedule
+/// Perform resource leveling on a schedule (RFC-0003 compliant)
+///
+/// This function is deterministic: same input always produces same output.
+/// Original schedule is preserved; leveled schedule is a delta transformation.
 pub fn level_resources(
     project: &Project,
     schedule: &Schedule,
     calendar: &Calendar,
 ) -> LevelingResult {
+    level_resources_with_options(project, schedule, calendar, &LevelingOptions::default())
+}
+
+/// Perform resource leveling with explicit options
+pub fn level_resources_with_options(
+    project: &Project,
+    schedule: &Schedule,
+    calendar: &Calendar,
+    options: &LevelingOptions,
+) -> LevelingResult {
+    // Preserve original schedule (RFC-0003 requirement)
+    let original_schedule = schedule.clone();
     let mut leveled_tasks = schedule.tasks.clone();
     let mut shifted_tasks = Vec::new();
     let mut unresolved_conflicts = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    // Calculate peak utilization before leveling
+    let peak_utilization_before = calculate_peak_utilization(project, &leveled_tasks);
 
     // Build resource timelines from schedule
     let mut timelines = build_resource_timelines(project, &leveled_tasks);
@@ -253,30 +398,52 @@ pub fn level_resources(
     // Build task priority map for shifting decisions
     let task_priorities = build_task_priority_map(&leveled_tasks, project);
 
+    // Track milestones for L004 diagnostic
+    let original_milestone_dates: HashMap<TaskId, NaiveDate> = leveled_tasks
+        .iter()
+        .filter(|(_, t)| t.duration.minutes == 0) // Milestones have zero duration
+        .map(|(id, t)| (id.clone(), t.start))
+        .collect();
+
     // Iterate until no more over-allocations or can't resolve
     let max_iterations = leveled_tasks.len() * 10; // Prevent infinite loops
     let mut iterations = 0;
 
+    // Check max delay factor constraint
+    let original_duration = schedule.project_duration.as_days() as f64;
+    let max_allowed_duration = options
+        .max_project_delay_factor
+        .map(|f| (original_duration * f) as i64);
+
     while iterations < max_iterations {
         iterations += 1;
 
-        // Find first over-allocation
-        let conflict = timelines
-            .values()
-            .flat_map(|t| {
-                t.overallocated_periods()
+        // DETERMINISM: Collect ALL conflicts, then sort them
+        let mut all_conflicts: Vec<(ResourceId, OverallocationPeriod)> = timelines
+            .iter()
+            .flat_map(|(_, timeline)| {
+                let resource_id = timeline.resource_id.clone();
+                timeline
+                    .overallocated_periods()
                     .into_iter()
-                    .map(|p| (t.resource_id.clone(), p))
+                    .map(move |p| (resource_id.clone(), p))
             })
-            .next();
+            .collect();
 
-        let Some((resource_id, period)) = conflict else {
+        // DETERMINISM: Sort by (resource_id, start_date) for consistent ordering
+        all_conflicts.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)));
+
+        let Some((resource_id, period)) = all_conflicts.into_iter().next() else {
             break; // No more conflicts
         };
 
+        // Get timeline capacity for this resource
+        let timeline_capacity = timelines
+            .get(&resource_id)
+            .map(|t| t.capacity)
+            .unwrap_or(1.0);
+
         // Find candidates to shift (tasks in this period)
-        // Even critical tasks can be shifted if they're part of an over-allocation
-        // The critical path will be recalculated after leveling
         let mut candidates: BinaryHeap<ShiftCandidate> = period
             .involved_tasks
             .iter()
@@ -296,13 +463,31 @@ pub fn level_resources(
             // Can't resolve this conflict - no tasks found
             unresolved_conflicts.push(UnresolvedConflict {
                 resource_id: resource_id.clone(),
-                period,
+                period: period.clone(),
                 reason: "No shiftable tasks found".into(),
+            });
+
+            // Emit L002 diagnostic
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::L002UnresolvableConflict,
+                severity: Severity::Warning,
+                message: format!(
+                    "Unresolvable resource conflict: '{}' at {} (demand={:.0}%, capacity={:.0}%)",
+                    resource_id,
+                    period.start,
+                    period.peak_usage * 100.0,
+                    timeline_capacity * 100.0
+                ),
+                file: None,
+                span: None,
+                secondary_spans: vec![],
+                notes: vec![],
+                hints: vec![],
             });
             continue;
         }
 
-        // Pick the best candidate to shift
+        // Pick the best candidate to shift (deterministic due to Ord impl)
         let candidate = candidates.pop().unwrap();
         let task = leveled_tasks.get(&candidate.task_id).unwrap();
         let original_start = task.start;
@@ -333,6 +518,31 @@ pub fn level_resources(
         let days_shifted = count_working_days(original_start, new_start, calendar);
         let new_finish = add_working_days(new_start, duration_days, calendar);
 
+        // Check if this would exceed max delay factor
+        if let Some(max_duration) = max_allowed_duration {
+            let new_project_end = leveled_tasks
+                .values()
+                .map(|t| t.finish)
+                .chain(std::iter::once(new_finish))
+                .max()
+                .unwrap_or(schedule.project_end);
+            let new_duration = count_working_days(project.start, new_project_end, calendar);
+            if new_duration > max_duration {
+                // Would exceed max delay - record as unresolved
+                unresolved_conflicts.push(UnresolvedConflict {
+                    resource_id: resource_id.clone(),
+                    period: period.clone(),
+                    reason: format!(
+                        "Shifting would exceed max delay factor ({:.1}x)",
+                        options.max_project_delay_factor.unwrap()
+                    ),
+                });
+                // Re-add the usage we removed
+                timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+                continue;
+            }
+        }
+
         // Update the task in our schedule
         if let Some(task) = leveled_tasks.get_mut(&candidate.task_id) {
             task.start = new_start;
@@ -350,13 +560,48 @@ pub fn level_resources(
         // Re-add usage at new position
         timeline.add_usage(&candidate.task_id, new_start, new_finish, units);
 
-        // Record the shift
+        // Collect conflict dates for structured reason
+        let conflict_dates: Vec<NaiveDate> = {
+            let mut dates = Vec::new();
+            let mut d = period.start;
+            while d <= period.end {
+                dates.push(d);
+                d = d.succ_opt().unwrap_or(d);
+                if dates.len() > 100 {
+                    break;
+                } // Safety limit
+            }
+            dates
+        };
+
+        // Record the shift with structured reason (RFC-0003)
         shifted_tasks.push(ShiftedTask {
             task_id: candidate.task_id.clone(),
             original_start,
             new_start,
             days_shifted,
-            reason: format!("Resource {} overallocated", resource_id),
+            reason: LevelingReason::ResourceOverallocated {
+                resource: resource_id.clone(),
+                peak_demand: period.peak_usage,
+                capacity: timeline_capacity,
+                dates: conflict_dates,
+            },
+            resources_involved: vec![resource_id.clone()],
+        });
+
+        // Emit L001 diagnostic
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::L001OverallocationResolved,
+            severity: Severity::Hint,
+            message: format!(
+                "Resource overallocation resolved by delaying '{}' by {} day(s)",
+                candidate.task_id, days_shifted
+            ),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![format!("Resource '{}' was overallocated", resource_id)],
         });
     }
 
@@ -368,6 +613,47 @@ pub fn level_resources(
         .unwrap_or(schedule.project_end);
 
     let project_extended = new_project_end > schedule.project_end;
+    let duration_increase =
+        count_working_days(schedule.project_end, new_project_end, calendar).max(0);
+
+    // Emit L003 if project duration increased
+    if project_extended {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::L003DurationIncreased,
+            severity: Severity::Hint,
+            message: format!(
+                "Project duration increased by {} day(s) due to leveling",
+                duration_increase
+            ),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![],
+        });
+    }
+
+    // Check for delayed milestones (L004)
+    for (milestone_id, original_date) in &original_milestone_dates {
+        if let Some(task) = leveled_tasks.get(milestone_id) {
+            if task.start > *original_date {
+                let delay = count_working_days(*original_date, task.start, calendar);
+                diagnostics.push(Diagnostic {
+                    code: DiagnosticCode::L004MilestoneDelayed,
+                    severity: Severity::Warning,
+                    message: format!(
+                        "Milestone '{}' delayed by {} day(s) due to leveling",
+                        milestone_id, delay
+                    ),
+                    file: None,
+                    span: None,
+                    secondary_spans: vec![],
+                    notes: vec![],
+                    hints: vec![],
+                });
+            }
+        }
+    }
 
     // Recalculate critical path if project was extended
     let critical_path = if project_extended {
@@ -379,21 +665,31 @@ pub fn level_resources(
     // Calculate new project duration
     let project_duration_days = count_working_days(project.start, new_project_end, calendar);
 
+    // Calculate peak utilization after leveling
+    let peak_utilization_after = calculate_peak_utilization(project, &leveled_tasks);
+
+    // Build metrics
+    let metrics = LevelingMetrics {
+        project_duration_increase: duration_increase,
+        peak_utilization_before,
+        peak_utilization_after,
+        tasks_delayed: shifted_tasks.len(),
+        total_delay_days: shifted_tasks.iter().map(|s| s.days_shifted).sum(),
+    };
+
     LevelingResult {
-        schedule: Schedule {
+        original_schedule,
+        leveled_schedule: Schedule {
             tasks: leveled_tasks,
             critical_path,
             project_duration: Duration::days(project_duration_days),
             project_end: new_project_end,
             total_cost: schedule.total_cost.clone(),
             total_cost_range: schedule.total_cost_range.clone(),
-            // Project status (I004): Copy from original schedule
-            // Note: These could be recomputed from leveled tasks for accuracy
             project_progress: schedule.project_progress,
             project_baseline_finish: schedule.project_baseline_finish,
             project_forecast_finish: schedule.project_forecast_finish,
             project_variance_days: schedule.project_variance_days,
-            // Earned Value (I005): Copy from original schedule
             planned_value: schedule.planned_value,
             earned_value: schedule.earned_value,
             spi: schedule.spi,
@@ -402,7 +698,21 @@ pub fn level_resources(
         unresolved_conflicts,
         project_extended,
         new_project_end,
+        metrics,
+        diagnostics,
     }
+}
+
+/// Calculate peak resource utilization across all resources
+fn calculate_peak_utilization(
+    project: &Project,
+    tasks: &HashMap<TaskId, ScheduledTask>,
+) -> f32 {
+    let timelines = build_resource_timelines(project, tasks);
+    timelines
+        .values()
+        .flat_map(|t| t.usage.values().map(|d| d.total_units / t.capacity))
+        .fold(0.0f32, |max, u| max.max(u))
 }
 
 /// Build resource timelines from scheduled tasks
@@ -798,8 +1108,8 @@ mod tests {
         );
 
         // Tasks should no longer overlap
-        let task1 = &result.schedule.tasks["task1"];
-        let task2 = &result.schedule.tasks["task2"];
+        let task1 = &result.leveled_schedule.tasks["task1"];
+        let task2 = &result.leveled_schedule.tasks["task2"];
 
         let overlap = task1.start <= task2.finish && task2.start <= task1.finish;
         assert!(!overlap || task1.start == task2.start, "Tasks should not overlap after leveling");
@@ -827,8 +1137,8 @@ mod tests {
         let result = level_resources(&project, &schedule, &calendar);
 
         // With dependencies, tasks already don't overlap
-        let task1 = &result.schedule.tasks["task1"];
-        let task2 = &result.schedule.tasks["task2"];
+        let task1 = &result.leveled_schedule.tasks["task1"];
+        let task2 = &result.leveled_schedule.tasks["task2"];
 
         assert!(
             task2.start > task1.finish || task2.start == task1.finish.succ_opt().unwrap(),

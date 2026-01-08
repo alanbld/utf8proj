@@ -1725,6 +1725,16 @@ pub enum DiagnosticCode {
     I004ProjectStatus,
     /// Earned value summary (EV, PV, SPI)
     I005EarnedValueSummary,
+
+    // Leveling (L) - Resource leveling diagnostics
+    /// Resource overallocation resolved by delaying task
+    L001OverallocationResolved,
+    /// Unresolvable resource conflict (demand > capacity after leveling)
+    L002UnresolvableConflict,
+    /// Project duration increased due to leveling
+    L003DurationIncreased,
+    /// Milestone delayed due to leveling
+    L004MilestoneDelayed,
 }
 
 impl DiagnosticCode {
@@ -1758,6 +1768,10 @@ impl DiagnosticCode {
             DiagnosticCode::I003ResourceUtilization => "I003",
             DiagnosticCode::I004ProjectStatus => "I004",
             DiagnosticCode::I005EarnedValueSummary => "I005",
+            DiagnosticCode::L001OverallocationResolved => "L001",
+            DiagnosticCode::L002UnresolvableConflict => "L002",
+            DiagnosticCode::L003DurationIncreased => "L003",
+            DiagnosticCode::L004MilestoneDelayed => "L004",
         }
     }
 
@@ -1791,6 +1805,11 @@ impl DiagnosticCode {
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
             DiagnosticCode::I004ProjectStatus => Severity::Info,
             DiagnosticCode::I005EarnedValueSummary => Severity::Info,
+            // Leveling diagnostics (L001-L004)
+            DiagnosticCode::L001OverallocationResolved => Severity::Hint,
+            DiagnosticCode::L002UnresolvableConflict => Severity::Warning,
+            DiagnosticCode::L003DurationIncreased => Severity::Hint,
+            DiagnosticCode::L004MilestoneDelayed => Severity::Warning,
         }
     }
 
@@ -1837,6 +1856,11 @@ impl DiagnosticCode {
             DiagnosticCode::I003ResourceUtilization => 42,
             DiagnosticCode::I004ProjectStatus => 43,
             DiagnosticCode::I005EarnedValueSummary => 44,
+            // Leveling diagnostics (after info, grouped together)
+            DiagnosticCode::L001OverallocationResolved => 50,
+            DiagnosticCode::L002UnresolvableConflict => 51,
+            DiagnosticCode::L003DurationIncreased => 52,
+            DiagnosticCode::L004MilestoneDelayed => 53,
         }
     }
 }

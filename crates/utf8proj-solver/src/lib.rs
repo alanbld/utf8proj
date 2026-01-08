@@ -45,7 +45,8 @@ pub mod leveling;
 
 pub use bdd::{BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict, ShiftDirection};
 pub use leveling::{
-    calculate_utilization, detect_overallocations, level_resources, LevelingResult,
+    calculate_utilization, detect_overallocations, level_resources, level_resources_with_options,
+    LevelingMetrics, LevelingOptions, LevelingReason, LevelingResult, LevelingStrategy,
     OverallocationPeriod, ResourceTimeline, ResourceUtilization, ShiftedTask, UnresolvedConflict,
     UtilizationSummary,
 };
@@ -2804,7 +2805,7 @@ impl Scheduler for CpmSolver {
         // Step 11: Apply resource leveling if enabled
         if self.resource_leveling {
             let result = level_resources(project, &schedule, &calendar);
-            Ok(result.schedule)
+            Ok(result.leveled_schedule)
         } else {
             Ok(schedule)
         }

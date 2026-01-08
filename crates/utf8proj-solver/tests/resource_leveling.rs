@@ -11,6 +11,162 @@ fn date(year: i32, month: u32, day: u32) -> NaiveDate {
 }
 
 // =============================================================================
+// RFC-0003 Required Tests
+// =============================================================================
+
+/// RFC-0003: Determinism test - same input must produce identical output
+#[test]
+fn leveling_is_deterministic() {
+    let mut project = Project::new("Determinism Test");
+    project.start = date(2025, 1, 6); // Monday
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+    // Create multiple tasks that will conflict (all assigned to same resource)
+    project.tasks = vec![
+        Task::new("task_a").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_b").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_c").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_d").effort(Duration::days(3)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    // Run leveling multiple times and verify determinism
+    let result1 = level_resources(&project, &schedule, &calendar);
+    let result2 = level_resources(&project, &schedule, &calendar);
+    let result3 = level_resources(&project, &schedule, &calendar);
+
+    // All results must be identical
+    assert_eq!(result1.shifted_tasks.len(), result2.shifted_tasks.len());
+    assert_eq!(result2.shifted_tasks.len(), result3.shifted_tasks.len());
+
+    for (i, (s1, s2)) in result1.shifted_tasks.iter().zip(&result2.shifted_tasks).enumerate() {
+        assert_eq!(
+            s1.task_id, s2.task_id,
+            "Run 1 vs 2: Task order differs at index {}: {} vs {}",
+            i, s1.task_id, s2.task_id
+        );
+        assert_eq!(
+            s1.days_shifted, s2.days_shifted,
+            "Run 1 vs 2: Days shifted differs for task {}",
+            s1.task_id
+        );
+        assert_eq!(
+            s1.new_start, s2.new_start,
+            "Run 1 vs 2: New start differs for task {}",
+            s1.task_id
+        );
+    }
+
+    for (i, (s2, s3)) in result2.shifted_tasks.iter().zip(&result3.shifted_tasks).enumerate() {
+        assert_eq!(
+            s2.task_id, s3.task_id,
+            "Run 2 vs 3: Task order differs at index {}: {} vs {}",
+            i, s2.task_id, s3.task_id
+        );
+    }
+
+    // Project end must be identical
+    assert_eq!(
+        result1.new_project_end, result2.new_project_end,
+        "Project end differs between runs"
+    );
+    assert_eq!(
+        result2.new_project_end, result3.new_project_end,
+        "Project end differs between runs"
+    );
+}
+
+/// RFC-0003: No-op test - no overallocation means leveled == original
+#[test]
+fn leveling_noop_when_no_conflict() {
+    let mut project = Project::new("No-Op Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![
+        Resource::new("dev1").capacity(1.0),
+        Resource::new("dev2").capacity(1.0),
+    ];
+
+    // Tasks on different resources - no conflict
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev1"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev2"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // No tasks should be shifted
+    assert!(
+        result.shifted_tasks.is_empty(),
+        "No tasks should be shifted when there's no conflict"
+    );
+
+    // Project end should be unchanged
+    assert_eq!(
+        result.original_schedule.project_end, result.leveled_schedule.project_end,
+        "Project end should be unchanged"
+    );
+
+    // Original and leveled schedules should have same task dates
+    for (task_id, orig_task) in &result.original_schedule.tasks {
+        let leveled_task = &result.leveled_schedule.tasks[task_id];
+        assert_eq!(
+            orig_task.start, leveled_task.start,
+            "Task {} start should be unchanged",
+            task_id
+        );
+        assert_eq!(
+            orig_task.finish, leveled_task.finish,
+            "Task {} finish should be unchanged",
+            task_id
+        );
+    }
+}
+
+/// RFC-0003: Critical path preservation - non-critical delayed before critical
+#[test]
+fn leveling_preserves_critical_path_priority() {
+    let mut project = Project::new("Critical Path Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+    // Two tasks: one critical (on longest path), one with slack
+    project.tasks = vec![
+        // Critical task - depends on nothing, successor depends on it
+        Task::new("critical").effort(Duration::days(5)).assign("dev"),
+        // Non-critical task - parallel, has slack
+        Task::new("non_critical")
+            .effort(Duration::days(3))
+            .assign("dev")
+            .priority(100), // Lower priority
+    ];
+
+    let solver = CpmSolver::with_leveling();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Both tasks assigned to same resource - one must be shifted
+    // The non-critical task should be shifted, not the critical one
+    let critical = &schedule.tasks["critical"];
+    let non_critical = &schedule.tasks["non_critical"];
+
+    // After leveling, they should not overlap
+    let no_overlap = critical.finish < non_critical.start || non_critical.finish < critical.start;
+    assert!(no_overlap, "Tasks should not overlap after leveling");
+
+    // Critical task should start at project start (not delayed)
+    assert_eq!(
+        critical.start, project.start,
+        "Critical task should start at project start"
+    );
+}
+
+// =============================================================================
 // Basic Resource Leveling
 // =============================================================================
 
