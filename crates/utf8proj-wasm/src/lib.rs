@@ -6,9 +6,9 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use utf8proj_core::Scheduler;
+use utf8proj_core::{CollectingEmitter, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
-use utf8proj_solver::CpmSolver;
+use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
 
 /// Initialize panic hook for better error messages in console
 #[wasm_bindgen(start)]
@@ -84,6 +84,31 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
 
     let overall_progress = calculate_overall_progress(&project.tasks);
 
+    // Classify scheduling mode
+    let scheduling_mode = classify_scheduling_mode(&project);
+    let mode_name = match scheduling_mode {
+        utf8proj_core::SchedulingMode::DurationBased => "Duration-based",
+        utf8proj_core::SchedulingMode::EffortBased => "Effort-based",
+        utf8proj_core::SchedulingMode::ResourceLoaded => "Resource-loaded",
+    };
+
+    // Run diagnostics
+    let mut emitter = CollectingEmitter::new();
+    let config = AnalysisConfig::default();
+    analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+    // Convert diagnostics to JSON-friendly format (exclude Info-level for cleaner dashboard)
+    let diagnostics: Vec<DiagnosticInfo> = emitter
+        .diagnostics
+        .into_iter()
+        .filter(|d| d.severity != Severity::Info)
+        .map(|d| DiagnosticInfo {
+            code: format!("{}", d.code),
+            severity: d.severity.as_str().to_string(),
+            message: d.message,
+        })
+        .collect();
+
     // Convert to JSON-friendly structure
     let result = ScheduleResult {
         project: ProjectInfo {
@@ -92,8 +117,11 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             end: schedule.project_end.to_string(),
             duration_days: schedule.project_duration.as_days() as i64,
             overall_progress,
+            scheduling_mode: mode_name.to_string(),
+            scheduling_mode_description: scheduling_mode.description().to_string(),
         },
         critical_path: schedule.critical_path.clone(),
+        diagnostics,
         tasks: schedule
             .tasks
             .values()
@@ -209,6 +237,14 @@ struct ScheduleResult {
     project: ProjectInfo,
     critical_path: Vec<String>,
     tasks: Vec<TaskInfo>,
+    diagnostics: Vec<DiagnosticInfo>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DiagnosticInfo {
+    code: String,
+    severity: String,
+    message: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -218,6 +254,8 @@ struct ProjectInfo {
     end: String,
     duration_days: i64,
     overall_progress: u8,
+    scheduling_mode: String,
+    scheduling_mode_description: String,
 }
 
 #[derive(Serialize, Deserialize)]

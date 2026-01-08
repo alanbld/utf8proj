@@ -267,11 +267,11 @@
         /* Project Info */
         .project-info {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 1rem;
             margin-bottom: 1rem;
         }
-        
+
         @media (max-width: 600px) {
             .project-info {
                 grid-template-columns: repeat(2, 1fr);
@@ -467,6 +467,80 @@
             fill: currentColor;
         }
 
+        /* Info card subtitle */
+        .info-subtitle {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+
+        /* Diagnostics Panel */
+        .diagnostics-panel {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .diagnostics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .diagnostics-summary {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .diagnostics-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .diagnostic-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: var(--primary);
+        }
+
+        .diagnostic-item.error {
+            border-left: 3px solid var(--critical);
+        }
+
+        .diagnostic-item.warning {
+            border-left: 3px solid var(--warning);
+        }
+
+        .diagnostic-item.hint {
+            border-left: 3px solid var(--text-dim);
+        }
+
+        .diagnostic-code {
+            font-weight: 600;
+            color: var(--text-dim);
+            font-size: 0.7rem;
+        }
+
+        .diagnostic-message {
+            color: var(--text);
+        }
+
+        .diagnostics-clear {
+            background: rgba(74, 222, 128, 0.2);
+            border: 1px solid var(--success);
+            color: var(--success);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
         /* Error Toast */
         .toast {
             position: fixed;
@@ -548,8 +622,22 @@
                 <div class="info-label">SPI (Earned Value)</div>
                 <div class="info-value" id="info-spi">-</div>
             </div>
+            <div class="info-card">
+                <div class="info-label">Scheduling Mode</div>
+                <div class="info-value" id="info-mode">-</div>
+                <div class="info-subtitle" id="info-mode-desc">-</div>
+            </div>
         </div>
-        
+
+        <!-- Diagnostics Panel (hidden when no diagnostics) -->
+        <div class="diagnostics-panel hidden" id="diagnostics-panel">
+            <div class="diagnostics-header">
+                <span class="panel-title">Analysis</span>
+                <span class="diagnostics-summary" id="diagnostics-summary"></span>
+            </div>
+            <div class="diagnostics-list" id="diagnostics-list"></div>
+        </div>
+
         <div class="main-grid">
             <div class="panel">
                 <div class="panel-header">
@@ -906,7 +994,51 @@ task cutover "Go-Live Cutover" {
                 spiEl.textContent = '-';
             }
 
+            // Scheduling Mode
+            document.getElementById('info-mode').textContent = p.scheduling_mode || '-';
+            document.getElementById('info-mode-desc').textContent = p.scheduling_mode_description || '';
+
             document.getElementById('gantt-dates').textContent = `${p.start} to ${p.end}`;
+
+            // Update diagnostics panel
+            updateDiagnostics();
+        }
+
+        // Update diagnostics panel
+        function updateDiagnostics() {
+            const panel = document.getElementById('diagnostics-panel');
+            const list = document.getElementById('diagnostics-list');
+            const summary = document.getElementById('diagnostics-summary');
+            const diagnostics = scheduleResult.diagnostics || [];
+
+            if (diagnostics.length === 0) {
+                // No issues - show success message
+                panel.classList.remove('hidden');
+                list.innerHTML = '<div class="diagnostics-clear">No issues detected — schedule is structurally sound</div>';
+                summary.textContent = '';
+            } else {
+                panel.classList.remove('hidden');
+
+                // Count by severity
+                const counts = { error: 0, warning: 0, hint: 0 };
+                diagnostics.forEach(d => {
+                    if (counts[d.severity] !== undefined) counts[d.severity]++;
+                });
+
+                const parts = [];
+                if (counts.error > 0) parts.push(counts.error + ' error' + (counts.error > 1 ? 's' : ''));
+                if (counts.warning > 0) parts.push(counts.warning + ' warning' + (counts.warning > 1 ? 's' : ''));
+                if (counts.hint > 0) parts.push(counts.hint + ' hint' + (counts.hint > 1 ? 's' : ''));
+                summary.textContent = parts.join(', ');
+
+                // Render diagnostics
+                list.innerHTML = diagnostics.map(d => `
+                    <div class="diagnostic-item ${d.severity}">
+                        <span class="diagnostic-code">${d.code}</span>
+                        <span class="diagnostic-message">${d.message}</span>
+                    </div>
+                `).join('');
+            }
         }
 
         // Calculate SPI if not provided by WASM
