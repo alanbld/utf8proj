@@ -137,6 +137,9 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                     ),
                     None => (false, false, 0, None, vec![]),
                 };
+                // Calculate calendar impact for this task
+                let calendar_impact = Some(calculate_calendar_impact(t.start, t.finish, &project));
+
                 TaskInfo {
                     id: t.task_id.clone(),
                     name: t.task_id.clone(),
@@ -155,6 +158,7 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                     forecast_start: t.forecast_start.to_string(),
                     forecast_finish: t.forecast_finish.to_string(),
                     dependencies,
+                    calendar_impact,
                 }
             })
             .collect(),
@@ -230,6 +234,75 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
     tasks.iter().map(|t| 1 + count_tasks(&t.children)).sum()
 }
 
+/// Calculate calendar impact for a task's date range
+fn calculate_calendar_impact(
+    start: chrono::NaiveDate,
+    finish: chrono::NaiveDate,
+    project: &utf8proj_core::Project,
+) -> CalendarImpactInfo {
+    use chrono::Datelike;
+
+    // Get the project calendar
+    let calendar = project
+        .calendars
+        .iter()
+        .find(|c| c.id == project.calendar)
+        .cloned()
+        .unwrap_or_default();
+
+    let calendar_days = (finish - start).num_days() + 1;
+    let mut weekend_days = 0u32;
+    let mut holiday_days = 0u32;
+    let mut non_working_days = 0u32;
+
+    let mut current = start;
+    while current <= finish {
+        let weekday = current.weekday().num_days_from_sunday() as u8;
+
+        // Check if it's a non-working day (weekend or not in working_days)
+        let is_non_working_day = !calendar.working_days.contains(&weekday);
+
+        // Check if weekend (Saturday=6, Sunday=0)
+        if weekday == 0 || weekday == 6 {
+            weekend_days += 1;
+        }
+
+        if is_non_working_day {
+            non_working_days += 1;
+        }
+
+        // Check if it's a holiday
+        if calendar.holidays.iter().any(|h| h.start <= current && current <= h.end) {
+            holiday_days += 1;
+            // If holiday is on a working day, it also counts as non-working
+            if !is_non_working_day {
+                non_working_days += 1;
+            }
+        }
+
+        current = match current.succ_opt() {
+            Some(d) => d,
+            None => break,
+        };
+    }
+
+    let working_days = calendar_days - non_working_days as i64;
+    let non_working_percent = if calendar_days > 0 {
+        (non_working_days as f64 / calendar_days as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    CalendarImpactInfo {
+        calendar_id: calendar.id.clone(),
+        calendar_days,
+        working_days,
+        weekend_days,
+        holiday_days,
+        non_working_percent,
+    }
+}
+
 // JSON output structures
 
 #[derive(Serialize, Deserialize)]
@@ -277,6 +350,24 @@ struct TaskInfo {
     forecast_start: String,
     forecast_finish: String,
     dependencies: Vec<String>,
+    /// Calendar impact data for visualization
+    calendar_impact: Option<CalendarImpactInfo>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CalendarImpactInfo {
+    /// Calendar ID used for this task
+    calendar_id: String,
+    /// Total calendar days the task spans
+    calendar_days: i64,
+    /// Number of working days in the task period
+    working_days: i64,
+    /// Number of weekend days in the task period
+    weekend_days: u32,
+    /// Number of holidays in the task period
+    holiday_days: u32,
+    /// Non-working percentage of the task span
+    non_working_percent: f64,
 }
 
 #[derive(Serialize, Deserialize)]

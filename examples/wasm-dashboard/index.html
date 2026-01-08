@@ -398,6 +398,66 @@
         .hidden {
             display: none !important;
         }
+
+        /* Calendar Legend */
+        .calendar-legend {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .legend-box {
+            width: 14px;
+            height: 14px;
+            border-radius: 2px;
+        }
+
+        .legend-working {
+            background: transparent;
+            border: 1px solid var(--text-dim);
+        }
+
+        .legend-weekend {
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(233, 69, 96, 0.15),
+                rgba(233, 69, 96, 0.15) 2px,
+                transparent 2px,
+                transparent 4px
+            );
+            border: 1px solid rgba(233, 69, 96, 0.3);
+        }
+
+        .legend-holiday {
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid rgba(251, 191, 36, 0.4);
+        }
+
+        /* Calendar impact badge */
+        .calendar-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.65rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 3px;
+            background: rgba(100, 150, 200, 0.2);
+            color: var(--text-dim);
+        }
+
+        .calendar-badge.has-impact {
+            background: rgba(233, 69, 96, 0.15);
+            color: var(--critical);
+        }
         
         /* Error Toast */
         .toast {
@@ -460,8 +520,8 @@
                 <div class="info-value" id="info-duration">-</div>
             </div>
             <div class="info-card">
-                <div class="info-label">Tasks</div>
-                <div class="info-value" id="info-tasks">-</div>
+                <div class="info-label">Calendar Days</div>
+                <div class="info-value" id="info-calendar">-</div>
             </div>
             <div class="info-card">
                 <div class="info-label">Critical Path</div>
@@ -491,6 +551,20 @@
                 </div>
                 <div class="gantt-wrapper">
                     <canvas id="gantt-canvas"></canvas>
+                </div>
+                <div class="calendar-legend">
+                    <div class="legend-item">
+                        <div class="legend-box legend-working"></div>
+                        <span>Working Day</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-box legend-weekend"></div>
+                        <span>Weekend</span>
+                    </div>
+                    <div class="legend-item" id="legend-holiday" style="display: none;">
+                        <div class="legend-box legend-holiday"></div>
+                        <span>Holiday</span>
+                    </div>
                 </div>
                 <div class="loading-overlay hidden" id="loading-overlay">
                     <div class="spinner"></div>
@@ -717,9 +791,39 @@ task cutover "Go-Live Cutover" {
             const p = scheduleResult.project;
             document.getElementById('info-name').textContent = p.name;
             document.getElementById('info-duration').textContent = p.duration_days + ' days';
-            document.getElementById('info-tasks').textContent = scheduleResult.tasks.length;
             document.getElementById('info-critical').textContent = scheduleResult.critical_path.length + ' tasks';
-            
+
+            // Calculate project-wide calendar stats from all tasks
+            let totalCalendarDays = 0;
+            let totalWorkingDays = 0;
+            let totalWeekendDays = 0;
+            let totalHolidayDays = 0;
+            for (const task of scheduleResult.tasks) {
+                if (task.calendar_impact) {
+                    totalCalendarDays += task.calendar_impact.calendar_days;
+                    totalWorkingDays += task.calendar_impact.working_days;
+                    totalWeekendDays += task.calendar_impact.weekend_days;
+                    totalHolidayDays += task.calendar_impact.holiday_days;
+                }
+            }
+
+            // Show calendar efficiency (working days / total span)
+            const startDate = new Date(p.start);
+            const endDate = new Date(p.end);
+            const projectSpan = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            let weekendCount = 0;
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                if (d.getDay() === 0 || d.getDay() === 6) weekendCount++;
+            }
+            const workingSpan = projectSpan - weekendCount;
+            document.getElementById('info-calendar').textContent = `${workingSpan}w / ${projectSpan}`;
+            document.getElementById('info-calendar').title = `${workingSpan} working days of ${projectSpan} total calendar days (${weekendCount} weekend days)`;
+
+            // Show holiday legend if any task has holidays
+            if (totalHolidayDays > 0) {
+                document.getElementById('legend-holiday').style.display = 'flex';
+            }
+
             document.getElementById('gantt-dates').textContent = `${p.start} to ${p.end}`;
         }
         
@@ -740,20 +844,35 @@ task cutover "Go-Live Cutover" {
                 div.className = 'task-item';
                 if (task.is_critical) div.classList.add('critical');
                 if (task.percent_complete === 100) div.classList.add('complete');
-                
+
+                // Build calendar impact badge
+                let calendarBadge = '';
+                if (task.calendar_impact) {
+                    const ci = task.calendar_impact;
+                    const hasImpact = ci.weekend_days > 0 || ci.holiday_days > 0;
+                    const badgeClass = hasImpact ? 'calendar-badge has-impact' : 'calendar-badge';
+                    const tooltip = `${ci.working_days}w / ${ci.calendar_days} cal days` +
+                        (ci.weekend_days > 0 ? `, ${ci.weekend_days} weekend` : '') +
+                        (ci.holiday_days > 0 ? `, ${ci.holiday_days} holiday` : '');
+                    calendarBadge = `<span class="${badgeClass}" title="${tooltip}">${ci.working_days}/${ci.calendar_days}d</span>`;
+                }
+
                 div.innerHTML = `
-                    <div class="task-name" title="${task.id}">${task.id}</div>
+                    <div class="task-name" title="${task.id}">
+                        ${task.id}
+                        ${calendarBadge}
+                    </div>
                     <div class="task-progress">
-                        <input type="number" 
-                               class="progress-input" 
-                               min="0" 
-                               max="100" 
+                        <input type="number"
+                               class="progress-input"
+                               min="0"
+                               max="100"
                                value="${task.percent_complete}"
                                data-task-id="${task.id}">%
                     </div>
                     <div class="task-status ${task.status.toLowerCase().replace('_', '-')}">${task.status}</div>
                 `;
-                
+
                 container.appendChild(div);
             }
             
@@ -815,9 +934,47 @@ task cutover "Go-Live Cutover" {
             ctx.fillStyle = '#16213e';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+            // Draw weekend/non-working day columns FIRST (behind everything)
+            let hasHolidays = false;
+            for (let i = 0; i < totalDays; i++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + i);
+                const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+                const x = labelWidth + i * dayWidth;
+
+                if (dayOfWeek === 0 || dayOfWeek === 6) {
+                    // Weekend - draw diagonal stripes pattern
+                    ctx.fillStyle = 'rgba(233, 69, 96, 0.08)';
+                    ctx.fillRect(x, headerHeight, dayWidth, height - headerHeight);
+
+                    // Add subtle stripe pattern
+                    ctx.strokeStyle = 'rgba(233, 69, 96, 0.15)';
+                    ctx.lineWidth = 1;
+                    for (let sy = headerHeight; sy < height; sy += 6) {
+                        ctx.beginPath();
+                        ctx.moveTo(x, sy);
+                        ctx.lineTo(x + dayWidth, sy + dayWidth);
+                        ctx.stroke();
+                    }
+                }
+            }
+
             // Draw header
             ctx.fillStyle = '#0f3460';
             ctx.fillRect(0, 0, canvas.width, headerHeight);
+
+            // Draw weekend markers in header too
+            for (let i = 0; i < totalDays; i++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + i);
+                const dayOfWeek = date.getDay();
+                const x = labelWidth + i * dayWidth;
+
+                if (dayOfWeek === 0 || dayOfWeek === 6) {
+                    ctx.fillStyle = 'rgba(233, 69, 96, 0.2)';
+                    ctx.fillRect(x, 0, dayWidth, headerHeight);
+                }
+            }
 
             // Draw date labels
             ctx.fillStyle = '#a0a0a0';
@@ -828,6 +985,9 @@ task cutover "Go-Live Cutover" {
                 const date = new Date(startDate);
                 date.setDate(date.getDate() + i);
                 const x = labelWidth + i * dayWidth;
+                const dayOfWeek = date.getDay();
+                // Use different color for weekend labels
+                ctx.fillStyle = (dayOfWeek === 0 || dayOfWeek === 6) ? '#e94560' : '#a0a0a0';
                 ctx.fillText(formatDate(date), x, headerHeight - 8);
             }
 
