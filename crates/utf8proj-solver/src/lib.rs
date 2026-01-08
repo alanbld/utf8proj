@@ -24,7 +24,7 @@
 //! assert!(schedule.tasks.contains_key("task1"));
 //! ```
 
-use chrono::{NaiveDate, TimeDelta};
+use chrono::{Datelike, NaiveDate, TimeDelta};
 use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
@@ -901,6 +901,9 @@ pub fn analyze_project(
     // E001: Circular specialization
     check_circular_specialization(project, config, emitter);
 
+    // Calendar diagnostics (C001, C002, C010, C011, C020-C023)
+    check_calendars(project, schedule, config, emitter);
+
     // W003: Unknown traits (check before E002 since it affects rate resolution)
     check_unknown_traits(project, config, emitter);
 
@@ -1039,6 +1042,187 @@ fn collect_assignment_info(project: &Project) -> AssignmentInfo {
     collect_from_tasks(&project.tasks, "", project, &mut info);
     info
 }
+
+/// Calendar diagnostics (C001, C002, C010, C011, C020-C023)
+fn check_calendars(
+    project: &Project,
+    schedule: Option<&Schedule>,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // Check each calendar's structure
+    for calendar in &project.calendars {
+        // C001: Zero working hours
+        if calendar.working_hours.is_empty() {
+            emitter.emit(
+                Diagnostic::error(
+                    DiagnosticCode::C001ZeroWorkingHours,
+                    format!("calendar '{}' has no working hours defined", calendar.id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("add working_hours: 09:00-12:00, 13:00-17:00"),
+            );
+        }
+
+        // C002: No working days
+        if calendar.working_days.is_empty() {
+            emitter.emit(
+                Diagnostic::error(
+                    DiagnosticCode::C002NoWorkingDays,
+                    format!("calendar '{}' has no working days defined", calendar.id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("add working_days: mon-fri"),
+            );
+        }
+
+        // C020: Low availability (< 40% working days = fewer than 3 days per week)
+        if !calendar.working_days.is_empty() && calendar.working_days.len() < 3 {
+            let pct = (calendar.working_days.len() as f32 / 7.0) * 100.0;
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::C020LowAvailability,
+                    format!(
+                        "calendar '{}' has low availability ({:.0}% working days, {} days/week)",
+                        calendar.id, pct, calendar.working_days.len()
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note("low availability may extend project duration significantly"),
+            );
+        }
+
+        // C022: Suspicious hours (> 16 hours/day or 7 days/week with long hours)
+        let daily_hours: u32 = calendar
+            .working_hours
+            .iter()
+            .map(|r| ((r.end.saturating_sub(r.start)) / 60) as u32)
+            .sum();
+        if daily_hours > 16 {
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::C022SuspiciousHours,
+                    format!(
+                        "calendar '{}' has {} hours/day which may be unrealistic",
+                        calendar.id, daily_hours
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("typical work day is 8 hours"),
+            );
+        } else if calendar.working_days.len() == 7 && daily_hours >= 8 {
+            emitter.emit(
+                Diagnostic::new(
+                    DiagnosticCode::C022SuspiciousHours,
+                    format!(
+                        "calendar '{}' has 7-day workweek with {} hours/day",
+                        calendar.id, daily_hours
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note("verify this is intentional (e.g., 24/7 operations)"),
+            );
+        }
+
+        // C023: Redundant holidays (holidays that fall on non-working days)
+        for holiday in &calendar.holidays {
+            let weekday = holiday.start.weekday().num_days_from_sunday() as u8;
+            if !calendar.working_days.contains(&weekday) {
+                let day_name = match weekday {
+                    0 => "Sunday",
+                    1 => "Monday",
+                    2 => "Tuesday",
+                    3 => "Wednesday",
+                    4 => "Thursday",
+                    5 => "Friday",
+                    6 => "Saturday",
+                    _ => "Unknown",
+                };
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::C023RedundantHoliday,
+                        format!(
+                            "holiday '{}' on {} falls on {}, which is already a non-working day",
+                            holiday.name, holiday.start, day_name
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("this holiday has no scheduling impact"),
+                );
+            }
+        }
+    }
+
+    // C011: Calendar mismatch between project and assigned resource
+    // Tasks inherit the project's calendar, but resources may have their own
+    fn collect_leaf_tasks(tasks: &[Task]) -> Vec<&Task> {
+        let mut leaves = Vec::new();
+        for task in tasks {
+            if task.children.is_empty() {
+                leaves.push(task);
+            } else {
+                leaves.extend(collect_leaf_tasks(&task.children));
+            }
+        }
+        leaves
+    }
+
+    for task in collect_leaf_tasks(&project.tasks) {
+        let project_calendar = &project.calendar;
+
+        for assignment in &task.assigned {
+            if let Some(resource) = project.get_resource(&assignment.resource_id) {
+                if let Some(rc) = resource.calendar.as_ref() {
+                    if project_calendar != rc {
+                        emitter.emit(
+                            Diagnostic::warning(
+                                DiagnosticCode::C011CalendarMismatch,
+                                format!(
+                                    "task '{}' uses project calendar '{}' but assigned resource '{}' uses calendar '{}'",
+                                    task.id, project_calendar, resource.id, rc
+                                ),
+                            )
+                            .with_file(config.file.clone().unwrap_or_default())
+                            .with_note("different calendars may cause scheduling conflicts")
+                            .with_hint("ensure project and resource calendars are compatible"),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // C010: Task scheduled on non-working day (requires schedule)
+    if let Some(sched) = schedule {
+        // Tasks use the project's calendar
+        let project_calendar = project
+            .calendars
+            .iter()
+            .find(|c| c.id == project.calendar)
+            .cloned()
+            .unwrap_or_default();
+
+        for (task_id, task_schedule) in &sched.tasks {
+            // Check start date against project calendar
+            let start_weekday = task_schedule.start.weekday().num_days_from_sunday() as u8;
+            if !project_calendar.working_days.contains(&start_weekday) {
+                let day_name = task_schedule.start.format("%A").to_string();
+                emitter.emit(
+                    Diagnostic::warning(
+                        DiagnosticCode::C010NonWorkingDay,
+                        format!(
+                            "task '{}' scheduled to start on {} ({}), which is a non-working day",
+                            task_id, task_schedule.start, day_name
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_hint("adjust task constraints or calendar"),
+                );
+            }
+        }
+    }
+}
+
 
 /// E001: Check for circular specialization in profile inheritance
 fn check_circular_specialization(

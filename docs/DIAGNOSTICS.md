@@ -13,9 +13,9 @@ This document specifies the diagnostic messages emitted by utf8proj during sched
 
 | Level | Code Prefix | Meaning | `--strict` Behavior |
 |-------|-------------|---------|---------------------|
-| Error | `E` | Cannot proceed | Always fatal |
-| Warning | `W` | Likely problem | Becomes error |
-| Hint | `H` | Suggestion | Becomes warning |
+| Error | `E`, `C001-C009` | Cannot proceed | Always fatal |
+| Warning | `W`, `C010-C019` | Likely problem | Becomes error |
+| Hint | `H`, `C020-C029` | Suggestion | Becomes warning |
 | Info | `I` | Informational | Unchanged |
 
 ## Emission Ordering
@@ -23,11 +23,14 @@ This document specifies the diagnostic messages emitted by utf8proj during sched
 For determinism and testability, diagnostics are emitted in this order:
 
 1. **Structural errors** (E001, E002, E003) - fatal issues first
-2. **Cost-related warnings** (W002, W004) - budget risk
-3. **Assignment-related warnings** (W001, W003) - planning gaps
-4. **MS Project compatibility warnings** (W014) - migration issues
-5. **Hints** (H001, H002, H003, H004) - suggestions
-6. **Info** (I001, I002, I003) - summary last
+2. **Calendar errors** (C001, C002) - configuration issues
+3. **Cost-related warnings** (W002, W004) - budget risk
+4. **Assignment-related warnings** (W001, W003) - planning gaps
+5. **Calendar warnings** (C010, C011) - scheduling conflicts
+6. **MS Project compatibility warnings** (W014) - migration issues
+7. **Hints** (H001, H002, H003, H004) - suggestions
+8. **Calendar hints** (C020, C022, C023) - calendar suggestions
+9. **Info** (I001, I002, I003, I004, I005) - summary last
 
 Within each category, diagnostics are ordered by source location (file, line, column).
 
@@ -630,22 +633,44 @@ pub enum Severity {
 }
 
 pub enum DiagnosticCode {
+    // Structural Errors
     E001, // Circular specialization
     E002, // Profile without rate
     E003, // Infeasible constraint
+
+    // Warnings
     W001, // Abstract assignment
     W002, // Wide cost range
     W003, // Unknown trait
     W004, // Approximate leveling
     W005, // Constraint zero slack
     W014, // Container dependency without child dependencies
+
+    // Hints
     H001, // Mixed abstraction
     H002, // Unused profile
     H003, // Unused trait
     H004, // Task without scheduling constraint
+
+    // Info
     I001, // Project cost summary
     I002, // Refinement progress
     I003, // Resource utilization
+    I004, // Project status
+    I005, // Earned value summary
+
+    // Calendar Errors
+    C001, // Zero working hours
+    C002, // No working days
+
+    // Calendar Warnings
+    C010, // Task on non-working day
+    C011, // Calendar mismatch (project vs resource)
+
+    // Calendar Hints
+    C020, // Low availability (<50%)
+    C022, // Suspicious hours (>16h/day or 7-day week)
+    C023, // Redundant holiday
 }
 ```
 
@@ -668,6 +693,137 @@ pub trait DiagnosticEmitter {
 
 ---
 
+## Calendar Diagnostics (C001-C023)
+
+Calendar diagnostics help identify configuration issues with working calendars that may affect scheduling. Use `--calendars` flag to filter and show only calendar diagnostics.
+
+### C001: Zero Working Hours
+
+**Severity**: Error
+
+**Trigger**: A calendar has no working hours defined.
+
+**Message Template**:
+```
+error[C001]: calendar '{calendar_id}' has no working hours defined
+  --> {file}
+   = hint: add 'working_hours:' to define when work can occur
+```
+
+---
+
+### C002: No Working Days
+
+**Severity**: Error
+
+**Trigger**: A calendar has no working days defined.
+
+**Message Template**:
+```
+error[C002]: calendar '{calendar_id}' has no working days defined
+  --> {file}
+   = hint: add 'working_days:' (e.g., mon-fri)
+```
+
+---
+
+### C010: Task Scheduled on Non-Working Day
+
+**Severity**: Warning
+
+**Trigger**: A task is scheduled to start on a day that is not a working day according to the project calendar.
+
+**Message Template**:
+```
+warning[C010]: task '{task_id}' scheduled to start on {date} ({day_name}), which is a non-working day
+  --> {file}
+   = hint: adjust task constraints or calendar
+```
+
+---
+
+### C011: Calendar Mismatch
+
+**Severity**: Warning
+
+**Trigger**: A resource is assigned to a task but uses a different calendar than the project.
+
+**Message Template**:
+```
+warning[C011]: task '{task_id}' uses project calendar '{project_cal}' but assigned resource '{resource_id}' uses calendar '{resource_cal}'
+  --> {file}
+   = note: different calendars may cause scheduling conflicts
+   = hint: ensure project and resource calendars are compatible
+```
+
+---
+
+### C020: Low Availability Calendar
+
+**Severity**: Hint
+
+**Trigger**: A calendar has less than 50% availability (fewer than 3 working days per week).
+
+**Message Template**:
+```
+hint[C020]: calendar '{calendar_id}' has only {days} working day(s) per week (<50% availability)
+  --> {file}
+   = note: low availability may significantly extend schedule duration
+```
+
+---
+
+### C022: Suspicious Working Hours
+
+**Severity**: Hint
+
+**Trigger**: A calendar has more than 16 hours per day, OR has 7 working days per week with 8+ hours per day.
+
+**Message Template (excessive hours)**:
+```
+hint[C022]: calendar '{calendar_id}' has {hours} hours/day which may be unrealistic
+  --> {file}
+   = hint: typical work day is 8 hours
+```
+
+**Message Template (7-day week)**:
+```
+hint[C022]: calendar '{calendar_id}' has 7-day workweek with {hours} hours/day
+  --> {file}
+   = note: verify this is intentional (e.g., 24/7 operations)
+```
+
+---
+
+### C023: Redundant Holiday
+
+**Severity**: Hint
+
+**Trigger**: A holiday is defined on a day that is already a non-working day (e.g., Sunday holiday when Sunday is not a working day).
+
+**Message Template**:
+```
+hint[C023]: holiday '{holiday_name}' on {date} falls on {day_name}, which is already a non-working day
+  --> {file}
+   = note: this holiday has no scheduling impact
+```
+
+---
+
+### CLI Calendar Flag
+
+Use `--calendars` with `check` or `schedule` commands to show only calendar-related diagnostics:
+
+```bash
+# Show only calendar diagnostics
+utf8proj check project.proj --calendars
+
+# Combined with other flags
+utf8proj schedule project.proj --calendars --strict
+```
+
+---
+
 ## Future Diagnostics (Not Yet Specified)
 
 These may be added in future versions:
@@ -676,3 +832,4 @@ These may be added in future versions:
 - `W007`: Resource over-committed across projects
 - `H005`: Task with no assignments
 - `H006`: Redundant dependency (transitive)
+- `C021`: Missing common holiday (planned but not implemented)

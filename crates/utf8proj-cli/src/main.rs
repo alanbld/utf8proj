@@ -48,6 +48,10 @@ enum Commands {
         /// Quiet mode: suppress all output except errors
         #[arg(short, long)]
         quiet: bool,
+
+        /// Show only calendar diagnostics (C001-C023)
+        #[arg(long)]
+        calendars: bool,
     },
 
     /// Schedule a project
@@ -91,6 +95,10 @@ enum Commands {
         /// Task name column width (default: 40)
         #[arg(short = 'w', long, default_value = "40")]
         width: usize,
+
+        /// Show only calendar diagnostics (C001-C023)
+        #[arg(long)]
+        calendars: bool,
     },
 
     /// Generate a Gantt chart
@@ -205,11 +213,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Check { file, format, strict, quiet }) => {
-            cmd_check(&file, &format, strict, quiet)
+        Some(Commands::Check { file, format, strict, quiet, calendars }) => {
+            cmd_check(&file, &format, strict, quiet, calendars)
         }
-        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width)
+        Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars)
         }
         Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks }) => {
             cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks)
@@ -254,7 +262,7 @@ fn main() -> Result<()> {
 /// This is the fast validation entry point - it parses the file, schedules
 /// (to enable cost analysis), and runs semantic analysis, but produces no
 /// schedule output. Designed for CI pipelines, pre-commit hooks, and editors.
-fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool) -> Result<()> {
+fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool, calendars: bool) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
@@ -293,12 +301,24 @@ fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool) ->
         base_path: file.parent().map(|p| p.to_path_buf()),
     };
 
+    // Filter diagnostics if --calendars flag is set (clone to get owned Diagnostics)
+    let diagnostics: Vec<Diagnostic> = if calendars {
+        collector
+            .sorted()
+            .into_iter()
+            .filter(|d| d.code.as_str().starts_with("C"))
+            .cloned()
+            .collect()
+    } else {
+        collector.sorted().into_iter().cloned().collect()
+    };
+
     // Emit diagnostics based on format
     let has_errors = match format {
         "json" => {
             let mut json_emitter = JsonEmitter::new(diag_config);
-            for diag in collector.sorted() {
-                json_emitter.emit(diag.clone());
+            for diag in diagnostics {
+                json_emitter.emit(diag);
             }
 
             // Output JSON diagnostics array
@@ -312,19 +332,27 @@ fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool) ->
         }
         "text" | _ => {
             let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
-            for diag in collector.sorted() {
-                term_emitter.emit(diag.clone());
+            for diag in diagnostics {
+                term_emitter.emit(diag);
             }
 
             // Show summary if not quiet and no errors
             if !quiet && !term_emitter.has_errors() {
-                eprintln!(
-                    "Checked '{}': {} tasks, {} resources, {} profiles",
-                    file.display(),
-                    count_tasks(&project.tasks),
-                    project.resources.len(),
-                    project.profiles.len()
-                );
+                if calendars {
+                    eprintln!(
+                        "Calendar check '{}': {} calendars analyzed",
+                        file.display(),
+                        project.calendars.len()
+                    );
+                } else {
+                    eprintln!(
+                        "Checked '{}': {} tasks, {} resources, {} profiles",
+                        file.display(),
+                        count_tasks(&project.tasks),
+                        project.resources.len(),
+                        project.profiles.len()
+                    );
+                }
             }
 
             term_emitter.has_errors()
@@ -351,6 +379,7 @@ fn cmd_schedule(
     task_ids: bool,
     verbose: bool,
     width: usize,
+    calendars: bool,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
@@ -509,13 +538,25 @@ fn cmd_schedule(
         base_path: file.parent().map(|p| p.to_path_buf()),
     };
 
+    // Filter diagnostics if --calendars flag is set (clone to get owned Diagnostics)
+    let diagnostics: Vec<Diagnostic> = if calendars {
+        collector
+            .sorted()
+            .into_iter()
+            .filter(|d| d.code.as_str().starts_with("C"))
+            .cloned()
+            .collect()
+    } else {
+        collector.sorted().into_iter().cloned().collect()
+    };
+
     // Emit diagnostics based on format
     let has_errors = match format {
         "json" => {
             // For JSON, collect diagnostics and include in output
             let mut json_emitter = JsonEmitter::new(diag_config);
-            for diag in collector.sorted() {
-                json_emitter.emit(diag.clone());
+            for diag in diagnostics.iter().cloned() {
+                json_emitter.emit(diag);
             }
 
             // Format output with diagnostics
@@ -542,12 +583,12 @@ fn cmd_schedule(
         "text" | _ => {
             // For text, emit diagnostics to stderr
             let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
-            for diag in collector.sorted() {
-                term_emitter.emit(diag.clone());
+            for diag in diagnostics {
+                term_emitter.emit(diag);
             }
 
-            // Format schedule output
-            if !quiet {
+            // Format schedule output (skip if only showing calendar diagnostics)
+            if !quiet && !calendars {
                 let result = format_text(&project, &schedule, show_progress, task_ids, verbose, width);
 
                 // Write output

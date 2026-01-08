@@ -1645,6 +1645,12 @@ pub enum DiagnosticCode {
     /// Task constraint cannot be satisfied (ES > LS)
     E003InfeasibleConstraint,
 
+    // Calendar Errors (C001-C009)
+    /// Calendar has no working hours defined
+    C001ZeroWorkingHours,
+    /// Calendar has no working days defined
+    C002NoWorkingDays,
+
     // Warnings (W) - Likely problem
     /// Task assigned to abstract profile instead of concrete resource
     W001AbstractAssignment,
@@ -1661,6 +1667,12 @@ pub enum DiagnosticCode {
     /// Container has dependencies but child task has none (MS Project compatibility)
     W014ContainerDependency,
 
+    // Calendar Warnings (C010-C019)
+    /// Task scheduled on non-working day
+    C010NonWorkingDay,
+    /// Task and assigned resource use different calendars
+    C011CalendarMismatch,
+
     // Hints (H) - Suggestions
     /// Task has both concrete and abstract assignments
     H001MixedAbstraction,
@@ -1670,6 +1682,16 @@ pub enum DiagnosticCode {
     H003UnusedTrait,
     /// Task has no predecessors or date constraints (dangling/orphan task)
     H004TaskUnconstrained,
+
+    // Calendar Hints (C020-C029)
+    /// Calendar has low availability (< 40% working days)
+    C020LowAvailability,
+    /// Calendar is missing common holiday
+    C021MissingCommonHoliday,
+    /// Calendar has suspicious working hours (e.g., 24/7)
+    C022SuspiciousHours,
+    /// Holiday falls on non-working day (redundant)
+    C023RedundantHoliday,
 
     // Info (I) - Informational
     /// Project scheduling summary
@@ -1691,6 +1713,8 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => "E001",
             DiagnosticCode::E002ProfileWithoutRate => "E002",
             DiagnosticCode::E003InfeasibleConstraint => "E003",
+            DiagnosticCode::C001ZeroWorkingHours => "C001",
+            DiagnosticCode::C002NoWorkingDays => "C002",
             DiagnosticCode::W001AbstractAssignment => "W001",
             DiagnosticCode::W002WideCostRange => "W002",
             DiagnosticCode::W003UnknownTrait => "W003",
@@ -1698,10 +1722,16 @@ impl DiagnosticCode {
             DiagnosticCode::W005ConstraintZeroSlack => "W005",
             DiagnosticCode::W006ScheduleVariance => "W006",
             DiagnosticCode::W014ContainerDependency => "W014",
+            DiagnosticCode::C010NonWorkingDay => "C010",
+            DiagnosticCode::C011CalendarMismatch => "C011",
             DiagnosticCode::H001MixedAbstraction => "H001",
             DiagnosticCode::H002UnusedProfile => "H002",
             DiagnosticCode::H003UnusedTrait => "H003",
             DiagnosticCode::H004TaskUnconstrained => "H004",
+            DiagnosticCode::C020LowAvailability => "C020",
+            DiagnosticCode::C021MissingCommonHoliday => "C021",
+            DiagnosticCode::C022SuspiciousHours => "C022",
+            DiagnosticCode::C023RedundantHoliday => "C023",
             DiagnosticCode::I001ProjectCostSummary => "I001",
             DiagnosticCode::I002RefinementProgress => "I002",
             DiagnosticCode::I003ResourceUtilization => "I003",
@@ -1716,6 +1746,8 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => Severity::Error,
             DiagnosticCode::E002ProfileWithoutRate => Severity::Warning, // Error in strict mode
             DiagnosticCode::E003InfeasibleConstraint => Severity::Error,
+            DiagnosticCode::C001ZeroWorkingHours => Severity::Error,
+            DiagnosticCode::C002NoWorkingDays => Severity::Error,
             DiagnosticCode::W001AbstractAssignment => Severity::Warning,
             DiagnosticCode::W002WideCostRange => Severity::Warning,
             DiagnosticCode::W003UnknownTrait => Severity::Warning,
@@ -1723,10 +1755,16 @@ impl DiagnosticCode {
             DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
             DiagnosticCode::W006ScheduleVariance => Severity::Warning,
             DiagnosticCode::W014ContainerDependency => Severity::Warning,
+            DiagnosticCode::C010NonWorkingDay => Severity::Warning,
+            DiagnosticCode::C011CalendarMismatch => Severity::Warning,
             DiagnosticCode::H001MixedAbstraction => Severity::Hint,
             DiagnosticCode::H002UnusedProfile => Severity::Hint,
             DiagnosticCode::H003UnusedTrait => Severity::Hint,
             DiagnosticCode::H004TaskUnconstrained => Severity::Hint,
+            DiagnosticCode::C020LowAvailability => Severity::Hint,
+            DiagnosticCode::C021MissingCommonHoliday => Severity::Hint,
+            DiagnosticCode::C022SuspiciousHours => Severity::Hint,
+            DiagnosticCode::C023RedundantHoliday => Severity::Hint,
             DiagnosticCode::I001ProjectCostSummary => Severity::Info,
             DiagnosticCode::I002RefinementProgress => Severity::Info,
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
@@ -1744,6 +1782,9 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => 0,
             DiagnosticCode::E002ProfileWithoutRate => 1,
             DiagnosticCode::E003InfeasibleConstraint => 2,
+            // Calendar errors
+            DiagnosticCode::C001ZeroWorkingHours => 3,
+            DiagnosticCode::C002NoWorkingDays => 4,
             // Cost-related warnings
             DiagnosticCode::W002WideCostRange => 10,
             DiagnosticCode::W004ApproximateLeveling => 11,
@@ -1753,6 +1794,9 @@ impl DiagnosticCode {
             DiagnosticCode::W006ScheduleVariance => 13,
             // MS Project compatibility warnings
             DiagnosticCode::W014ContainerDependency => 14,
+            // Calendar warnings
+            DiagnosticCode::C010NonWorkingDay => 15,
+            DiagnosticCode::C011CalendarMismatch => 16,
             // Assignment-related warnings
             DiagnosticCode::W001AbstractAssignment => 20,
             DiagnosticCode::W003UnknownTrait => 21,
@@ -1761,6 +1805,11 @@ impl DiagnosticCode {
             DiagnosticCode::H002UnusedProfile => 31,
             DiagnosticCode::H003UnusedTrait => 32,
             DiagnosticCode::H004TaskUnconstrained => 33,
+            // Calendar hints
+            DiagnosticCode::C020LowAvailability => 34,
+            DiagnosticCode::C021MissingCommonHoliday => 35,
+            DiagnosticCode::C022SuspiciousHours => 36,
+            DiagnosticCode::C023RedundantHoliday => 37,
             // Info last
             DiagnosticCode::I001ProjectCostSummary => 40,
             DiagnosticCode::I002RefinementProgress => 41,
