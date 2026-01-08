@@ -594,6 +594,7 @@
             <button class="demo-btn" data-demo="hierarchical">Hierarchical</button>
             <button class="demo-btn" data-demo="software">Software Project</button>
             <button class="demo-btn" data-demo="crm">CRM Migration</button>
+            <button class="demo-btn" data-demo="effort">Resource-Loaded</button>
             <button class="demo-btn" onclick="openEditor()">Edit Source</button>
         </div>
         
@@ -887,6 +888,67 @@ task training "User Training" {
 task cutover "Go-Live Cutover" {
     milestone: true
     depends: training
+}`,
+
+            effort: `project "Mobile App Sprint" {
+    start: 2026-01-06
+    currency: USD
+}
+
+resource alice "Alice (Senior Dev)" { rate: 950/day }
+resource bob "Bob (Developer)" { rate: 750/day }
+resource carol "Carol (QA)" { rate: 650/day }
+
+task backend "Backend API" {
+    task auth "Authentication" {
+        effort: 3d
+        assign: alice
+        complete: 100%
+    }
+    task database "Database Schema" {
+        effort: 2d
+        assign: bob
+        complete: 80%
+    }
+    task endpoints "REST Endpoints" {
+        effort: 5d
+        assign: alice, bob
+        depends: auth, database
+        complete: 40%
+    }
+}
+
+task frontend "Frontend App" {
+    depends: backend.auth
+
+    task screens "UI Screens" {
+        effort: 4d
+        assign: bob
+        complete: 60%
+    }
+    task integration "API Integration" {
+        effort: 3d
+        assign: alice
+        depends: screens, backend.endpoints
+    }
+}
+
+task testing "QA Testing" {
+    task functional "Functional Tests" {
+        effort: 3d
+        assign: carol
+        depends: frontend.integration
+    }
+    task regression "Regression Suite" {
+        effort: 2d
+        assign: carol
+        depends: functional
+    }
+}
+
+task release "Release" {
+    milestone: true
+    depends: testing
 }`
         };
         
