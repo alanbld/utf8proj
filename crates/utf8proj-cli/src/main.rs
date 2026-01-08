@@ -134,6 +134,14 @@ enum Commands {
         /// Number of weeks to show in Excel schedule (default: 40)
         #[arg(long, default_value = "40")]
         weeks: u32,
+
+        /// Include Calendar Analysis sheet in Excel export (shows weekend/holiday impact)
+        #[arg(long)]
+        include_calendar: bool,
+
+        /// Include Diagnostics sheet in Excel export
+        #[arg(long)]
+        include_diagnostics: bool,
     },
 
     /// Run performance benchmarks
@@ -219,8 +227,8 @@ fn main() -> Result<()> {
         Some(Commands::Schedule { file, format, output, leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, show_progress, strict, quiet, task_ids, verbose, width, calendars)
         }
-        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks }) => {
-            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks)
+        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics }) => {
+            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics)
         }
         Some(Commands::Benchmark {
             topology,
@@ -619,7 +627,7 @@ fn cmd_schedule(
 }
 
 /// Gantt command: generate Gantt chart in various formats
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32) -> Result<()> {
+fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
     let project = parse_file(file)
@@ -644,14 +652,43 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
 
     // Handle xlsx separately (binary output)
     if format.to_lowercase() == "xlsx" {
-        let renderer = utf8proj_render::ExcelRenderer::new()
+        let mut renderer = utf8proj_render::ExcelRenderer::new()
             .currency(currency)
             .weeks(weeks);
+
+        // Add calendar analysis sheet if requested
+        if include_calendar {
+            renderer = renderer.with_calendar_analysis();
+        }
+
+        // Add diagnostics sheet if requested
+        if include_diagnostics || include_calendar {
+            // Run project analysis to get diagnostics
+            use utf8proj_core::CollectingEmitter;
+            use utf8proj_solver::{analyze_project, AnalysisConfig};
+
+            let mut emitter = CollectingEmitter::new();
+            let config = AnalysisConfig::default();
+            analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+            let diagnostics: Vec<_> = emitter.diagnostics.into_iter().collect();
+            renderer = renderer.with_diagnostics(diagnostics);
+        }
+
         let bytes = renderer.render(&project, &schedule)
             .with_context(|| "Failed to render Excel workbook")?;
         fs::write(output, &bytes)
             .with_context(|| format!("Failed to write XLSX to '{}'", output.display()))?;
-        println!("Excel workbook written to: {}", output.display());
+
+        let mut features = Vec::new();
+        if include_calendar { features.push("Calendar Analysis"); }
+        if include_diagnostics { features.push("Diagnostics"); }
+        let feature_str = if features.is_empty() {
+            String::new()
+        } else {
+            format!(" with {}", features.join(", "))
+        };
+        println!("Excel workbook{} written to: {}", feature_str, output.display());
         return Ok(());
     }
 

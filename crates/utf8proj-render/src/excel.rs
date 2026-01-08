@@ -43,11 +43,11 @@
 //! ```
 //! This creates a **live schedule** - change a task's effort and all successors update!
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
-use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
+use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask, Severity};
 
 /// Excel costing report renderer
 #[derive(Clone, Debug)]
@@ -70,6 +70,12 @@ pub struct ExcelRenderer {
     pub default_rate: f64,
     /// Whether to show dependency columns and use formula-driven scheduling
     pub show_dependencies: bool,
+    /// Whether to include Calendar Analysis sheet
+    pub include_calendar_analysis: bool,
+    /// Whether to include Diagnostics sheet
+    pub include_diagnostics: bool,
+    /// Diagnostics to include in the export (if include_diagnostics is true)
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl Default for ExcelRenderer {
@@ -84,6 +90,9 @@ impl Default for ExcelRenderer {
             project_start: None,
             default_rate: 400.0,
             show_dependencies: true, // Enable by default for live scheduling
+            include_calendar_analysis: false,
+            include_diagnostics: false,
+            diagnostics: Vec::new(),
         }
     }
 }
@@ -141,6 +150,19 @@ impl ExcelRenderer {
         self
     }
 
+    /// Include Calendar Analysis sheet showing weekend/holiday impact per task
+    pub fn with_calendar_analysis(mut self) -> Self {
+        self.include_calendar_analysis = true;
+        self
+    }
+
+    /// Include Diagnostics sheet with all project diagnostics
+    pub fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        self.include_diagnostics = true;
+        self.diagnostics = diagnostics;
+        self
+    }
+
     /// Generate Excel workbook bytes
     pub fn render_to_bytes(
         &self,
@@ -179,6 +201,16 @@ impl ExcelRenderer {
 
         if self.include_summary {
             self.add_executive_summary(&mut workbook, project, schedule, &formats, &resource_rates)?;
+        }
+
+        // Add Calendar Analysis sheet if enabled
+        if self.include_calendar_analysis {
+            self.add_calendar_analysis_sheet(&mut workbook, project, schedule, &formats)?;
+        }
+
+        // Add Diagnostics sheet if enabled
+        if self.include_diagnostics {
+            self.add_diagnostics_sheet(&mut workbook, project, &formats)?;
         }
 
         // Save to buffer
@@ -937,6 +969,320 @@ impl ExcelRenderer {
         // Column widths
         sheet.set_column_width(0, 20).ok();
         sheet.set_column_width(1, 25).ok();
+
+        Ok(())
+    }
+
+    /// Add Calendar Analysis sheet showing weekend/holiday impact per task
+    fn add_calendar_analysis_sheet(
+        &self,
+        workbook: &mut Workbook,
+        project: &Project,
+        schedule: &Schedule,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        let sheet = workbook.add_worksheet();
+        sheet
+            .set_name("Calendar Analysis")
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Headers
+        let headers = [
+            "Task ID",
+            "Task Name",
+            "Calendar",
+            "Duration (days)",
+            "Working Days",
+            "Weekends",
+            "Holidays",
+            "Non-Working %",
+            "Diagnostics",
+        ];
+
+        for (col, header) in headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Column widths
+        sheet.set_column_width(0, 15).ok();  // Task ID
+        sheet.set_column_width(1, 25).ok();  // Task Name
+        sheet.set_column_width(2, 12).ok();  // Calendar
+        sheet.set_column_width(3, 12).ok();  // Duration
+        sheet.set_column_width(4, 12).ok();  // Working Days
+        sheet.set_column_width(5, 10).ok();  // Weekends
+        sheet.set_column_width(6, 10).ok();  // Holidays
+        sheet.set_column_width(7, 12).ok();  // Non-Working %
+        sheet.set_column_width(8, 30).ok();  // Diagnostics
+
+        // Get project calendar for fallback
+        let project_calendar = project.calendars.iter()
+            .find(|c| c.id == project.calendar)
+            .cloned()
+            .unwrap_or_else(Calendar::default);
+
+        // Collect tasks in WBS order
+        let wbs_order = Self::collect_wbs_order(&project.tasks, 0);
+
+        let mut row = 1u32;
+        for (task_path, _level) in &wbs_order {
+            // Get task info from schedule
+            if let Some(scheduled) = schedule.tasks.get(task_path) {
+                let simple_id = task_path.rsplit('.').next().unwrap_or(task_path);
+                let task = project.get_task(simple_id);
+                let task_name = task.map(|t| t.name.as_str()).unwrap_or(simple_id);
+
+                // Get the calendar for this task (use project calendar as fallback)
+                let calendar = &project_calendar;
+
+                // Calculate calendar impact
+                let (working_days, weekend_days, holiday_days) =
+                    self.calculate_calendar_impact_for_task(scheduled, calendar);
+
+                let total_span = (scheduled.finish - scheduled.start).num_days().max(1) as f64;
+                let non_working_pct = ((weekend_days + holiday_days) as f64 / total_span) * 100.0;
+
+                // Get diagnostics for this task
+                let task_diags = self.filter_task_diagnostics(task_path);
+                let diag_str = task_diags.iter()
+                    .map(|d| d.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                // Write row
+                sheet.write_with_format(row, 0, task_path, &formats.text)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 1, task_name, &formats.text)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 2, &calendar.id, &formats.text)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 3, scheduled.duration.as_days(), &formats.number)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 4, working_days as f64, &formats.integer)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 5, weekend_days as f64, &formats.integer)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                sheet.write_with_format(row, 6, holiday_days as f64, &formats.integer)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Non-working percentage with conditional formatting color
+                let pct_format = if non_working_pct > 30.0 {
+                    Format::new()
+                        .set_num_format("0.0%")
+                        .set_background_color(0xFFCCCC)
+                        .set_border(FormatBorder::Thin)
+                } else if non_working_pct > 15.0 {
+                    Format::new()
+                        .set_num_format("0.0%")
+                        .set_background_color(0xFFFFCC)
+                        .set_border(FormatBorder::Thin)
+                } else {
+                    Format::new()
+                        .set_num_format("0.0%")
+                        .set_background_color(0xCCFFCC)
+                        .set_border(FormatBorder::Thin)
+                };
+                sheet.write_with_format(row, 7, non_working_pct / 100.0, &pct_format)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Diagnostics column
+                let diag_format = if !task_diags.is_empty() {
+                    Format::new()
+                        .set_background_color(0xFFEEDD)
+                        .set_border(FormatBorder::Thin)
+                } else {
+                    formats.text.clone()
+                };
+                sheet.write_with_format(row, 8, &diag_str, &diag_format)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                row += 1;
+            }
+        }
+
+        // Freeze header row
+        sheet.set_freeze_panes(1, 0).ok();
+
+        Ok(())
+    }
+
+    /// Calculate calendar impact for a scheduled task
+    fn calculate_calendar_impact_for_task(
+        &self,
+        scheduled: &ScheduledTask,
+        calendar: &Calendar,
+    ) -> (u32, u32, u32) {
+        let mut working_days = 0u32;
+        let mut weekend_days = 0u32;
+        let mut holiday_days = 0u32;
+
+        let mut current = scheduled.start;
+        while current <= scheduled.finish {
+            let weekday = current.weekday().num_days_from_sunday() as u8;
+
+            // Check if it's a holiday
+            let is_holiday = calendar.holidays.iter()
+                .any(|h| current >= h.start && current <= h.end);
+
+            if is_holiday {
+                holiday_days += 1;
+            } else if !calendar.working_days.contains(&weekday) {
+                weekend_days += 1;
+            } else {
+                working_days += 1;
+            }
+
+            current = current.succ_opt().unwrap_or(current);
+            if current == scheduled.finish && current == scheduled.start {
+                break; // Avoid infinite loop for zero-duration tasks
+            }
+        }
+
+        (working_days, weekend_days, holiday_days)
+    }
+
+    /// Filter diagnostics relevant to a specific task
+    fn filter_task_diagnostics(&self, task_id: &str) -> Vec<DiagnosticCode> {
+        self.diagnostics
+            .iter()
+            .filter(|d| Self::is_diagnostic_for_task(d, task_id))
+            .map(|d| d.code.clone())
+            .collect()
+    }
+
+    /// Check if a diagnostic is relevant to a specific task
+    fn is_diagnostic_for_task(diagnostic: &Diagnostic, task_id: &str) -> bool {
+        let quoted_id = format!("'{}'", task_id);
+        match diagnostic.code {
+            DiagnosticCode::C010NonWorkingDay | DiagnosticCode::C011CalendarMismatch => {
+                diagnostic.message.contains(&quoted_id)
+            }
+            DiagnosticCode::H004TaskUnconstrained => diagnostic.message.contains(&quoted_id),
+            DiagnosticCode::W001AbstractAssignment | DiagnosticCode::H001MixedAbstraction => {
+                diagnostic.message.contains(&quoted_id)
+            }
+            DiagnosticCode::W014ContainerDependency => diagnostic.message.contains(&quoted_id),
+            _ => false,
+        }
+    }
+
+    /// Add Diagnostics sheet with all project diagnostics
+    fn add_diagnostics_sheet(
+        &self,
+        workbook: &mut Workbook,
+        _project: &Project,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        let sheet = workbook.add_worksheet();
+        sheet
+            .set_name("Diagnostics")
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Headers
+        let headers = ["Code", "Severity", "Message", "Hint"];
+        for (col, header) in headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Column widths
+        sheet.set_column_width(0, 8).ok();   // Code
+        sheet.set_column_width(1, 10).ok();  // Severity
+        sheet.set_column_width(2, 60).ok();  // Message
+        sheet.set_column_width(3, 40).ok();  // Hint
+
+        // Sort diagnostics by severity (Error first, then Warning, Hint, Info)
+        let mut sorted_diags: Vec<&Diagnostic> = self.diagnostics.iter().collect();
+        sorted_diags.sort_by_key(|d| {
+            match d.severity {
+                Severity::Error => 0,
+                Severity::Warning => 1,
+                Severity::Hint => 2,
+                Severity::Info => 3,
+            }
+        });
+
+        // Write diagnostic rows
+        for (i, diag) in sorted_diags.iter().enumerate() {
+            let row = (i + 1) as u32;
+
+            // Color code by severity
+            let severity_format = match diag.severity {
+                Severity::Error => Format::new()
+                    .set_background_color(0xFFCCCC)
+                    .set_border(FormatBorder::Thin),
+                Severity::Warning => Format::new()
+                    .set_background_color(0xFFFFCC)
+                    .set_border(FormatBorder::Thin),
+                Severity::Hint => Format::new()
+                    .set_background_color(0xCCFFFF)
+                    .set_border(FormatBorder::Thin),
+                Severity::Info => Format::new()
+                    .set_background_color(0xCCCCFF)
+                    .set_border(FormatBorder::Thin),
+            };
+
+            let severity_str = match diag.severity {
+                Severity::Error => "Error",
+                Severity::Warning => "Warning",
+                Severity::Hint => "Hint",
+                Severity::Info => "Info",
+            };
+
+            sheet.write_with_format(row, 0, diag.code.as_str(), &severity_format)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            sheet.write_with_format(row, 1, severity_str, &severity_format)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            sheet.write_with_format(row, 2, &diag.message, &formats.text)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            let hint_str = diag.hints.first().map(|s| s.as_str()).unwrap_or("");
+            sheet.write_with_format(row, 3, hint_str, &formats.text)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Add summary section at the bottom
+        let summary_row = (sorted_diags.len() + 3) as u32;
+        sheet.write_with_format(summary_row, 0, "SUMMARY", &formats.header)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.merge_range(summary_row, 0, summary_row, 1, "SUMMARY", &formats.header).ok();
+
+        let error_count = self.diagnostics.iter()
+            .filter(|d| matches!(d.severity, Severity::Error))
+            .count();
+        let warning_count = self.diagnostics.iter()
+            .filter(|d| matches!(d.severity, Severity::Warning))
+            .count();
+        let hint_count = self.diagnostics.iter()
+            .filter(|d| matches!(d.severity, Severity::Hint))
+            .count();
+        let calendar_count = self.diagnostics.iter()
+            .filter(|d| d.code.as_str().starts_with("C"))
+            .count();
+
+        sheet.write_with_format(summary_row + 1, 0, "Errors:", &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.write_with_format(summary_row + 1, 1, error_count as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        sheet.write_with_format(summary_row + 2, 0, "Warnings:", &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.write_with_format(summary_row + 2, 1, warning_count as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        sheet.write_with_format(summary_row + 3, 0, "Hints:", &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.write_with_format(summary_row + 3, 1, hint_count as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        sheet.write_with_format(summary_row + 4, 0, "Calendar Issues:", &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.write_with_format(summary_row + 4, 1, calendar_count as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Freeze header row
+        sheet.set_freeze_panes(1, 0).ok();
 
         Ok(())
     }
