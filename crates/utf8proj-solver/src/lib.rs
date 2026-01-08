@@ -962,6 +962,70 @@ pub fn analyze_project(
     }
 }
 
+/// Filter diagnostics relevant to a specific task
+///
+/// Given a list of diagnostics and a task ID, returns the diagnostic codes
+/// that are relevant to that task. This enables linking diagnostics to
+/// task explanations.
+///
+/// # Example
+/// ```
+/// use utf8proj_solver::{analyze_project, filter_task_diagnostics, AnalysisConfig};
+/// use utf8proj_core::{CollectingEmitter, Project};
+///
+/// let project = Project::new("Test");
+/// let mut emitter = CollectingEmitter::new();
+/// let config = AnalysisConfig::default();
+/// analyze_project(&project, None, &config, &mut emitter);
+///
+/// // Get diagnostics relevant to a specific task
+/// let task_diagnostics = filter_task_diagnostics("my_task", &emitter.diagnostics);
+/// ```
+pub fn filter_task_diagnostics(
+    task_id: &str,
+    diagnostics: &[Diagnostic],
+) -> Vec<DiagnosticCode> {
+    diagnostics
+        .iter()
+        .filter(|d| is_diagnostic_for_task(d, task_id))
+        .map(|d| d.code.clone())
+        .collect()
+}
+
+/// Check if a diagnostic is relevant to a specific task
+fn is_diagnostic_for_task(diagnostic: &Diagnostic, task_id: &str) -> bool {
+    // Task-specific diagnostics contain the task ID in quotes in their message
+    let quoted_id = format!("'{}'", task_id);
+
+    match diagnostic.code {
+        // Calendar diagnostics that reference specific tasks
+        DiagnosticCode::C010NonWorkingDay | DiagnosticCode::C011CalendarMismatch => {
+            diagnostic.message.contains(&quoted_id)
+        }
+
+        // Scheduling hints about tasks
+        DiagnosticCode::H004TaskUnconstrained => diagnostic.message.contains(&quoted_id),
+
+        // Assignment warnings
+        DiagnosticCode::W001AbstractAssignment | DiagnosticCode::H001MixedAbstraction => {
+            diagnostic.message.contains(&quoted_id)
+        }
+
+        // Container dependency warnings
+        DiagnosticCode::W014ContainerDependency => {
+            // W014 contains both container and child task names
+            diagnostic.message.contains(&quoted_id)
+        }
+
+        // Project-level or calendar-level diagnostics are not task-specific
+        // C001, C002, C020, C022, C023 - these affect the calendar, not specific tasks
+        // E001, E002, W002, W003, W004 - these are about profiles/traits/resources
+        // H002, H003 - unused profiles/traits
+        // I001, I002, I003, I004, I005 - info summaries
+        _ => false,
+    }
+}
+
 /// Info about assignments in the project
 struct AssignmentInfo {
     /// Map from resource/profile ID to list of (task_id, is_abstract)

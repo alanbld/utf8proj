@@ -364,3 +364,204 @@ fn valid_calendar_no_diagnostics() {
         calendar_diagnostics
     );
 }
+
+// ============================================================================
+// Diagnostic→Task Linking Tests
+// ============================================================================
+
+use utf8proj_solver::filter_task_diagnostics;
+
+/// Test: filter_task_diagnostics returns C010 for the correct task
+#[test]
+fn filter_diagnostics_c010_links_to_task() {
+    let mut project = Project::new("Filter C010 Test");
+
+    // Set project start to Saturday
+    let mut start_date = today();
+    while start_date.weekday() != chrono::Weekday::Sat {
+        start_date = start_date.succ_opt().unwrap();
+    }
+    project.start = start_date;
+
+    // Mon-Fri calendar
+    let mut standard_cal = Calendar::default();
+    standard_cal.id = "standard".to_string();
+    standard_cal.working_days = vec![1, 2, 3, 4, 5];
+    project.calendars.push(standard_cal);
+    project.calendar = "standard".to_string();
+
+    // Task that will start on Saturday (non-working day)
+    project
+        .tasks
+        .push(Task::new("weekend_task").duration(Duration::days(5)));
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should succeed");
+
+    let mut emitter = CollectingEmitter::new();
+    let config = AnalysisConfig::default();
+    analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+    // Filter diagnostics for the specific task
+    let task_codes = filter_task_diagnostics("weekend_task", &emitter.diagnostics);
+
+    assert!(
+        task_codes.contains(&DiagnosticCode::C010NonWorkingDay),
+        "weekend_task should have C010 diagnostic, got: {:?}",
+        task_codes
+    );
+}
+
+/// Test: filter_task_diagnostics returns C011 for task with mismatched calendar
+#[test]
+fn filter_diagnostics_c011_links_to_task() {
+    let mut project = Project::new("Filter C011 Test");
+    project.start = today();
+
+    // Two different calendars
+    let mut cal_a = Calendar::default();
+    cal_a.id = "cal_a".to_string();
+    project.calendars.push(cal_a);
+
+    let mut cal_b = Calendar::default();
+    cal_b.id = "cal_b".to_string();
+    project.calendars.push(cal_b);
+
+    project.calendar = "cal_a".to_string();
+
+    // Resource with different calendar
+    let mut resource = Resource::new("dev");
+    resource.calendar = Some("cal_b".to_string());
+    project.resources.push(resource);
+
+    // Task assigned to resource with different calendar
+    let task = Task::new("mismatched_task")
+        .duration(Duration::days(5))
+        .assign("dev");
+    project.tasks.push(task);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should succeed");
+
+    let mut emitter = CollectingEmitter::new();
+    let config = AnalysisConfig::default();
+    analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+    // Filter diagnostics for the specific task
+    let task_codes = filter_task_diagnostics("mismatched_task", &emitter.diagnostics);
+
+    assert!(
+        task_codes.contains(&DiagnosticCode::C011CalendarMismatch),
+        "mismatched_task should have C011 diagnostic, got: {:?}",
+        task_codes
+    );
+}
+
+/// Test: Calendar-level diagnostics (C001, C002) are NOT linked to tasks
+#[test]
+fn filter_diagnostics_excludes_calendar_level() {
+    let mut project = Project::new("Filter Calendar-Level Test");
+    project.start = today();
+
+    // Calendar with no working hours (C001) and no working days (C002)
+    let mut bad_cal = Calendar::default();
+    bad_cal.id = "bad_cal".to_string();
+    bad_cal.working_hours = vec![]; // Triggers C001
+    bad_cal.working_days = vec![]; // Triggers C002
+    project.calendars.push(bad_cal);
+
+    project
+        .tasks
+        .push(Task::new("some_task").duration(Duration::days(5)));
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should succeed");
+
+    let mut emitter = CollectingEmitter::new();
+    let config = AnalysisConfig::default();
+    analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+    // Verify C001 and C002 exist in diagnostics
+    assert!(
+        emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::C001ZeroWorkingHours),
+        "Should have C001 diagnostic"
+    );
+    assert!(
+        emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::C002NoWorkingDays),
+        "Should have C002 diagnostic"
+    );
+
+    // But filter should NOT return them for a task
+    let task_codes = filter_task_diagnostics("some_task", &emitter.diagnostics);
+
+    assert!(
+        !task_codes.contains(&DiagnosticCode::C001ZeroWorkingHours),
+        "C001 should NOT be linked to task, got: {:?}",
+        task_codes
+    );
+    assert!(
+        !task_codes.contains(&DiagnosticCode::C002NoWorkingDays),
+        "C002 should NOT be linked to task, got: {:?}",
+        task_codes
+    );
+}
+
+/// Test: filter_task_diagnostics returns empty for unrelated tasks
+#[test]
+fn filter_diagnostics_empty_for_unrelated_task() {
+    let mut project = Project::new("Filter Unrelated Test");
+
+    // Set project start to Saturday to trigger C010 for first task
+    let mut start_date = today();
+    while start_date.weekday() != chrono::Weekday::Sat {
+        start_date = start_date.succ_opt().unwrap();
+    }
+    project.start = start_date;
+
+    let mut standard_cal = Calendar::default();
+    standard_cal.id = "standard".to_string();
+    standard_cal.working_days = vec![1, 2, 3, 4, 5];
+    project.calendars.push(standard_cal);
+    project.calendar = "standard".to_string();
+
+    // First task starts on Saturday (gets C010)
+    project
+        .tasks
+        .push(Task::new("first_task").duration(Duration::days(1)));
+
+    // Second task depends on first (starts on Monday, no issues)
+    project
+        .tasks
+        .push(Task::new("second_task").duration(Duration::days(1)).depends_on("first_task"));
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).expect("Should succeed");
+
+    let mut emitter = CollectingEmitter::new();
+    let config = AnalysisConfig::default();
+    analyze_project(&project, Some(&schedule), &config, &mut emitter);
+
+    // Filter diagnostics for second task - should be empty or not contain C010
+    let second_task_codes = filter_task_diagnostics("second_task", &emitter.diagnostics);
+
+    // second_task shouldn't have C010 (it starts on Monday after first_task)
+    assert!(
+        !second_task_codes.contains(&DiagnosticCode::C010NonWorkingDay),
+        "second_task should NOT have C010 diagnostic, got: {:?}",
+        second_task_codes
+    );
+
+    // But first_task should have C010
+    let first_task_codes = filter_task_diagnostics("first_task", &emitter.diagnostics);
+    assert!(
+        first_task_codes.contains(&DiagnosticCode::C010NonWorkingDay),
+        "first_task should have C010 diagnostic, got: {:?}",
+        first_task_codes
+    );
+}
