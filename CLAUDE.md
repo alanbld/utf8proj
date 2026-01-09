@@ -169,6 +169,8 @@ The `utf8proj-lsp` crate provides IDE support for `.proj` files via the Language
 | `textDocumentSync` | Full document sync on open/change |
 | `hoverProvider` | Contextual info for identifiers |
 | `documentSymbolProvider` | Outline of profiles, resources, tasks |
+| `definitionProvider` | Go-to-definition for symbols |
+| `referencesProvider` | Find all references to symbols |
 
 ### Features
 
@@ -176,9 +178,12 @@ The `utf8proj-lsp` crate provides IDE support for `.proj` files via the Language
 - **Hover information**:
   - Profiles: rate range, specialization chain, traits, skills
   - Resources: rate, capacity, efficiency
-  - Tasks: duration, effort, assignments, dependencies
+  - Tasks: duration, effort, assignments, dependencies, calendar impact
   - Traits: description, rate multiplier
+  - Diagnostics: L001-L004 (leveling), C001-C023 (calendar)
 - **Document symbols**: Navigate profiles, resources, and tasks
+- **Go-to-definition**: Jump to task, resource, calendar, profile, trait declarations
+- **Find references**: Find all usages of a symbol (depends, assign, calendar, etc.)
 
 ### Usage
 

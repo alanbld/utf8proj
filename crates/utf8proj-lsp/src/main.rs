@@ -7,6 +7,7 @@
 
 mod diagnostics;
 mod hover;
+mod navigation;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -116,6 +117,8 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -188,6 +191,51 @@ impl LanguageServer for Backend {
             if let Some(ref project) = state.project {
                 let symbols = build_document_symbols(project);
                 return Ok(Some(DocumentSymbolResponse::Flat(symbols)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let docs = self.documents.read().await;
+        if let Some(state) = docs.get(&uri) {
+            if let Some(ref project) = state.project {
+                if let Some(location) =
+                    navigation::find_definition(project, &state.text, &uri, position)
+                {
+                    return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let include_declaration = params.context.include_declaration;
+
+        let docs = self.documents.read().await;
+        if let Some(state) = docs.get(&uri) {
+            if let Some(ref project) = state.project {
+                let locations = navigation::find_references(
+                    project,
+                    &state.text,
+                    &uri,
+                    position,
+                    include_declaration,
+                );
+                if !locations.is_empty() {
+                    return Ok(Some(locations));
+                }
             }
         }
 
