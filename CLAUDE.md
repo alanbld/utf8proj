@@ -49,7 +49,7 @@ playground/             # Browser-based playground
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-05)
+## Test Coverage (as of 2026-01-09)
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
@@ -61,29 +61,29 @@ playground/             # Browser-based playground
 | utf8proj-render/gantt | 273/278 | 98.2% |
 | utf8proj-render/excel | 421/432 | 97.5% |
 | utf8proj-solver/bdd | 108/111 | 97.3% |
-| utf8proj-solver/leveling | 192/196 | 98.0% |
 | utf8proj-parser/tjp | 152/157 | 96.8% |
 | utf8proj-parser/native | 455/471 | 96.6% |
 | utf8proj-render/plantuml | 115/119 | 96.6% |
 | utf8proj-solver/dag | 136/142 | 95.8% |
 | utf8proj-solver/cpm | 78/83 | 94.0% |
+| utf8proj-solver/leveling | 313/336 | 93.2% |
 | utf8proj-core | 408/444 | 91.9% |
 | utf8proj-wasm | 74/81 | 91.4% |
 | utf8proj-lsp/diagnostics | 28/31 | 90.3% |
 | utf8proj-cli | 271/638 | 42.5% |
-| **Overall** | **3857/4464** | **86.40%** |
+| **Overall** | **~3900/4500** | **~86%** |
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 738 passing, 1 ignored (render doctest)
+**Tests:** 748 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 12 leveling + 4 progress + 19 semantic = 177 tests
+- utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 4 progress + 19 semantic = 190 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
 - utf8proj-core: 74 tests + 5 doc-tests = 79 tests
 - utf8proj-cli: 32 unit + 14 diagnostic snapshot + 26 exit code = 72 tests
-- utf8proj-lsp: 5 diagnostic + 39 hover = 44 tests
+- utf8proj-lsp: 5 diagnostic + 49 hover = 54 tests
 - utf8proj-wasm: 15 tests
 
 ## Diagnostic System (Compiler-Grade)
@@ -485,7 +485,14 @@ let renderer = ExcelRenderer::new()
    - Linked to EXPLAINABILITY.md manifesto
    - Updated library examples to use correct CpmSolver API
 
-4. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+4. **RFC-0003 Status & LSP Leveling Hover** (2026-01-09)
+   - Created `docs/RFC-0003-STATUS.md`: Phase 1 complete, Phase 2 deferred
+   - Added L001-L004 diagnostics to LSP hover with ⚖️ icon
+   - Added 📆 icon for calendar diagnostics in hover
+   - Leveling coverage improved: 85.7% → 93.2%
+   - Added 10 new tests (5 leveling, 5 LSP hover)
+
+5. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
@@ -695,10 +702,11 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 ## Remaining Work
 
 - CLI test coverage (42.5% currently, target 60%+)
-- WASM test coverage (91.4% - good shape)
-- RFC-0003 Phase 2: Additional leveling strategies if needed
 - Edge cases in calendar parsing
 - Some resource/task attribute combinations in native parser
+
+**Explicitly Deferred:**
+- RFC-0003 Phase 2: Deferred pending user demand (see `docs/RFC-0003-STATUS.md`)
 
 ## Grammar Notes
 
