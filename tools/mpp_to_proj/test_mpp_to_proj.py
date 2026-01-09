@@ -177,9 +177,143 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
-        
+
         writer.write_task_recursive(task, 0)
         assert any('milestone: true' in line for line in writer.lines)
+
+    def test_write_task_recursive_with_effort(self, writer):
+        """Test that non-zero Work value produces effort: line."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 60
+        task.getName.return_value = "Task With Effort"
+        task.getWBS.return_value = "2.1"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # Mock duration
+        duration = MagicMock()
+        duration.getDuration.return_value = 3.0
+        task.getDuration.return_value = duration
+
+        # Mock work (effort)
+        work = MagicMock()
+        work.getDuration.return_value = 5.0
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'effort: 5d' in output
+
+    def test_write_task_recursive_zero_work(self, writer):
+        """Test that zero Work value does not produce effort: line."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 61
+        task.getName.return_value = "Task Zero Work"
+        task.getWBS.return_value = "2.2"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # Mock duration
+        duration = MagicMock()
+        duration.getDuration.return_value = 4.0
+        task.getDuration.return_value = duration
+
+        # Mock work = 0
+        work = MagicMock()
+        work.getDuration.return_value = 0.0
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'duration: 4d' in output
+        assert 'effort:' not in output
+
+    def test_write_task_recursive_missing_work(self, writer):
+        """Test that missing Work (None) does not produce effort: line."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 62
+        task.getName.return_value = "Task Missing Work"
+        task.getWBS.return_value = "2.3"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # Mock duration
+        duration = MagicMock()
+        duration.getDuration.return_value = 6.0
+        task.getDuration.return_value = duration
+
+        # Work is None (missing)
+        task.getWork.return_value = None
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'duration: 6d' in output
+        assert 'effort:' not in output
+
+    def test_write_task_recursive_effort_and_duration(self, writer):
+        """Test that both duration and effort are written when both are present."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 63
+        task.getName.return_value = "Task Both"
+        task.getWBS.return_value = "2.4"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # Mock duration = 10 days
+        duration = MagicMock()
+        duration.getDuration.return_value = 10.0
+        task.getDuration.return_value = duration
+
+        # Mock work = 8 days (different from duration)
+        work = MagicMock()
+        work.getDuration.return_value = 8.0
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'duration: 10d' in output
+        assert 'effort: 8d' in output
+
+    def test_write_task_recursive_effort_fractional(self, writer):
+        """Test that fractional effort values are preserved."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 64
+        task.getName.return_value = "Task Fractional"
+        task.getWBS.return_value = "2.5"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # No duration
+        task.getDuration.return_value = None
+
+        # Mock work = 2.5 days (fractional)
+        work = MagicMock()
+        work.getDuration.return_value = 2.5
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'effort: 2.5d' in output
 
     def test_write_task_recursive_with_dependencies(self, writer):
         task = MagicMock()
