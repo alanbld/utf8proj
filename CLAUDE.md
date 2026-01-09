@@ -34,6 +34,11 @@ syntax/                 # Editor syntax highlighting
 ├── proj.vim                   # Vim syntax (Neovim, Vim)
 └── ftdetect/
     └── proj.vim              # Filetype detection for Vim
+
+tools/
+└── mpp_to_proj/        # MS Project companion tool (Python)
+    ├── mpp_to_proj.py       # Converts .mpp → .proj/.xml
+    └── test_mpp_to_proj.py  # Unit tests (99% coverage)
 ```
 
 ## Key Features Implemented
@@ -518,7 +523,13 @@ let renderer = ExcelRenderer::new()
    - Traditional Vim: Syntax highlighting only (no built-in LSP)
    - 7 navigation tests added
 
-6. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+6. **MS Project Companion Tool: Effort Extraction** (2026-01-09)
+   - Added Work field extraction to `tools/mpp_to_proj/mpp_to_proj.py`
+   - Maps MS Project "Work" → utf8proj `effort:` property
+   - 5 new unit tests covering effort extraction scenarios
+   - 26 tests total, 99% coverage
+
+7. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
