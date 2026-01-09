@@ -227,8 +227,10 @@ impl Renderer for MermaidRenderer {
             for section_name in section_names {
                 if let Some(section_tasks) = sections.get(&section_name) {
                     // Get section display name from project
+                    // Extract leaf task ID from full path for lookup
+                    let leaf_section_id = section_name.rsplit('.').next().unwrap_or(&section_name);
                     let display_name = project
-                        .get_task(&section_name)
+                        .get_task(leaf_section_id)
                         .map(|t| t.name.clone())
                         .unwrap_or_else(|| section_name.clone());
 
@@ -282,7 +284,9 @@ impl MermaidRenderer {
         first_predecessor: &std::collections::HashMap<String, String>,
     ) -> String {
         // Get task info from project
-        let task = project.get_task(task_id);
+        // Extract leaf task ID from full path (e.g., "task_2007.task_2014.task_2250" -> "task_2250")
+        let leaf_id = task_id.rsplit('.').next().unwrap_or(task_id);
+        let task = project.get_task(leaf_id);
         let name = task
             .map(|t| t.name.clone())
             .unwrap_or_else(|| task_id.to_string());
