@@ -162,6 +162,7 @@ let schedule = solver.schedule(&project)?;
 | [Diagnostics Reference](docs/DIAGNOSTICS.md) | All diagnostic codes and meanings |
 | [Explainability Manifesto](docs/EXPLAINABILITY.md) | Core philosophy and design principles |
 | [Design Philosophy](docs/DESIGN_PHILOSOPHY.md) | Architectural decisions |
+| [Editor Setup](docs/EDITOR_SETUP.md) | VS Code, Neovim, Vim, Zed, Sublime Text |
 | [Tutorial](docs/tutorial.md) | Getting started guide |
 
 ## Comparison

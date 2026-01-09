@@ -1,6 +1,16 @@
-# utf8proj Syntax Highlighting
+# Editor Setup
 
-TextMate grammar for `.proj` files.
+This guide covers syntax highlighting and LSP setup for `.proj` files.
+
+## Available Files
+
+```
+syntax/
+├── utf8proj.tmLanguage.json  # TextMate grammar (VS Code, Sublime, Zed)
+├── proj.vim                   # Vim syntax (Neovim, Vim)
+└── ftdetect/
+    └── proj.vim              # Filetype detection for Vim
+```
 
 ## Highlighted Elements
 
@@ -27,7 +37,7 @@ TextMate grammar for `.proj` files.
 1. Copy to VS Code extensions:
    ```bash
    mkdir -p ~/.vscode/extensions/utf8proj-syntax
-   cp utf8proj.tmLanguage.json ~/.vscode/extensions/utf8proj-syntax/
+   cp syntax/utf8proj.tmLanguage.json ~/.vscode/extensions/utf8proj-syntax/
    ```
 
 2. Create `~/.vscode/extensions/utf8proj-syntax/package.json`:
@@ -62,21 +72,43 @@ Copy the Vim syntax files to your config:
 mkdir -p ~/.config/nvim/syntax
 mkdir -p ~/.config/nvim/ftdetect
 
-# Copy syntax file
-cp proj.vim ~/.config/nvim/syntax/
+# Copy syntax file (from project root)
+cp syntax/proj.vim ~/.config/nvim/syntax/
 
 # Copy filetype detection
-cp ftdetect/proj.vim ~/.config/nvim/ftdetect/
+cp syntax/ftdetect/proj.vim ~/.config/nvim/ftdetect/
 ```
 
 Or for traditional Vim:
 ```bash
 mkdir -p ~/.vim/syntax ~/.vim/ftdetect
-cp proj.vim ~/.vim/syntax/
-cp ftdetect/proj.vim ~/.vim/ftdetect/
+cp syntax/proj.vim ~/.vim/syntax/
+cp syntax/ftdetect/proj.vim ~/.vim/ftdetect/
 ```
 
 Restart Neovim/Vim and open a `.proj` file - syntax highlighting should work automatically.
+
+#### LSP for Neovim
+
+For full IDE features (diagnostics, hover, go-to-definition, find-references), configure the LSP:
+
+```lua
+-- In your init.lua or lspconfig setup
+require('lspconfig.configs').utf8proj = {
+  default_config = {
+    cmd = { '/path/to/utf8proj/target/release/utf8proj-lsp' },
+    filetypes = { 'proj' },
+    root_dir = function() return vim.fn.getcwd() end,
+  },
+}
+require('lspconfig').utf8proj.setup{}
+```
+
+Build the LSP server first:
+```bash
+cd /path/to/utf8proj
+cargo build --release -p utf8proj-lsp
+```
 
 ### Zed
 
@@ -94,7 +126,7 @@ Restart Neovim/Vim and open a `.proj` file - syntax highlighting should work aut
 
 ### Sublime Text
 
-Copy `utf8proj.tmLanguage.json` to:
+Copy `syntax/utf8proj.tmLanguage.json` to:
 - macOS: `~/Library/Application Support/Sublime Text/Packages/User/`
 - Linux: `~/.config/sublime-text/Packages/User/`
 - Windows: `%APPDATA%\Sublime Text\Packages\User\`
