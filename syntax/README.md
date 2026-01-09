@@ -53,13 +53,30 @@ TextMate grammar for `.proj` files.
 
 3. Restart VS Code.
 
-### Neovim (with nvim-treesitter or manual)
+### Neovim / Vim
 
-For TextMate grammar support, use a plugin like `nvim-tm-grammars` or configure manually:
+Copy the Vim syntax files to your config:
 
-```lua
-vim.filetype.add({ extension = { proj = 'proj' } })
+```bash
+# Create directories
+mkdir -p ~/.config/nvim/syntax
+mkdir -p ~/.config/nvim/ftdetect
+
+# Copy syntax file
+cp proj.vim ~/.config/nvim/syntax/
+
+# Copy filetype detection
+cp ftdetect/proj.vim ~/.config/nvim/ftdetect/
 ```
+
+Or for traditional Vim:
+```bash
+mkdir -p ~/.vim/syntax ~/.vim/ftdetect
+cp proj.vim ~/.vim/syntax/
+cp ftdetect/proj.vim ~/.vim/ftdetect/
+```
+
+Restart Neovim/Vim and open a `.proj` file - syntax highlighting should work automatically.
 
 ### Zed
 
