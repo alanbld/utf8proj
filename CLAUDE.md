@@ -30,7 +30,10 @@ playground/             # Browser-based playground
 └── pkg/                # WASM output (gitignored)
 
 syntax/                 # Editor syntax highlighting
-└── utf8proj.tmLanguage.json  # TextMate grammar for .proj files
+├── utf8proj.tmLanguage.json  # TextMate grammar (VS Code, Sublime, Zed)
+├── proj.vim                   # Vim syntax (Neovim, Vim)
+└── ftdetect/
+    └── proj.vim              # Filetype detection for Vim
 ```
 
 ## Key Features Implemented
@@ -200,15 +203,17 @@ cargo build --release -p utf8proj-lsp
 
 ### Editor Integration
 
-**VS Code** (with generic LSP extension):
-```json
-{
-  "languageServerExample.serverPath": "./target/release/utf8proj-lsp",
-  "languageServerExample.fileExtensions": [".proj"]
-}
-```
+See `docs/EDITOR_SETUP.md` for detailed setup instructions.
 
-**Neovim** (with nvim-lspconfig):
+| Editor | Syntax Highlighting | LSP Support |
+|--------|---------------------|-------------|
+| VS Code | TextMate grammar | Generic LSP extension |
+| Neovim | Vim syntax file | Native (nvim-lspconfig) |
+| Traditional Vim | Vim syntax file | None (requires plugins) |
+| Zed | TextMate grammar | Planned |
+| Sublime Text | TextMate grammar | Generic LSP plugin |
+
+**Neovim** (recommended for full experience):
 ```lua
 require('lspconfig.configs').utf8proj = {
   default_config = {
@@ -221,6 +226,8 @@ require('lspconfig.configs').utf8proj = {
 }
 require('lspconfig').utf8proj.setup{}
 ```
+
+> **Note:** Traditional Vim has no built-in LSP support. Use Neovim for diagnostics, hover, and navigation features.
 
 ### Implementation Files
 
@@ -503,9 +510,12 @@ let renderer = ExcelRenderer::new()
 
 5. **v1 Editor Support Complete** (2026-01-09)
    - TextMate grammar for .proj syntax highlighting (`syntax/utf8proj.tmLanguage.json`)
+   - Vim syntax file for Neovim/Vim (`syntax/proj.vim`)
    - LSP navigation: go-to-definition and find-references
    - Supported symbols: tasks, resources, calendars, profiles, traits
-   - Setup instructions for VS Code, Neovim, Zed, Sublime Text
+   - Setup instructions in `docs/EDITOR_SETUP.md`
+   - Neovim: Full LSP support (syntax + diagnostics + hover + navigation)
+   - Traditional Vim: Syntax highlighting only (no built-in LSP)
    - 7 navigation tests added
 
 6. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
