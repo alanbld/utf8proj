@@ -18,27 +18,20 @@ Feature requests and enhancements for future consideration.
 
 ---
 
-## Bugs
+## Bugs (Fixed)
 
-### `fix container-deps` strips effort values
+### ~~`fix container-deps` strips effort values~~ ✅ FIXED
 **Date:** 2026-01-09
-**Severity:** Medium
-**Location:** `crates/utf8proj-cli/src/main.rs` (fix command)
+**Fixed:** 2026-01-09
+**Location:** `crates/utf8proj-cli/src/main.rs` (serialize_task function)
 
-**Description:** The `fix container-deps` command rewrites the project file but strips `effort:` properties from tasks. Only `duration:` is preserved.
+**Root cause:** The `serialize_task` function used `else if` for effort, so effort was only written if duration was absent. Changed to separate `if` statements.
 
-**Steps to reproduce:**
-```bash
-# File with effort values
-grep -c 'effort:' original.proj  # Returns 41
+**Fix:** Changed lines 1183-1190 from `else if` to two separate `if` blocks.
 
-# After fix
-utf8proj fix container-deps original.proj -o fixed.proj
-grep -c 'effort:' fixed.proj  # Returns 0
-```
-
-**Expected:** All task properties should be preserved, only dependencies added.
-
-**Workaround:** Manually merge effort values back into fixed file.
+**Tests added:** `crates/utf8proj-cli/tests/fix_command.rs`
+- `fix_container_deps_preserves_effort` - both duration and effort present
+- `fix_container_deps_preserves_effort_only` - only effort present
+- `fix_container_deps_preserves_assignments` - assignments preserved
 
 ---

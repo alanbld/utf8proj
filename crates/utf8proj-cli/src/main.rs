@@ -1180,10 +1180,12 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
 
     let inner_indent = "    ".repeat(indent + 1);
 
-    // Duration/effort
+    // Duration
     if let Some(ref dur) = task.duration {
         output.push_str(&format!("{}duration: {}d\n", inner_indent, dur.as_days()));
-    } else if let Some(ref eff) = task.effort {
+    }
+    // Effort (can coexist with duration)
+    if let Some(ref eff) = task.effort {
         output.push_str(&format!("{}effort: {}d\n", inner_indent, eff.as_days()));
     }
 
