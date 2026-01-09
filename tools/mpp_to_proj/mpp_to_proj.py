@@ -146,8 +146,16 @@ class UTF8ProjWriter:
                 duration = task.getDuration()
                 if duration:
                     d_val = float(duration.getDuration())
-                    val_str = str(int(d_val)) if d_val.is_integer() else str(d_val)
-                    self.add_line(f'duration: {val_str}d', indent + 1)
+                    if d_val > 0:
+                        val_str = str(int(d_val)) if d_val.is_integer() else str(d_val)
+                        self.add_line(f'duration: {val_str}d', indent + 1)
+                
+                work = task.getWork()
+                if work:
+                    w_val = float(work.getDuration())
+                    if w_val > 0:
+                        val_str = str(int(w_val)) if w_val.is_integer() else str(w_val)
+                        self.add_line(f'effort: {val_str}d', indent + 1)
             
         predecessors = task.getPredecessors()
         if predecessors:
