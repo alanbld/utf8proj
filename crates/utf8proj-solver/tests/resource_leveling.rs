@@ -715,3 +715,141 @@ fn leveling_preserves_original_schedule() {
         "Leveled schedule should extend beyond original"
     );
 }
+
+// =============================================================================
+// Coverage Gap Tests
+// =============================================================================
+
+/// Test LevelingReason Display impl for ResourceOverallocated
+#[test]
+fn leveling_reason_display_resource_overallocated() {
+    use utf8proj_solver::LevelingReason;
+
+    let reason = LevelingReason::ResourceOverallocated {
+        resource: "dev".to_string(),
+        peak_demand: 2.0,
+        capacity: 1.0,
+        dates: vec![date(2025, 1, 6), date(2025, 1, 7)],
+    };
+
+    let display = format!("{}", reason);
+    assert!(display.contains("dev"), "Should mention resource name");
+    assert!(display.contains("200%"), "Should show peak demand as percentage");
+    assert!(display.contains("100%"), "Should show capacity as percentage");
+    assert!(display.contains("2 day"), "Should mention number of days");
+}
+
+/// Test LevelingReason Display impl for DependencyChain
+#[test]
+fn leveling_reason_display_dependency_chain() {
+    use utf8proj_solver::LevelingReason;
+
+    let reason = LevelingReason::DependencyChain {
+        predecessor: "task_a".to_string(),
+        predecessor_delay: 3,
+    };
+
+    let display = format!("{}", reason);
+    assert!(display.contains("task_a"), "Should mention predecessor");
+    assert!(display.contains("3 days"), "Should mention delay days");
+}
+
+/// Test backwards compatibility schedule() alias
+#[test]
+fn leveling_result_schedule_alias() {
+    let mut project = Project::new("Alias Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(3)).assign("dev"),
+        Task::new("task2").effort(Duration::days(3)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // schedule() should return same as leveled_schedule
+    assert_eq!(
+        result.schedule().project_end,
+        result.leveled_schedule.project_end,
+        "schedule() alias should return leveled_schedule"
+    );
+}
+
+/// Test L004 diagnostic - milestone delay detection
+/// NOTE: L004 checks if milestone.start > original_date after leveling.
+/// Currently, milestones are not re-scheduled after predecessor shifts,
+/// so L004 only fires when milestones themselves are directly shifted.
+/// This test documents the current behavior.
+#[test]
+fn leveling_milestone_tracking() {
+    let mut project = Project::new("Milestone Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+        // Milestone depends on both - tracked but not re-scheduled after predecessor shifts
+        Task::new("milestone")
+            .effort(Duration::days(0))
+            .milestone()
+            .depends_on("task1")
+            .depends_on("task2"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+    let result = level_resources(&project, &schedule, &calendar);
+
+    // Milestones are tracked (zero duration tasks)
+    // L004 only fires if milestone itself is shifted, not cascaded from predecessors
+    // This test documents that milestone tracking exists
+    assert!(
+        result.leveled_schedule.tasks.contains_key("milestone"),
+        "Milestone should exist in leveled schedule"
+    );
+}
+
+/// Test max_project_delay_factor prevents excessive delays
+#[test]
+fn leveling_respects_max_delay_factor() {
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    let mut project = Project::new("Max Delay Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+    // 10 tasks that would require significant extension
+    project.tasks = (0..10)
+        .map(|i| {
+            Task::new(&format!("task_{}", i))
+                .effort(Duration::days(5))
+                .assign("dev")
+        })
+        .collect();
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    // Without limit - all conflicts resolved
+    let result_unlimited = level_resources(&project, &schedule, &calendar);
+
+    // With very restrictive limit (1.1x = only 10% extension allowed)
+    let options = LevelingOptions {
+        strategy: LevelingStrategy::CriticalPathFirst,
+        max_project_delay_factor: Some(1.1),
+    };
+    let result_limited = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+    // Limited version should have more unresolved conflicts
+    assert!(
+        result_limited.unresolved_conflicts.len() > result_unlimited.unresolved_conflicts.len(),
+        "Max delay factor should prevent some shifts: limited={}, unlimited={}",
+        result_limited.unresolved_conflicts.len(),
+        result_unlimited.unresolved_conflicts.len()
+    );
+}

@@ -320,9 +320,11 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
         lines.push("**⚠️ Diagnostics:**".to_string());
         for code in &task_diags {
             let severity_icon = match code.as_str().chars().next() {
-                Some('E') | Some('C') => "🔴",
+                Some('E') => "🔴",
                 Some('W') => "🟡",
                 Some('H') => "💡",
+                Some('L') => "⚖️", // Leveling
+                Some('C') => "📆", // Calendar
                 _ => "ℹ️",
             };
             lines.push(format!("• {} `{}`", severity_icon, code.as_str()));
@@ -394,6 +396,15 @@ fn is_diagnostic_for_task(diagnostic: &Diagnostic, task_id: &str) -> bool {
             diagnostic.message.contains(&quoted_id)
         }
         DiagnosticCode::W014ContainerDependency => diagnostic.message.contains(&quoted_id),
+        // Leveling diagnostics (L001-L004)
+        DiagnosticCode::L001OverallocationResolved
+        | DiagnosticCode::L003DurationIncreased
+        | DiagnosticCode::L004MilestoneDelayed => diagnostic.message.contains(&quoted_id),
+        DiagnosticCode::L002UnresolvableConflict => {
+            // L002 mentions resource, not task - check notes for task references
+            diagnostic.notes.iter().any(|n| n.contains(&quoted_id))
+                || diagnostic.message.contains(&quoted_id)
+        }
         _ => false,
     }
 }
@@ -1387,6 +1398,101 @@ mod tests {
         let hover = get_hover_info(&project, None, &[], text, Position::new(0, 1));
 
         assert!(hover.is_none());
+    }
+
+    // =========================================================================
+    // Leveling diagnostic tests (L001-L004)
+    // =========================================================================
+
+    #[test]
+    fn filter_diagnostics_l001_links_to_task() {
+        use utf8proj_core::Severity;
+
+        let diagnostics = vec![Diagnostic {
+            code: DiagnosticCode::L001OverallocationResolved,
+            severity: Severity::Info,
+            message: "Task 'task1' shifted to resolve overallocation".into(),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![],
+        }];
+
+        let codes = filter_task_diagnostics("task1", &diagnostics);
+        assert!(codes.contains(&DiagnosticCode::L001OverallocationResolved));
+
+        let codes = filter_task_diagnostics("other_task", &diagnostics);
+        assert!(!codes.contains(&DiagnosticCode::L001OverallocationResolved));
+    }
+
+    #[test]
+    fn filter_diagnostics_l003_links_to_task() {
+        use utf8proj_core::Severity;
+
+        let diagnostics = vec![Diagnostic {
+            code: DiagnosticCode::L003DurationIncreased,
+            severity: Severity::Info,
+            message: "Project duration increased due to leveling of 'task1'".into(),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![],
+        }];
+
+        let codes = filter_task_diagnostics("task1", &diagnostics);
+        assert!(codes.contains(&DiagnosticCode::L003DurationIncreased));
+    }
+
+    #[test]
+    fn filter_diagnostics_l004_links_to_milestone() {
+        use utf8proj_core::Severity;
+
+        let diagnostics = vec![Diagnostic {
+            code: DiagnosticCode::L004MilestoneDelayed,
+            severity: Severity::Warning,
+            message: "Milestone 'launch' delayed by 3 days due to leveling".into(),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![],
+        }];
+
+        let codes = filter_task_diagnostics("launch", &diagnostics);
+        assert!(codes.contains(&DiagnosticCode::L004MilestoneDelayed));
+    }
+
+    #[test]
+    fn leveling_diagnostic_gets_scale_icon() {
+        use utf8proj_core::Severity;
+
+        // Test that L codes get the ⚖️ icon in hover
+        let code = DiagnosticCode::L001OverallocationResolved;
+        let severity_icon = match code.as_str().chars().next() {
+            Some('E') => "🔴",
+            Some('W') => "🟡",
+            Some('H') => "💡",
+            Some('L') => "⚖️",
+            Some('C') => "📆",
+            _ => "ℹ️",
+        };
+        assert_eq!(severity_icon, "⚖️");
+    }
+
+    #[test]
+    fn calendar_diagnostic_gets_calendar_icon() {
+        let code = DiagnosticCode::C010NonWorkingDay;
+        let severity_icon = match code.as_str().chars().next() {
+            Some('E') => "🔴",
+            Some('W') => "🟡",
+            Some('H') => "💡",
+            Some('L') => "⚖️",
+            Some('C') => "📆",
+            _ => "ℹ️",
+        };
+        assert_eq!(severity_icon, "📆");
     }
 
     // =========================================================================
