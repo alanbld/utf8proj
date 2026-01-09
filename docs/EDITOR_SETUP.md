@@ -63,37 +63,28 @@ syntax/
 
 3. Restart VS Code.
 
-### Neovim / Vim
+### Neovim (Recommended)
 
-Copy the Vim syntax files to your config:
+Neovim provides both syntax highlighting and full LSP support (diagnostics, hover, go-to-definition, find-references).
+
+**Syntax highlighting:**
 
 ```bash
-# Create directories
-mkdir -p ~/.config/nvim/syntax
-mkdir -p ~/.config/nvim/ftdetect
-
-# Copy syntax file (from project root)
+mkdir -p ~/.config/nvim/syntax ~/.config/nvim/ftdetect
 cp syntax/proj.vim ~/.config/nvim/syntax/
-
-# Copy filetype detection
 cp syntax/ftdetect/proj.vim ~/.config/nvim/ftdetect/
 ```
 
-Or for traditional Vim:
+**LSP setup** (for full IDE features):
+
+First, build the LSP server:
 ```bash
-mkdir -p ~/.vim/syntax ~/.vim/ftdetect
-cp syntax/proj.vim ~/.vim/syntax/
-cp syntax/ftdetect/proj.vim ~/.vim/ftdetect/
+cd /path/to/utf8proj
+cargo build --release -p utf8proj-lsp
 ```
 
-Restart Neovim/Vim and open a `.proj` file - syntax highlighting should work automatically.
-
-#### LSP for Neovim
-
-For full IDE features (diagnostics, hover, go-to-definition, find-references), configure the LSP:
-
+Then configure in your `init.lua`:
 ```lua
--- In your init.lua or lspconfig setup
 require('lspconfig.configs').utf8proj = {
   default_config = {
     cmd = { '/path/to/utf8proj/target/release/utf8proj-lsp' },
@@ -104,11 +95,21 @@ require('lspconfig.configs').utf8proj = {
 require('lspconfig').utf8proj.setup{}
 ```
 
-Build the LSP server first:
+Restart Neovim and open a `.proj` file.
+
+### Traditional Vim (Syntax Only)
+
+Traditional Vim has no built-in LSP support. You get syntax highlighting only.
+
 ```bash
-cd /path/to/utf8proj
-cargo build --release -p utf8proj-lsp
+mkdir -p ~/.vim/syntax ~/.vim/ftdetect
+cp syntax/proj.vim ~/.vim/syntax/
+cp syntax/ftdetect/proj.vim ~/.vim/ftdetect/
 ```
+
+Restart Vim and open a `.proj` file.
+
+> **Note:** For LSP features in Vim, you'd need plugins like `vim-lsp` or `coc.nvim`. This is outside utf8proj scope. We recommend using Neovim for the full experience.
 
 ### Zed
 
