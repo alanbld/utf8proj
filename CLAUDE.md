@@ -28,6 +28,9 @@ playground/             # Browser-based playground
 ├── styles/main.css     # Styling (light/dark themes)
 ├── build.sh            # Build script (wasm-pack)
 └── pkg/                # WASM output (gitignored)
+
+syntax/                 # Editor syntax highlighting
+└── utf8proj.tmLanguage.json  # TextMate grammar for .proj files
 ```
 
 ## Key Features Implemented
@@ -75,7 +78,7 @@ playground/             # Browser-based playground
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 748 passing, 1 ignored (render doctest)
+**Tests:** 756 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 4 progress + 19 semantic = 190 tests
@@ -83,7 +86,7 @@ playground/             # Browser-based playground
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
 - utf8proj-core: 74 tests + 5 doc-tests = 79 tests
 - utf8proj-cli: 32 unit + 14 diagnostic snapshot + 26 exit code = 72 tests
-- utf8proj-lsp: 5 diagnostic + 49 hover = 54 tests
+- utf8proj-lsp: 5 diagnostic + 49 hover + 7 navigation = 61 tests
 - utf8proj-wasm: 15 tests
 
 ## Diagnostic System (Compiler-Grade)
@@ -224,6 +227,7 @@ require('lspconfig').utf8proj.setup{}
 - `crates/utf8proj-lsp/src/main.rs` - tower-lsp server, Backend impl
 - `crates/utf8proj-lsp/src/diagnostics.rs` - Diagnostic → LSP conversion
 - `crates/utf8proj-lsp/src/hover.rs` - Hover info for profiles/resources/tasks
+- `crates/utf8proj-lsp/src/navigation.rs` - Go-to-definition, find-references
 
 ## Effort-Driven Scheduling (PMI Compliant)
 
@@ -497,7 +501,14 @@ let renderer = ExcelRenderer::new()
    - Leveling coverage improved: 85.7% → 93.2%
    - Added 10 new tests (5 leveling, 5 LSP hover)
 
-5. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+5. **v1 Editor Support Complete** (2026-01-09)
+   - TextMate grammar for .proj syntax highlighting (`syntax/utf8proj.tmLanguage.json`)
+   - LSP navigation: go-to-definition and find-references
+   - Supported symbols: tasks, resources, calendars, profiles, traits
+   - Setup instructions for VS Code, Neovim, Zed, Sublime Text
+   - 7 navigation tests added
+
+6. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
