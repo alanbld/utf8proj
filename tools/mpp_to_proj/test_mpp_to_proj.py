@@ -199,9 +199,10 @@ class TestUTF8ProjWriter:
         duration.getDuration.return_value = 3.0
         task.getDuration.return_value = duration
 
-        # Mock work (effort)
+        # Mock work (effort) - in DAYS (MPXJ returns 'd')
         work = MagicMock()
         work.getDuration.return_value = 5.0
+        work.getUnits.return_value = "d"
         task.getWork.return_value = work
 
         writer.write_task_recursive(task, 0)
@@ -229,6 +230,7 @@ class TestUTF8ProjWriter:
         # Mock work = 0
         work = MagicMock()
         work.getDuration.return_value = 0.0
+        work.getUnits.return_value = "h"
         task.getWork.return_value = work
 
         writer.write_task_recursive(task, 0)
@@ -283,6 +285,7 @@ class TestUTF8ProjWriter:
         # Mock work = 8 days (different from duration)
         work = MagicMock()
         work.getDuration.return_value = 8.0
+        work.getUnits.return_value = "d"
         task.getWork.return_value = work
 
         writer.write_task_recursive(task, 0)
@@ -309,11 +312,91 @@ class TestUTF8ProjWriter:
         # Mock work = 2.5 days (fractional)
         work = MagicMock()
         work.getDuration.return_value = 2.5
+        work.getUnits.return_value = "d"
         task.getWork.return_value = work
 
         writer.write_task_recursive(task, 0)
         output = "\n".join(writer.lines)
         assert 'effort: 2.5d' in output
+
+    def test_write_task_recursive_effort_hours_conversion(self, writer):
+        """Test that Work in HOURS is converted to days (÷8)."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 65
+        task.getName.return_value = "Task Hours"
+        task.getWBS.return_value = "2.6"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        # Duration = 2 days
+        duration = MagicMock()
+        duration.getDuration.return_value = 2.0
+        task.getDuration.return_value = duration
+
+        # Work = 40 hours = 5 days (MPXJ returns 'h')
+        work = MagicMock()
+        work.getDuration.return_value = 40.0
+        work.getUnits.return_value = "h"
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'duration: 2d' in output
+        assert 'effort: 5d' in output
+
+    def test_write_task_recursive_effort_hours_fractional(self, writer):
+        """Test that fractional hours convert correctly (e.g., 20h = 2.5d)."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 66
+        task.getName.return_value = "Task Hours Fractional"
+        task.getWBS.return_value = "2.7"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        task.getDuration.return_value = None
+
+        # Work = 20 hours = 2.5 days (MPXJ returns 'h')
+        work = MagicMock()
+        work.getDuration.return_value = 20.0
+        work.getUnits.return_value = "h"
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'effort: 2.5d' in output
+
+    def test_write_task_recursive_effort_no_units(self, writer):
+        """Test that missing units defaults to days (no conversion)."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 67
+        task.getName.return_value = "Task No Units"
+        task.getWBS.return_value = "2.8"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        task.getDuration.return_value = None
+
+        # Work = 10, units = None (assume days)
+        work = MagicMock()
+        work.getDuration.return_value = 10.0
+        work.getUnits.return_value = None
+        task.getWork.return_value = work
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'effort: 10d' in output
 
     def test_write_task_recursive_with_dependencies(self, writer):
         task = MagicMock()

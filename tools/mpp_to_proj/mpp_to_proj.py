@@ -153,8 +153,15 @@ class UTF8ProjWriter:
                 work = task.getWork()
                 if work:
                     w_val = float(work.getDuration())
+                    # Convert to days based on unit (MS Project stores Work in hours by default)
+                    units = str(work.getUnits()).upper() if work.getUnits() else ""
+                    if units in ("H", "HOURS", "HOUR"):
+                        w_val = w_val / 8.0  # 8 hours per day
+                    elif units in ("M", "MINUTES", "MINUTE"):
+                        w_val = w_val / 480.0  # 8 hours * 60 minutes per day
+                    # D, DAYS, W, WEEKS, MO, MONTHS assumed already in days or handled by MPXJ
                     if w_val > 0:
-                        val_str = str(int(w_val)) if w_val.is_integer() else str(w_val)
+                        val_str = str(int(w_val)) if w_val == int(w_val) else f"{w_val:.1f}"
                         self.add_line(f'effort: {val_str}d', indent + 1)
             
         predecessors = task.getPredecessors()
