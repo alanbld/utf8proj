@@ -1,0 +1,226 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "utf8proj",
+  "scopeName": "source.proj",
+  "fileTypes": ["proj"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#block-declarations" },
+    { "include": "#properties" },
+    { "include": "#dependency-types" },
+    { "include": "#status-keywords" },
+    { "include": "#constraint-types" },
+    { "include": "#days" },
+    { "include": "#booleans" },
+    { "include": "#dates" },
+    { "include": "#durations" },
+    { "include": "#percentages" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "name": "comment.line.number-sign.proj",
+      "match": "#.*$"
+    },
+    "strings": {
+      "name": "string.quoted.double.proj",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.proj",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "block-declarations": {
+      "patterns": [
+        {
+          "name": "keyword.declaration.project.proj",
+          "match": "\\b(project)\\b"
+        },
+        {
+          "name": "keyword.declaration.task.proj",
+          "match": "\\b(task)\\b"
+        },
+        {
+          "name": "keyword.declaration.milestone.proj",
+          "match": "\\b(milestone)\\b"
+        },
+        {
+          "name": "keyword.declaration.resource.proj",
+          "match": "\\b(resource)\\b"
+        },
+        {
+          "name": "keyword.declaration.resource-profile.proj",
+          "match": "\\b(resource_profile)\\b"
+        },
+        {
+          "name": "keyword.declaration.calendar.proj",
+          "match": "\\b(calendar)\\b"
+        },
+        {
+          "name": "keyword.declaration.trait.proj",
+          "match": "\\b(trait)\\b"
+        },
+        {
+          "name": "keyword.declaration.report.proj",
+          "match": "\\b(report)\\b"
+        },
+        {
+          "name": "keyword.declaration.constraint.proj",
+          "match": "\\b(constraint)\\b"
+        }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "comment": "Project properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(start|end|currency|timezone)\\s*:"
+        },
+        {
+          "comment": "Task properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(effort|duration|depends|assign|priority|complete|actual_start|actual_finish|status|note|tag|cost|payment|summary)\\s*:"
+        },
+        {
+          "comment": "Resource properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(rate|capacity|efficiency|availability|specializes|email|role|leave)\\s*:"
+        },
+        {
+          "comment": "Calendar properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(working_hours|working_days|holiday)\\b"
+        },
+        {
+          "comment": "Profile properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(description|skills|traits|rate_multiplier)\\s*:"
+        },
+        {
+          "comment": "Rate range properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(min|max)\\s*:"
+        },
+        {
+          "comment": "Report properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(title|type|tasks|resources|columns|critical_path|timeframe|format|show|scale|width|breakdown|period)\\s*:"
+        },
+        {
+          "comment": "Constraint properties",
+          "name": "keyword.other.property.proj",
+          "match": "\\b(target|condition)\\s*:"
+        }
+      ]
+    },
+    "dependency-types": {
+      "name": "constant.language.dependency-type.proj",
+      "match": "\\b(FS|SS|FF|SF)\\b"
+    },
+    "status-keywords": {
+      "name": "constant.language.status.proj",
+      "match": "\\b(not_started|in_progress|complete|blocked|at_risk|on_hold)\\b"
+    },
+    "constraint-types": {
+      "name": "keyword.other.constraint-type.proj",
+      "match": "\\b(must_start_on|must_finish_on|start_no_earlier_than|start_no_later_than|finish_no_earlier_than|finish_no_later_than|soft|hard)\\s*:"
+    },
+    "days": {
+      "name": "constant.language.day.proj",
+      "match": "\\b(mon|tue|wed|thu|fri|sat|sun)\\b"
+    },
+    "booleans": {
+      "name": "constant.language.boolean.proj",
+      "match": "\\b(true|false)\\b"
+    },
+    "dates": {
+      "name": "constant.numeric.date.proj",
+      "match": "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+    },
+    "durations": {
+      "name": "constant.numeric.duration.proj",
+      "match": "\\b\\d+(\\.\\d+)?[hdwm]\\b"
+    },
+    "percentages": {
+      "name": "constant.numeric.percentage.proj",
+      "match": "\\b\\d+%"
+    },
+    "numbers": {
+      "name": "constant.numeric.proj",
+      "match": "-?\\b\\d+(\\.\\d+)?\\b"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Date range operator",
+          "name": "keyword.operator.range.proj",
+          "match": "\\.\\."
+        },
+        {
+          "comment": "Lag operators",
+          "name": "keyword.operator.lag.proj",
+          "match": "[+-](?=\\d+[hdwm])"
+        },
+        {
+          "comment": "Resource allocation",
+          "name": "keyword.operator.allocation.proj",
+          "match": "@(?=\\d+%)"
+        },
+        {
+          "comment": "Resource quantity",
+          "name": "keyword.operator.quantity.proj",
+          "match": "\\*(?=\\d)"
+        },
+        {
+          "comment": "Time range separator",
+          "name": "keyword.operator.time-range.proj",
+          "match": "(?<=\\d{2}:\\d{2})-(?=\\d{2}:\\d{2})"
+        },
+        {
+          "comment": "Rate unit separator",
+          "name": "keyword.operator.rate.proj",
+          "match": "/(?=hour|day|week|month)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.block.begin.proj",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.section.block.end.proj",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.section.brackets.begin.proj",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.section.brackets.end.proj",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.separator.comma.proj",
+          "match": ","
+        },
+        {
+          "name": "punctuation.separator.colon.proj",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.separator.dot.proj",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}
