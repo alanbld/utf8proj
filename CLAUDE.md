@@ -523,13 +523,28 @@ let renderer = ExcelRenderer::new()
    - Traditional Vim: Syntax highlighting only (no built-in LSP)
    - 7 navigation tests added
 
-6. **MS Project Companion Tool: Effort Extraction** (2026-01-09)
+6. **MS Project Companion Tool: Effort Extraction & Unit Fix** (2026-01-09)
    - Added Work field extraction to `tools/mpp_to_proj/mpp_to_proj.py`
    - Maps MS Project "Work" → utf8proj `effort:` property
-   - 5 new unit tests covering effort extraction scenarios
-   - 26 tests total, 99% coverage
+   - **Bug fix**: MPXJ returns units as lowercase 'h' not 'HOURS' - hours now correctly converted to days (÷8)
+   - 8 unit tests covering effort extraction and unit conversion
+   - 29 tests total, 99% coverage
 
-7. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+7. **Fix: `fix container-deps` Preserves Effort Values** (2026-01-09)
+   - Bug: `serialize_task()` used `else if` for effort, so effort was only written if duration was absent
+   - Fix: Changed to separate `if` statements so both duration and effort are preserved
+   - Location: `crates/utf8proj-cli/src/main.rs` lines 1183-1190
+   - 3 TDD tests added: `crates/utf8proj-cli/tests/fix_command.rs`
+   - CLI tests: 72 → 75
+
+8. **Fix: Mermaid Renderer Hierarchical Task Names** (2026-01-09)
+   - Bug: Nested tasks showed full path IDs (e.g., `task_2007.task_2014.task_2250`) instead of names
+   - Root cause: `get_task()` matches on `task.id` but schedule uses full paths
+   - Fix: Extract leaf ID using `rsplit('.')` before lookup
+   - Location: `crates/utf8proj-render/src/mermaid.rs`
+   - Mermaid now correctly shows `[task_id] Task Name` with `-V` flag
+
+9. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
