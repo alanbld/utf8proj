@@ -410,7 +410,7 @@ class TestUTF8ProjWriter:
         
         rel = MagicMock()
         rel.getPredecessorTask.return_value = pred_task
-        rel.getType.return_value = "START_START"
+        rel.getType.return_value = "SS"  # MPXJ returns "SS" not "START_START"
         lag = MagicMock()
         lag.getDuration.return_value = 2.0
         rel.getLag.return_value = lag

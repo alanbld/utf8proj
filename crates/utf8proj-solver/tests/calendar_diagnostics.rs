@@ -327,7 +327,8 @@ fn c023_redundant_holiday() {
 #[test]
 fn valid_calendar_no_diagnostics() {
     let mut project = Project::new("Valid Calendar");
-    project.start = today();
+    // Use a known Monday instead of today() to avoid weekend issues
+    project.start = chrono::NaiveDate::from_ymd_opt(2026, 1, 12).expect("valid date"); // Monday Jan 12, 2026
 
     // Standard Mon-Fri, 8-hour calendar
     let mut standard_cal = Calendar::default();

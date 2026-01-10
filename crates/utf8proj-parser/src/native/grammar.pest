@@ -245,14 +245,8 @@ status_keyword = {
 
 // Dependencies
 dependency_list = { dependency ~ ("," ~ dependency)* }
-dependency = { task_ref ~ dep_modifier? }
+dependency = { task_ref ~ dep_type? ~ dep_lag? }
 task_ref = { identifier ~ ("." ~ identifier)* }
-
-dep_modifier = { 
-    dep_lag | 
-    dep_type | 
-    dep_percentage 
-}
 
 dep_lag = { ("+" | "-") ~ duration }
 dep_type = { dep_type_keyword }

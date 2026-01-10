@@ -171,11 +171,13 @@ class UTF8ProjWriter:
                 target = rel.getPredecessorTask()
                 if target:
                     target_full_id = self.get_full_id(target)
-                    rel_type = str(rel.getType())
+                    rel_type = str(rel.getType()).upper()
                     suffix = ""
-                    if "START_START" in rel_type: suffix = " SS"
-                    elif "FINISH_FINISH" in rel_type: suffix = " FF"
-                    elif "START_FINISH" in rel_type: suffix = " SF"
+                    # MPXJ returns "SS", "FF", "SF", "FS" (or older "START_START" etc.)
+                    if rel_type in ("SS", "START_START"): suffix = " SS"
+                    elif rel_type in ("FF", "FINISH_FINISH"): suffix = " FF"
+                    elif rel_type in ("SF", "START_FINISH"): suffix = " SF"
+                    # FS (FINISH_START) is the default, no suffix needed
                     
                     lag = rel.getLag()
                     lag_str = ""

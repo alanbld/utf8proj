@@ -60,7 +60,7 @@ tools/
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-09)
+## Test Coverage (as of 2026-01-10)
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
@@ -86,7 +86,7 @@ tools/
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 759 passing, 1 ignored (render doctest)
+**Tests:** 757 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
 - utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 4 progress + 19 semantic = 190 tests
@@ -544,7 +544,19 @@ let renderer = ExcelRenderer::new()
    - Location: `crates/utf8proj-render/src/mermaid.rs`
    - Mermaid now correctly shows `[task_id] Task Name` with `-V` flag
 
-9. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+9. **Fix: mpp_to_proj Dependency Type Detection** (2026-01-10)
+   - Bug: SS/FF/SF dependencies from MPP files were converted as FS (finish-to-start)
+   - Root cause: MPXJ returns "SS", "FF", "SF" but converter checked for "START_START" etc.
+   - Fix: Check for both formats using `.upper()` in `tools/mpp_to_proj/mpp_to_proj.py`
+   - Impact: M2C project ABL stream now schedules correctly with SS dependencies
+
+10. **Fix: Grammar Support for Dependency Type + Lag** (2026-01-10)
+    - Bug: Grammar only allowed type OR lag, not both (e.g., `depends: task SS +5d` failed)
+    - Fix: Changed grammar from `dep_modifier?` to `dep_type? ~ dep_lag?`
+    - Location: `crates/utf8proj-parser/src/native/grammar.pest`, `native/mod.rs`
+    - Now supports: `depends: task SS +5d`, `depends: task FF -2d`, etc.
+
+11. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources

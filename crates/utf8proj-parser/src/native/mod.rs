@@ -877,36 +877,32 @@ fn parse_dependency(pair: Pair<Rule>) -> Result<Dependency, ParseError> {
         lag: None,
     };
 
-    // Parse optional modifier
-    if let Some(modifier) = inner.next() {
-        if modifier.as_rule() == Rule::dep_modifier {
-            let mod_inner = modifier.into_inner().next().unwrap();
-            match mod_inner.as_rule() {
-                Rule::dep_lag => {
-                    let lag_str = mod_inner.as_str();
-                    let is_negative = lag_str.starts_with('-');
-                    let dur_part = &lag_str[1..]; // Skip +/-
-                    // Create a fake pair for duration parsing
-                    let minutes = parse_duration_str(dur_part)?;
-                    let lag = if is_negative {
-                        Duration { minutes: -minutes.minutes }
-                    } else {
-                        minutes
-                    };
-                    dependency.lag = Some(lag);
-                }
-                Rule::dep_type => {
-                    let type_pair = mod_inner.into_inner().next().unwrap();
-                    dependency.dep_type = match type_pair.as_str() {
-                        "FS" => DependencyType::FinishToStart,
-                        "SS" => DependencyType::StartToStart,
-                        "FF" => DependencyType::FinishToFinish,
-                        "SF" => DependencyType::StartToFinish,
-                        _ => DependencyType::FinishToStart,
-                    };
-                }
-                _ => {}
+    // Parse optional type and lag (grammar: task_ref ~ dep_type? ~ dep_lag?)
+    for modifier in inner {
+        match modifier.as_rule() {
+            Rule::dep_type => {
+                let type_pair = modifier.into_inner().next().unwrap();
+                dependency.dep_type = match type_pair.as_str() {
+                    "FS" => DependencyType::FinishToStart,
+                    "SS" => DependencyType::StartToStart,
+                    "FF" => DependencyType::FinishToFinish,
+                    "SF" => DependencyType::StartToFinish,
+                    _ => DependencyType::FinishToStart,
+                };
             }
+            Rule::dep_lag => {
+                let lag_str = modifier.as_str();
+                let is_negative = lag_str.starts_with('-');
+                let dur_part = &lag_str[1..]; // Skip +/-
+                let minutes = parse_duration_str(dur_part)?;
+                let lag = if is_negative {
+                    Duration { minutes: -minutes.minutes }
+                } else {
+                    minutes
+                };
+                dependency.lag = Some(lag);
+            }
+            _ => {}
         }
     }
 
