@@ -32,6 +32,121 @@ pub struct HtmlGanttRenderer {
     pub show_dependencies: bool,
     /// Enable interactivity (tooltips, click handlers)
     pub interactive: bool,
+    /// Focus view configuration (None = show all tasks)
+    pub focus: Option<FocusConfig>,
+}
+
+/// Configuration for focus view rendering
+#[derive(Clone, Debug, Default)]
+pub struct FocusConfig {
+    /// Patterns to match for focused (expanded) tasks
+    /// Supports prefix matching (e.g., "6.3.2" matches "6.3.2.1", "6.3.2.2")
+    pub focus_patterns: Vec<String>,
+    /// Depth to show for non-focused tasks (0 = hide, 1 = top-level only)
+    pub context_depth: usize,
+}
+
+/// Visibility state for a task in focus view
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskVisibility {
+    /// Show task and all descendants expanded
+    Expanded,
+    /// Show task as collapsed summary bar (children hidden)
+    Collapsed,
+    /// Do not show task at all
+    Hidden,
+}
+
+impl FocusConfig {
+    /// Create a new focus configuration
+    pub fn new(patterns: Vec<String>, context_depth: usize) -> Self {
+        Self {
+            focus_patterns: patterns,
+            context_depth,
+        }
+    }
+
+    /// Check if a task ID matches any focus pattern
+    pub fn matches_focus(&self, task_id: &str, task_name: &str) -> bool {
+        if self.focus_patterns.is_empty() {
+            return true; // No focus = everything focused
+        }
+        for pattern in &self.focus_patterns {
+            // Check if task_id starts with pattern (prefix match)
+            if task_id.starts_with(pattern) || task_id == pattern {
+                return true;
+            }
+            // Check if task_name contains pattern (for WBS codes in names)
+            if task_name.contains(pattern) {
+                return true;
+            }
+            // Check pattern as glob (simple * wildcard support)
+            if self.glob_match(pattern, task_id) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Simple glob matching with * wildcard
+    fn glob_match(&self, pattern: &str, text: &str) -> bool {
+        if !pattern.contains('*') {
+            return pattern == text;
+        }
+        let parts: Vec<&str> = pattern.split('*').collect();
+        if parts.is_empty() {
+            return true;
+        }
+        let mut pos = 0;
+        for (i, part) in parts.iter().enumerate() {
+            if part.is_empty() {
+                continue;
+            }
+            if let Some(found) = text[pos..].find(part) {
+                if i == 0 && found != 0 {
+                    // First part must match at start (unless pattern starts with *)
+                    return false;
+                }
+                pos += found + part.len();
+            } else {
+                return false;
+            }
+        }
+        // If pattern ends with *, any suffix is OK; otherwise must match to end
+        parts.last().map_or(true, |p| p.is_empty() || pos == text.len())
+    }
+
+    /// Determine visibility of a task based on focus configuration
+    pub fn get_visibility(
+        &self,
+        task_id: &str,
+        task_name: &str,
+        depth: usize,
+        is_ancestor_of_focused: bool,
+        is_descendant_of_focused: bool,
+    ) -> TaskVisibility {
+        // Direct match - always expanded
+        if self.matches_focus(task_id, task_name) {
+            return TaskVisibility::Expanded;
+        }
+
+        // Ancestor of focused task - expanded to show path
+        if is_ancestor_of_focused {
+            return TaskVisibility::Expanded;
+        }
+
+        // Descendant of focused task - expanded
+        if is_descendant_of_focused {
+            return TaskVisibility::Expanded;
+        }
+
+        // Non-focused: check context depth
+        if depth < self.context_depth {
+            return TaskVisibility::Collapsed;
+        }
+
+        TaskVisibility::Hidden
+    }
 }
 
 /// Color theme for the Gantt chart
@@ -92,12 +207,13 @@ impl Default for HtmlGanttRenderer {
         Self {
             chart_width: 900,
             row_height: 32,
-            label_width: 220,
+            label_width: 450,  // Wider to fit WBS codes + task names
             header_height: 60,
             padding: 20,
             theme: GanttTheme::default(),
             show_dependencies: true,
             interactive: true,
+            focus: None,
         }
     }
 }
@@ -149,14 +265,87 @@ impl HtmlGanttRenderer {
         self.padding as f64 + self.label_width as f64 + (days * px_per_day)
     }
 
-    /// Build flat list of tasks with hierarchy info
+    /// Build flat list of tasks with hierarchy info, respecting focus configuration
     fn flatten_tasks_for_display<'a>(
         &self,
         project: &'a Project,
         schedule: &'a Schedule,
     ) -> Vec<TaskDisplay<'a>> {
+        let mut all_tasks = Vec::new();
+        self.collect_tasks(&project.tasks, schedule, "", 0, &mut all_tasks);
+
+        // If no focus config, return all tasks as expanded
+        let Some(ref focus) = self.focus else {
+            return all_tasks;
+        };
+
+        // First pass: identify which task IDs are directly focused
+        let focused_ids: std::collections::HashSet<String> = all_tasks
+            .iter()
+            .filter(|t| focus.matches_focus(&t.qualified_id, &t.task.name))
+            .map(|t| t.qualified_id.clone())
+            .collect();
+
+        // Second pass: identify ancestors of focused tasks
+        let ancestor_ids: std::collections::HashSet<String> = all_tasks
+            .iter()
+            .filter(|t| {
+                // Check if any focused task starts with this task's ID + "."
+                focused_ids.iter().any(|fid| {
+                    fid.starts_with(&t.qualified_id) && fid.len() > t.qualified_id.len()
+                        && fid.chars().nth(t.qualified_id.len()) == Some('.')
+                })
+            })
+            .map(|t| t.qualified_id.clone())
+            .collect();
+
+        // Third pass: compute visibility and filter
         let mut result = Vec::new();
-        self.collect_tasks(&project.tasks, schedule, "", 0, &mut result);
+        let mut skip_children_of: Option<String> = None;
+
+        for mut task_display in all_tasks {
+            // Skip children of collapsed containers
+            if let Some(ref skip_prefix) = skip_children_of {
+                if task_display.qualified_id.starts_with(skip_prefix)
+                    && task_display.qualified_id.len() > skip_prefix.len()
+                {
+                    continue;
+                }
+                skip_children_of = None;
+            }
+
+            let _is_focused = focused_ids.contains(&task_display.qualified_id);
+            let is_ancestor = ancestor_ids.contains(&task_display.qualified_id);
+            let is_descendant = focused_ids.iter().any(|fid| {
+                task_display.qualified_id.starts_with(fid)
+                    && task_display.qualified_id.len() > fid.len()
+            });
+
+            let visibility = focus.get_visibility(
+                &task_display.qualified_id,
+                &task_display.task.name,
+                task_display.depth,
+                is_ancestor,
+                is_descendant,
+            );
+
+            match visibility {
+                TaskVisibility::Hidden => continue,
+                TaskVisibility::Collapsed => {
+                    // Show this task but skip its children
+                    if task_display.is_container {
+                        skip_children_of = Some(task_display.qualified_id.clone() + ".");
+                    }
+                    task_display.visibility = TaskVisibility::Collapsed;
+                    result.push(task_display);
+                }
+                TaskVisibility::Expanded => {
+                    task_display.visibility = TaskVisibility::Expanded;
+                    result.push(task_display);
+                }
+            }
+        }
+
         result
     }
 
@@ -185,6 +374,7 @@ impl HtmlGanttRenderer {
                 depth,
                 is_container,
                 child_count: task.children.len(),
+                visibility: TaskVisibility::Expanded, // Default, may be changed by focus logic
             });
 
             if !task.children.is_empty() {
@@ -424,31 +614,50 @@ impl HtmlGanttRenderer {
         let bar_height = (self.row_height as f64 * 0.6) as u32;
         let bar_y = y + (self.row_height - bar_height) / 2;
 
+        // Check if task is collapsed (focus view)
+        let is_collapsed = task_display.visibility == TaskVisibility::Collapsed;
+
         // Indent for hierarchy
         let indent = task_display.depth as u32 * 16;
         let label_x = self.padding + 8 + indent;
 
         // Container expand/collapse icon
-        if task_display.is_container {
+        // ▶ for collapsed, ▼ for expanded
+        if task_display.is_container || is_collapsed {
             let icon_x = label_x - 12;
             let icon_y = y + self.row_height / 2;
+            let icon = if is_collapsed { "▶" } else { "▼" };
+            let icon_color = if is_collapsed {
+                "#9ca3af" // Muted gray for collapsed
+            } else {
+                &self.theme.text_color
+            };
             svg.push_str(&format!(
-                r#"                <text x="{x}" y="{y}" font-size="10" fill="{color}" class="collapse-icon" data-task="{id}" style="cursor:pointer">▼</text>"#,
+                r#"                <text x="{x}" y="{y}" font-size="10" fill="{color}" class="collapse-icon" data-task="{id}" style="cursor:pointer">{icon}</text>"#,
                 x = icon_x,
                 y = icon_y + 4,
-                color = self.theme.text_color,
-                id = task_display.qualified_id
+                color = icon_color,
+                id = task_display.qualified_id,
+                icon = icon
             ));
             svg.push('\n');
         }
 
-        // Task label
-        let label = truncate(&task_display.task.name, 20 - task_display.depth * 2);
+        // Task label - calculate max chars based on available width
+        // ~7px per char at 12px font, subtract indent (16px per level) and some margin
+        let available_px = self.label_width.saturating_sub(indent as u32 + 20);
+        let max_chars = (available_px / 7) as usize;
+        let label = truncate(&task_display.task.name, max_chars.max(10));
+        let label_color = if is_collapsed {
+            "#9ca3af" // Muted gray for collapsed tasks
+        } else {
+            &self.theme.text_color
+        };
         svg.push_str(&format!(
             r#"                <text x="{x}" y="{y}" font-size="12" fill="{color}">{label}</text>"#,
             x = label_x,
             y = y + self.row_height / 2 + 4,
-            color = self.theme.text_color,
+            color = label_color,
             label = html_escape(&label)
         ));
         svg.push('\n');
@@ -461,8 +670,8 @@ impl HtmlGanttRenderer {
 
             let is_milestone = scheduled.duration.minutes == 0;
 
-            if is_milestone {
-                // Diamond for milestone
+            if is_milestone && !is_collapsed {
+                // Diamond for milestone (not shown when collapsed)
                 let cx = x_start;
                 let cy = (bar_y + bar_height / 2) as f64;
                 let size = (bar_height as f64) / 2.0;
@@ -477,8 +686,24 @@ impl HtmlGanttRenderer {
                     id = task_display.qualified_id
                 ));
                 svg.push('\n');
+            } else if is_collapsed {
+                // Collapsed container: solid muted bar with distinct style
+                let collapsed_color = "#b8c0cc"; // Light gray for collapsed
+                let collapsed_bar_height = (bar_height as f64 * 0.7) as u32;
+                let collapsed_bar_y = y + (self.row_height - collapsed_bar_height) / 2;
+
+                svg.push_str(&format!(
+                    r#"                <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="2" fill="{color}" opacity="0.7" class="task-bar collapsed" data-task="{id}"/>"#,
+                    x = x_start,
+                    y = collapsed_bar_y,
+                    w = bar_width,
+                    h = collapsed_bar_height,
+                    color = collapsed_color,
+                    id = task_display.qualified_id
+                ));
+                svg.push('\n');
             } else if task_display.is_container {
-                // Container bar (bracket style)
+                // Expanded container bar (bracket style)
                 let bracket_height = 6.0;
                 svg.push_str(&format!(
                     r#"                <path d="M{x1},{y1} L{x1},{y2} L{x2},{y2} L{x2},{y1}" fill="none" stroke="{color}" stroke-width="3" class="task-bar container" data-task="{id}"/>"#,
@@ -925,6 +1150,8 @@ struct TaskDisplay<'a> {
     is_container: bool,
     #[allow(dead_code)]
     child_count: usize,
+    /// Visibility state for focus view
+    visibility: TaskVisibility,
 }
 
 impl Renderer for HtmlGanttRenderer {
@@ -1490,5 +1717,140 @@ mod tests {
         let renderer = HtmlGanttRenderer::new();
         let result = renderer.render(&project, &schedule);
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // Focus View Tests (TDD)
+    // =========================================================================
+
+    #[test]
+    fn focus_config_empty_patterns_matches_all() {
+        let config = FocusConfig::new(vec![], 1);
+        assert!(config.matches_focus("any_task", "Any Task Name"));
+        assert!(config.matches_focus("6.3.2.1", "[6.3.2.1] GNU Validation"));
+    }
+
+    #[test]
+    fn focus_config_prefix_matching() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 1);
+
+        // Should match: task IDs starting with "6.3.2"
+        assert!(config.matches_focus("6.3.2", "Container"));
+        assert!(config.matches_focus("6.3.2.1", "Child 1"));
+        assert!(config.matches_focus("6.3.2.5.1", "Grandchild"));
+
+        // Should NOT match: different prefixes
+        assert!(!config.matches_focus("6.3.1", "Different stream"));
+        assert!(!config.matches_focus("7.1", "Different section"));
+    }
+
+    #[test]
+    fn focus_config_name_matching() {
+        let config = FocusConfig::new(vec!["[6.3.2]".to_string()], 1);
+
+        // Should match: task names containing "[6.3.2]"
+        assert!(config.matches_focus("task_2259", "[6.3.2] OS Script Migration"));
+
+        // Should NOT match
+        assert!(!config.matches_focus("task_2258", "[6.3.1] Something Else"));
+    }
+
+    #[test]
+    fn focus_config_glob_matching() {
+        let config = FocusConfig::new(vec!["*.3.2.*".to_string()], 1);
+
+        // Should match: glob pattern
+        assert!(config.matches_focus("6.3.2.1", "Task"));
+        assert!(config.matches_focus("7.3.2.5", "Task"));
+
+        // Should NOT match
+        assert!(!config.matches_focus("6.4.2.1", "Task"));
+    }
+
+    #[test]
+    fn focus_config_multiple_patterns() {
+        let config = FocusConfig::new(
+            vec!["6.3.2".to_string(), "8.6".to_string()],
+            1,
+        );
+
+        assert!(config.matches_focus("6.3.2.1", "Task"));
+        assert!(config.matches_focus("8.6.2", "Task"));
+        assert!(!config.matches_focus("7.1", "Task"));
+    }
+
+    #[test]
+    fn focus_visibility_direct_match() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 1);
+
+        let vis = config.get_visibility("6.3.2.1", "Task", 2, false, false);
+        assert_eq!(vis, TaskVisibility::Expanded);
+    }
+
+    #[test]
+    fn focus_visibility_ancestor_of_focused() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 1);
+
+        // "6" is ancestor of "6.3.2" - should be expanded to show path
+        let vis = config.get_visibility("6", "Section 6", 0, true, false);
+        assert_eq!(vis, TaskVisibility::Expanded);
+    }
+
+    #[test]
+    fn focus_visibility_descendant_of_focused() {
+        let config = FocusConfig::new(vec!["6.3".to_string()], 1);
+
+        // "6.3.2.1" is descendant of "6.3" - should be expanded
+        let vis = config.get_visibility("6.3.2.1", "Task", 3, false, true);
+        assert_eq!(vis, TaskVisibility::Expanded);
+    }
+
+    #[test]
+    fn focus_visibility_context_depth() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 1);
+
+        // Depth 0 (top-level): collapsed (within context_depth)
+        let vis = config.get_visibility("7", "Other Section", 0, false, false);
+        assert_eq!(vis, TaskVisibility::Collapsed);
+
+        // Depth 1: hidden (exceeds context_depth)
+        let vis = config.get_visibility("7.1", "Subsection", 1, false, false);
+        assert_eq!(vis, TaskVisibility::Hidden);
+    }
+
+    #[test]
+    fn focus_visibility_context_depth_zero_hides_all() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 0);
+
+        // context_depth=0 means hide all non-focused tasks
+        let vis = config.get_visibility("7", "Other Section", 0, false, false);
+        assert_eq!(vis, TaskVisibility::Hidden);
+    }
+
+    #[test]
+    fn focus_visibility_context_depth_two() {
+        let config = FocusConfig::new(vec!["6.3.2".to_string()], 2);
+
+        // Depth 0: collapsed
+        let vis = config.get_visibility("7", "Other", 0, false, false);
+        assert_eq!(vis, TaskVisibility::Collapsed);
+
+        // Depth 1: collapsed (within context_depth=2)
+        let vis = config.get_visibility("7.1", "Subsection", 1, false, false);
+        assert_eq!(vis, TaskVisibility::Collapsed);
+
+        // Depth 2: hidden
+        let vis = config.get_visibility("7.1.1", "Task", 2, false, false);
+        assert_eq!(vis, TaskVisibility::Hidden);
+    }
+
+    #[test]
+    fn focus_config_with_renderer() {
+        let mut renderer = HtmlGanttRenderer::new();
+        renderer.focus = Some(FocusConfig::new(vec!["6.3.2".to_string()], 1));
+
+        assert!(renderer.focus.is_some());
+        assert_eq!(renderer.focus.as_ref().unwrap().focus_patterns.len(), 1);
+        assert_eq!(renderer.focus.as_ref().unwrap().context_depth, 1);
     }
 }

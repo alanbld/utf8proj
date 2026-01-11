@@ -118,7 +118,7 @@ enum Commands {
         #[arg(short, long)]
         output: std::path::PathBuf,
 
-        /// Output format (svg, mermaid, plantuml, xlsx)
+        /// Output format (svg, mermaid, plantuml, xlsx, html)
         #[arg(short, long, default_value = "svg")]
         format: String,
 
@@ -149,6 +149,16 @@ enum Commands {
         /// Include Diagnostics sheet in Excel export
         #[arg(long)]
         include_diagnostics: bool,
+
+        /// Focus pattern(s) to expand specific task hierarchies (HTML format only).
+        /// Matches task IDs by prefix, name by contains, or glob patterns.
+        /// Multiple patterns can be comma-separated (e.g., "6.3.2,8.6").
+        #[arg(long)]
+        focus: Option<String>,
+
+        /// Context depth for non-focused tasks (default: 1, 0 = hide all non-focused)
+        #[arg(long, default_value = "1")]
+        context_depth: usize,
     },
 
     /// Run performance benchmarks
@@ -234,8 +244,8 @@ fn main() -> Result<()> {
         Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars)
         }
-        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics }) => {
-            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics)
+        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics, focus, context_depth }) => {
+            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics, focus.as_deref(), context_depth)
         }
         Some(Commands::Benchmark {
             topology,
@@ -660,7 +670,7 @@ fn cmd_schedule(
 }
 
 /// Gantt command: generate Gantt chart in various formats
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool) -> Result<()> {
+fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool, focus: Option<&str>, context_depth: usize) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
     let project = parse_file(file)
@@ -734,6 +744,31 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
             renderer.render(&project, &schedule)
                 .with_context(|| "Failed to render SVG Gantt chart")?
         }
+        "html" => {
+            // HTML format with focus view support
+            use utf8proj_render::gantt::{HtmlGanttRenderer, FocusConfig};
+
+            let mut renderer = HtmlGanttRenderer::new();
+            renderer.label_width = width as u32;
+
+            // Configure focus view if --focus is provided
+            if let Some(focus_pattern) = focus {
+                let patterns: Vec<String> = focus_pattern
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !patterns.is_empty() {
+                    renderer.focus = Some(FocusConfig::new(patterns, context_depth));
+                    eprintln!("Focus view: showing {} pattern(s), context depth {}",
+                             renderer.focus.as_ref().unwrap().focus_patterns.len(),
+                             context_depth);
+                }
+            }
+
+            renderer.render(&project, &schedule)
+                .with_context(|| "Failed to render HTML Gantt chart")?
+        }
         "mermaid" => {
             let renderer = utf8proj_render::MermaidRenderer::new()
                 .display_mode(display_mode)
@@ -749,7 +784,7 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
                 .with_context(|| "Failed to render PlantUML Gantt chart")?
         }
         _ => {
-            anyhow::bail!("Unknown format '{}'. Supported formats: svg, mermaid, plantuml, xlsx", format);
+            anyhow::bail!("Unknown format '{}'. Supported formats: svg, html, mermaid, plantuml, xlsx", format);
         }
     };
 
