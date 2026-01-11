@@ -2562,6 +2562,14 @@ impl Scheduler for CpmSolver {
                     None
                 };
 
+                // Calculate effort_days for this assignment
+                // If task has explicit effort, distribute it among assignments
+                // Otherwise, leave as None to calculate from duration × units
+                let effort_days = node.task.effort.map(|effort| {
+                    let num_assignments = node.task.assigned.len().max(1) as f64;
+                    effort.as_days() / num_assignments
+                });
+
                 assignments.push(Assignment {
                     resource_id: res_ref.resource_id.clone(),
                     start: start_date,
@@ -2570,6 +2578,7 @@ impl Scheduler for CpmSolver {
                     cost: fixed_cost,
                     cost_range: cost_range.clone(),
                     is_abstract,
+                    effort_days,
                 });
             }
 

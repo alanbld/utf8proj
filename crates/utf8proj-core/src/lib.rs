@@ -1419,6 +1419,10 @@ pub struct Assignment {
     pub cost_range: Option<CostRange>,
     /// RFC-0001: Whether this is an abstract (profile) assignment
     pub is_abstract: bool,
+    /// Explicit effort in person-days for this assignment.
+    /// When set, this overrides the calculated effort (duration × units).
+    /// Used when task has explicit `effort:` attribute different from duration.
+    pub effort_days: Option<f64>,
 }
 
 // ============================================================================

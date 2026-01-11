@@ -330,12 +330,16 @@ impl ExcelRenderer {
         sheet.set_column_width(4, 15).ok();
 
         // Calculate resource effort totals from schedule
-        // Effort per assignment = task duration * units (since Assignment has start/finish/units)
+        // Use explicit effort_days if available, otherwise calculate from duration × units
         let mut resource_effort: HashMap<String, f64> = HashMap::new();
         for scheduled in schedule.tasks.values() {
             for assignment in &scheduled.assignments {
-                let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
-                let effort = assignment_days * assignment.units as f64;
+                let effort = if let Some(effort_days) = assignment.effort_days {
+                    effort_days
+                } else {
+                    let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                    assignment_days * assignment.units as f64
+                };
                 *resource_effort.entry(assignment.resource_id.clone()).or_default() += effort;
             }
         }
@@ -479,6 +483,11 @@ impl ExcelRenderer {
             let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
             let task = project.get_task(simple_id);
 
+            // Check if this is a container task (has children)
+            // Container tasks have derived duration (span of children) which should NOT
+            // be counted as effort to avoid double-counting
+            let is_container = task.map(|t| !t.children.is_empty()).unwrap_or(false);
+
             // Get base task name and add indentation for hierarchy
             let base_name = task
                 .map(|t| t.name.clone())
@@ -505,7 +514,10 @@ impl ExcelRenderer {
             // Calculate week numbers relative to project start
             let start_week = self.date_to_week(scheduled.start, project_start);
             let end_week = self.date_to_week(scheduled.finish, project_start);
-            let duration_days = scheduled.duration.as_days();
+
+            // For container tasks, effort is 0 (their duration is derived from children)
+            // Only leaf tasks contribute actual effort
+            let duration_days = if is_container { 0.0 } else { scheduled.duration.as_days() };
 
             // If task has assignments, create a row per assignment
             if scheduled.assignments.is_empty() {
@@ -529,8 +541,13 @@ impl ExcelRenderer {
                 // One row per assignment
                 let mut first_assignment = true;
                 for assignment in &scheduled.assignments {
-                    let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
-                    let effort = assignment_days * assignment.units as f64;
+                    // Use explicit effort_days if available, otherwise calculate from duration × units
+                    let effort = if let Some(effort_days) = assignment.effort_days {
+                        effort_days
+                    } else {
+                        let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                        assignment_days * assignment.units as f64
+                    };
 
                     // Only show dependency info on first row for this task
                     let (pred, dtype, lag_val) = if first_assignment {
@@ -935,11 +952,16 @@ impl ExcelRenderer {
         sheet.merge_range(9, 0, 9, 1, "COST SUMMARY", &formats.header).ok();
 
         // Calculate totals
+        // Use explicit effort_days if available, otherwise calculate from duration × units
         let mut resource_effort: HashMap<String, f64> = HashMap::new();
         for scheduled in schedule.tasks.values() {
             for assignment in &scheduled.assignments {
-                let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
-                let effort = assignment_days * assignment.units as f64;
+                let effort = if let Some(effort_days) = assignment.effort_days {
+                    effort_days
+                } else {
+                    let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                    assignment_days * assignment.units as f64
+                };
                 *resource_effort.entry(assignment.resource_id.clone()).or_default() += effort;
             }
         }
@@ -1434,6 +1456,7 @@ mod tests {
                     cost: None,
                     cost_range: None,
                     is_abstract: false,
+                    effort_days: None,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
@@ -1472,6 +1495,7 @@ mod tests {
                     cost: None,
                     cost_range: None,
                     is_abstract: false,
+                    effort_days: None,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
@@ -1510,6 +1534,7 @@ mod tests {
                     cost: None,
                     cost_range: None,
                     is_abstract: false,
+                    effort_days: None,
                 }],
                 slack: Duration::zero(),
                 is_critical: true,
