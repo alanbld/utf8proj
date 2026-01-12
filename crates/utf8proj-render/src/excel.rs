@@ -278,6 +278,23 @@ impl ExcelRenderer {
             .set_background_color(0xE2EFDA)
             .set_border(FormatBorder::Thin);
 
+        // Alternating row colors for Schedule sheet (light blue/white banding per task)
+        let row_even_text = Format::new()
+            .set_border(FormatBorder::Thin);
+
+        let row_even_number = Format::new()
+            .set_num_format("#,##0.0")
+            .set_border(FormatBorder::Thin);
+
+        let row_odd_text = Format::new()
+            .set_background_color(0xDDEBF7) // Light blue
+            .set_border(FormatBorder::Thin);
+
+        let row_odd_number = Format::new()
+            .set_num_format("#,##0.0")
+            .set_background_color(0xDDEBF7) // Light blue
+            .set_border(FormatBorder::Thin);
+
         ExcelFormats {
             header,
             currency,
@@ -290,6 +307,10 @@ impl ExcelRenderer {
             gantt_critical,
             total_row,
             total_currency,
+            row_even_text,
+            row_even_number,
+            row_odd_text,
+            row_odd_number,
         }
     }
 
@@ -494,7 +515,14 @@ impl ExcelRenderer {
 
         // Write task rows
         let mut row = 1u32;
+        let mut prev_task_id = String::new();
+        let mut is_odd = false;
         for (scheduled, level) in &tasks {
+            // Toggle alternating row color when task changes
+            if scheduled.task_id != prev_task_id {
+                is_odd = !is_odd;
+                prev_task_id = scheduled.task_id.clone();
+            }
             // Extract the simple task ID from the path (e.g., "task_5.task_6.task_7" -> "task_7")
             let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
             let task = project.get_task(simple_id);
@@ -564,13 +592,14 @@ impl ExcelRenderer {
                         &predecessor, dep_type, lag, duration_days,
                         start_week, end_week, scheduled.is_critical,
                         formats, week_start_col, effort_col, start_col, end_col,
-                        last_data_row,
+                        last_data_row, is_odd,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
                         sheet, row, &task_name, "", duration_days,
                         start_week, end_week, scheduled.is_critical,
                         formats, week_start_col, effort_col, start_col, end_col,
+                        is_odd,
                     )?;
                 }
                 row += 1;
@@ -599,13 +628,14 @@ impl ExcelRenderer {
                             &pred, dtype, lag_val, effort,
                             start_week, end_week, scheduled.is_critical,
                             formats, week_start_col, effort_col, start_col, end_col,
-                            last_data_row,
+                            last_data_row, is_odd,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
                             sheet, row, &task_name, &assignment.resource_id, effort,
                             start_week, end_week, scheduled.is_critical,
                             formats, week_start_col, effort_col, start_col, end_col,
+                            is_odd,
                         )?;
                     }
                     first_assignment = false;
@@ -694,17 +724,22 @@ impl ExcelRenderer {
         effort_col: u16,
         start_col: u16,
         end_col: u16,
+        is_odd: bool,
     ) -> Result<(), RenderError> {
+        // Select alternating row formats for columns A-E (before week columns)
+        let text_fmt = if is_odd { &formats.row_odd_text } else { &formats.row_even_text };
+        let number_fmt = if is_odd { &formats.row_odd_number } else { &formats.row_even_number };
+
         // Fixed columns: Activity, Profile, pd, Start, End
-        sheet.write_with_format(row, 0, task_name, &formats.text)
+        sheet.write_with_format(row, 0, task_name, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(row, 1, profile, &formats.text)
+        sheet.write_with_format(row, 1, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(row, effort_col, person_days, &formats.number)
+        sheet.write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(row, start_col, start_week as f64, &formats.integer)
+        sheet.write_with_format(row, start_col, start_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(row, end_col, end_week as f64, &formats.integer)
+        sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Week columns
@@ -736,41 +771,46 @@ impl ExcelRenderer {
         start_col: u16,
         end_col: u16,
         last_data_row: u32,
+        is_odd: bool,
     ) -> Result<(), RenderError> {
         let excel_row = row + 1; // Excel is 1-indexed
 
+        // Select alternating row formats for columns A-I (before week columns)
+        let text_fmt = if is_odd { &formats.row_odd_text } else { &formats.row_even_text };
+        let number_fmt = if is_odd { &formats.row_odd_number } else { &formats.row_even_number };
+
         // Col A: Task ID
-        sheet.write_with_format(row, 0, task_id, &formats.text)
+        sheet.write_with_format(row, 0, task_id, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col B: Activity
-        sheet.write_with_format(row, 1, task_name, &formats.text)
+        sheet.write_with_format(row, 1, task_name, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col C: Profile
-        sheet.write_with_format(row, 2, profile, &formats.text)
+        sheet.write_with_format(row, 2, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col D: Depends On
-        sheet.write_with_format(row, 3, predecessor, &formats.text)
+        sheet.write_with_format(row, 3, predecessor, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col E: Type (FS/SS/FF/SF)
         let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
-        sheet.write_with_format(row, 4, dep_type_val, &formats.text)
+        sheet.write_with_format(row, 4, dep_type_val, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col F: Lag
         if !predecessor.is_empty() {
-            sheet.write_with_format(row, 5, lag as f64, &formats.integer)
+            sheet.write_with_format(row, 5, lag as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, 5, "", &formats.text)
+            sheet.write_with_format(row, 5, "", text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Col G: Effort (pd)
-        sheet.write_with_format(row, effort_col, person_days, &formats.number)
+        sheet.write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col H: Start Week - Formula-driven if has predecessor
@@ -793,10 +833,10 @@ impl ExcelRenderer {
                 excel_row, excel_row, last_data_row, excel_row, self.hours_per_day, self.hours_per_week, excel_row,
                 start_week
             );
-            sheet.write_formula_with_format(row, start_col, formula.as_str(), &formats.integer)
+            sheet.write_formula_with_format(row, start_col, formula.as_str(), number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, start_col, start_week as f64, &formats.integer)
+            sheet.write_with_format(row, start_col, start_week as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -810,10 +850,10 @@ impl ExcelRenderer {
                 effort_col_letter, excel_row,
                 self.hours_per_day, self.hours_per_week
             );
-            sheet.write_formula_with_format(row, end_col, formula.as_str(), &formats.integer)
+            sheet.write_formula_with_format(row, end_col, formula.as_str(), number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, end_col, end_week as f64, &formats.integer)
+            sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1418,6 +1458,11 @@ struct ExcelFormats {
     gantt_critical: Format,
     total_row: Format,
     total_currency: Format,
+    // Alternating row colors for Schedule sheet (per-task banding)
+    row_even_text: Format,
+    row_even_number: Format,
+    row_odd_text: Format,
+    row_odd_number: Format,
 }
 
 /// Renderer implementation that saves to file path
