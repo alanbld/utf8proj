@@ -937,6 +937,9 @@ pub fn analyze_project(
     // W014: Container dependencies without child dependencies (MS Project compatibility)
     check_container_dependencies(project, config, emitter);
 
+    // W007: Unresolved dependencies (references to non-existent tasks)
+    check_unresolved_dependencies(project, config, emitter);
+
     // W005: Constraint zero slack (requires schedule)
     if let Some(sched) = schedule {
         check_constraint_zero_slack(project, sched, config, emitter);
@@ -1782,6 +1785,118 @@ fn check_container_deps_recursive(
             check_container_deps_recursive(&task.children, &task_path, config, emitter);
         }
     }
+}
+
+/// W007: Check for unresolved dependencies
+///
+/// This diagnostic fires when a task's dependency references a task ID that
+/// cannot be resolved to an existing task in the project.
+fn check_unresolved_dependencies(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    // Build a set of all task IDs (both simple and qualified paths)
+    let all_task_ids = collect_all_task_ids(&project.tasks, "");
+
+    // Check all dependencies recursively
+    check_deps_recursive(&project.tasks, "", &all_task_ids, config, emitter);
+}
+
+/// Collect all task IDs (simple and qualified) from the task tree
+fn collect_all_task_ids(tasks: &[Task], parent_path: &str) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+
+    for task in tasks {
+        let qualified_path = if parent_path.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", parent_path, task.id)
+        };
+
+        // Add both simple ID and full qualified path
+        ids.insert(task.id.clone());
+        ids.insert(qualified_path.clone());
+
+        // Recurse into children
+        let child_ids = collect_all_task_ids(&task.children, &qualified_path);
+        ids.extend(child_ids);
+    }
+
+    ids
+}
+
+/// Recursively check dependencies for W007
+fn check_deps_recursive(
+    tasks: &[Task],
+    parent_path: &str,
+    all_task_ids: &std::collections::HashSet<String>,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for task in tasks {
+        let task_path = if parent_path.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", parent_path, task.id)
+        };
+
+        // Check each dependency
+        for dep in &task.depends {
+            // Try to resolve the dependency
+            let resolved = resolve_dependency_reference(&dep.predecessor, &task_path, all_task_ids);
+
+            if !resolved {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::W007UnresolvedDependency,
+                        format!(
+                            "task '{}' depends on '{}' which does not exist",
+                            task.name, dep.predecessor
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note(format!(
+                        "dependency '{}' cannot be resolved to any task in the project",
+                        dep.predecessor
+                    ))
+                    .with_hint("check spelling or use qualified path (e.g., 'phase1.task1')"),
+                );
+            }
+        }
+
+        // Recurse into children
+        check_deps_recursive(&task.children, &task_path, all_task_ids, config, emitter);
+    }
+}
+
+/// Check if a dependency reference can be resolved to an existing task
+fn resolve_dependency_reference(
+    predecessor: &str,
+    current_task_path: &str,
+    all_task_ids: &std::collections::HashSet<String>,
+) -> bool {
+    // Direct match (simple ID or full path)
+    if all_task_ids.contains(predecessor) {
+        return true;
+    }
+
+    // Try as suffix match (partial path like "gnu_val.gnu_analysis")
+    for id in all_task_ids {
+        if id.ends_with(&format!(".{}", predecessor)) || id == predecessor {
+            return true;
+        }
+    }
+
+    // Try relative to current task's parent (sibling reference)
+    if let Some(parent_path) = current_task_path.rsplit_once('.').map(|(p, _)| p) {
+        let sibling_path = format!("{}.{}", parent_path, predecessor);
+        if all_task_ids.contains(&sibling_path) {
+            return true;
+        }
+    }
+
+    false
 }
 
 // =============================================================================

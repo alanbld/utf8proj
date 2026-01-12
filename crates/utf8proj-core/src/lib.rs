@@ -1689,6 +1689,8 @@ pub enum DiagnosticCode {
     W005ConstraintZeroSlack,
     /// Task is slipping beyond threshold (forecast > baseline)
     W006ScheduleVariance,
+    /// Dependency references a task that does not exist
+    W007UnresolvedDependency,
     /// Container has dependencies but child task has none (MS Project compatibility)
     W014ContainerDependency,
 
@@ -1756,6 +1758,7 @@ impl DiagnosticCode {
             DiagnosticCode::W004ApproximateLeveling => "W004",
             DiagnosticCode::W005ConstraintZeroSlack => "W005",
             DiagnosticCode::W006ScheduleVariance => "W006",
+            DiagnosticCode::W007UnresolvedDependency => "W007",
             DiagnosticCode::W014ContainerDependency => "W014",
             DiagnosticCode::C010NonWorkingDay => "C010",
             DiagnosticCode::C011CalendarMismatch => "C011",
@@ -1793,6 +1796,7 @@ impl DiagnosticCode {
             DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
             DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
             DiagnosticCode::W006ScheduleVariance => Severity::Warning,
+            DiagnosticCode::W007UnresolvedDependency => Severity::Warning,
             DiagnosticCode::W014ContainerDependency => Severity::Warning,
             DiagnosticCode::C010NonWorkingDay => Severity::Warning,
             DiagnosticCode::C011CalendarMismatch => Severity::Warning,
@@ -1836,8 +1840,10 @@ impl DiagnosticCode {
             DiagnosticCode::W005ConstraintZeroSlack => 12,
             // Schedule variance warnings
             DiagnosticCode::W006ScheduleVariance => 13,
+            // Dependency warnings
+            DiagnosticCode::W007UnresolvedDependency => 14,
             // MS Project compatibility warnings
-            DiagnosticCode::W014ContainerDependency => 14,
+            DiagnosticCode::W014ContainerDependency => 15,
             // Calendar warnings
             DiagnosticCode::C010NonWorkingDay => 15,
             DiagnosticCode::C011CalendarMismatch => 16,
@@ -3274,7 +3280,8 @@ mod tests {
         assert_eq!(DiagnosticCode::W004ApproximateLeveling.ordering_priority(), 11);
         assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.ordering_priority(), 12);
         assert_eq!(DiagnosticCode::W006ScheduleVariance.ordering_priority(), 13);
-        assert_eq!(DiagnosticCode::W014ContainerDependency.ordering_priority(), 14);
+        assert_eq!(DiagnosticCode::W007UnresolvedDependency.ordering_priority(), 14);
+        assert_eq!(DiagnosticCode::W014ContainerDependency.ordering_priority(), 15);
         // Assignment warnings
         assert_eq!(DiagnosticCode::W003UnknownTrait.ordering_priority(), 21);
         // Hints
