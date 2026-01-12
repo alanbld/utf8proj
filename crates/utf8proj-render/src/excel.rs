@@ -252,16 +252,6 @@ impl ExcelRenderer {
             .set_font_color(0xFFFFFF)
             .set_border(FormatBorder::Thin);
 
-        let gantt_filled = Format::new()
-            .set_background_color(0x5B9BD5)
-            .set_align(FormatAlign::Center)
-            .set_border(FormatBorder::Thin);
-
-        let gantt_empty = Format::new()
-            .set_background_color(0xF2F2F2)
-            .set_align(FormatAlign::Center)
-            .set_border(FormatBorder::Thin);
-
         let gantt_critical = Format::new()
             .set_background_color(0xFF6B6B)
             .set_align(FormatAlign::Center)
@@ -311,6 +301,38 @@ impl ExcelRenderer {
             .set_background_color(0xFFE699) // Slightly darker gold for emphasis
             .set_border(FormatBorder::Thin);
 
+        // Container task formats (bold to distinguish phases from leaf tasks)
+        let container_even_text = Format::new()
+            .set_bold()
+            .set_border(FormatBorder::Thin);
+
+        let container_odd_text = Format::new()
+            .set_bold()
+            .set_background_color(0xDDEBF7) // Light blue
+            .set_border(FormatBorder::Thin);
+
+        // Week column formats for alternating row banding
+        // Even rows: white background for empty, blue bar for filled
+        let gantt_even_filled = Format::new()
+            .set_background_color(0x5B9BD5) // Standard blue for Gantt bar
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin);
+
+        let gantt_even_empty = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin); // White (matches even row)
+
+        // Odd rows: light blue background for empty, blue bar for filled
+        let gantt_odd_filled = Format::new()
+            .set_background_color(0x5B9BD5) // Same blue (contrasts with light blue row)
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin);
+
+        let gantt_odd_empty = Format::new()
+            .set_background_color(0xDDEBF7) // Light blue (matches odd row)
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin);
+
         ExcelFormats {
             header,
             currency,
@@ -318,8 +340,6 @@ impl ExcelRenderer {
             integer,
             text,
             week_header,
-            gantt_filled,
-            gantt_empty,
             gantt_critical,
             total_row,
             total_currency,
@@ -330,6 +350,12 @@ impl ExcelRenderer {
             milestone_text,
             milestone_number,
             milestone_week,
+            container_even_text,
+            container_odd_text,
+            gantt_even_filled,
+            gantt_odd_filled,
+            gantt_even_empty,
+            gantt_odd_empty,
         }
     }
 
@@ -612,14 +638,14 @@ impl ExcelRenderer {
                     self.write_schedule_row_with_deps(
                         sheet, row, &scheduled.task_id, &task_name, "",
                         &predecessor, dep_type, lag, duration_days,
-                        start_week, end_week, scheduled.is_critical, is_milestone,
+                        start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                         formats, week_start_col, effort_col, start_col, end_col,
                         last_data_row, is_odd,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
                         sheet, row, &task_name, "", duration_days,
-                        start_week, end_week, scheduled.is_critical, is_milestone,
+                        start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                         formats, week_start_col, effort_col, start_col, end_col,
                         is_odd,
                     )?;
@@ -648,14 +674,14 @@ impl ExcelRenderer {
                         self.write_schedule_row_with_deps(
                             sheet, row, &scheduled.task_id, &task_name, &assignment.resource_id,
                             &pred, dtype, lag_val, effort,
-                            start_week, end_week, scheduled.is_critical, is_milestone,
+                            start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                             formats, week_start_col, effort_col, start_col, end_col,
                             last_data_row, is_odd,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
                             sheet, row, &task_name, &assignment.resource_id, effort,
-                            start_week, end_week, scheduled.is_critical, is_milestone,
+                            start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                             formats, week_start_col, effort_col, start_col, end_col,
                             is_odd,
                         )?;
@@ -667,7 +693,7 @@ impl ExcelRenderer {
         }
 
         // Total row for each week column
-        self.write_schedule_totals(sheet, row, week_start_col, formats)?;
+        self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats)?;
 
         // Freeze first row and fixed columns
         let freeze_cols = if self.show_dependencies { 10 } else { 6 };
@@ -744,6 +770,7 @@ impl ExcelRenderer {
         end_week: u32,
         is_critical: bool,
         is_milestone: bool,
+        is_container: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -760,8 +787,15 @@ impl ExcelRenderer {
             (&formats.row_even_text, &formats.row_even_number)
         };
 
-        // Col A: Activity
-        sheet.write_with_format(row, 0, task_name, text_fmt)
+        // Container tasks use bold text for Activity to distinguish phases
+        let activity_fmt = if is_container {
+            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+        } else {
+            text_fmt
+        };
+
+        // Col A: Activity (bold for containers)
+        sheet.write_with_format(row, 0, task_name, activity_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col B: Milestone marker (◆ for milestones, empty otherwise)
@@ -787,7 +821,7 @@ impl ExcelRenderer {
 
         // Week columns
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
     }
@@ -809,6 +843,7 @@ impl ExcelRenderer {
         end_week: u32,
         is_critical: bool,
         is_milestone: bool,
+        is_container: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -828,12 +863,19 @@ impl ExcelRenderer {
             (&formats.row_even_text, &formats.row_even_number)
         };
 
+        // Container tasks use bold text for Activity to distinguish phases
+        let activity_fmt = if is_container {
+            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+        } else {
+            text_fmt
+        };
+
         // Col A: Task ID
         sheet.write_with_format(row, 0, task_id, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col B: Activity
-        sheet.write_with_format(row, 1, task_name, text_fmt)
+        // Col B: Activity (bold for containers)
+        sheet.write_with_format(row, 1, task_name, activity_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col C: Milestone marker (◆ for milestones, empty otherwise)
@@ -911,7 +953,7 @@ impl ExcelRenderer {
 
         // Week columns
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
     }
@@ -926,6 +968,8 @@ impl ExcelRenderer {
         end_week: u32,
         is_critical: bool,
         is_milestone: bool,
+        is_container: bool,
+        is_odd: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -941,6 +985,9 @@ impl ExcelRenderer {
         let start_col_letter = Self::col_to_letter(start_col);
         let end_col_letter = Self::col_to_letter(end_col);
 
+        // Select empty format based on row alternation (for consistent row banding)
+        let empty_fmt = if is_odd { &formats.gantt_odd_empty } else { &formats.gantt_even_empty };
+
         for week in 1..=self.schedule_weeks {
             let col = week_start_col + (week - 1) as u16;
             let in_range = week >= start_week && week <= end_week;
@@ -953,18 +1000,32 @@ impl ExcelRenderer {
                     sheet.write_with_format(row, col, "◆", &formats.milestone_week)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
                 } else {
-                    // Non-milestone week: empty cell with standard empty format
-                    sheet.write_with_format(row, col, "", &formats.gantt_empty)
+                    // Non-milestone week: use milestone gold background for consistency
+                    sheet.write_with_format(row, col, "", &formats.milestone_week)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
                 }
                 continue;
             }
 
+            // Container tasks: no Gantt bar (effort is 0, dates are derived from children)
+            if is_container {
+                sheet.write_with_format(row, col, "", empty_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                continue;
+            }
+
             // Normal tasks: Gantt bar with hours distribution
+            // Use alternating row colors for empty cells, blue bar for filled
             let format = if in_range {
-                if is_critical { &formats.gantt_critical } else { &formats.gantt_filled }
+                if is_critical {
+                    &formats.gantt_critical
+                } else if is_odd {
+                    &formats.gantt_odd_filled
+                } else {
+                    &formats.gantt_even_filled
+                }
             } else {
-                &formats.gantt_empty
+                empty_fmt
             };
 
             if self.use_formulas {
@@ -995,6 +1056,7 @@ impl ExcelRenderer {
         sheet: &mut Worksheet,
         row: u32,
         week_start_col: u16,
+        effort_col: u16,
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
         if row <= 1 {
@@ -1005,8 +1067,25 @@ impl ExcelRenderer {
         sheet.write_with_format(row, 0, "TOTAL", &formats.total_row)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Fill empty cells up to week columns
-        for col_idx in 1..week_start_col {
+        // Fill empty cells up to effort column
+        for col_idx in 1..effort_col {
+            sheet.write_with_format(row, col_idx, "", &formats.total_row)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // SUM formula for effort (pd) column
+        if self.use_formulas {
+            let effort_letter = Self::col_to_letter(effort_col);
+            let formula = format!("=SUM({}2:{}{})", effort_letter, effort_letter, row);
+            sheet.write_formula_with_format(row, effort_col, formula.as_str(), &formats.total_row)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet.write_with_format(row, effort_col, 0.0, &formats.total_row)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Fill empty cells from effort+1 to week columns
+        for col_idx in (effort_col + 1)..week_start_col {
             sheet.write_with_format(row, col_idx, "", &formats.total_row)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
@@ -1521,8 +1600,6 @@ struct ExcelFormats {
     integer: Format,
     text: Format,
     week_header: Format,
-    gantt_filled: Format,
-    gantt_empty: Format,
     gantt_critical: Format,
     total_row: Format,
     total_currency: Format,
@@ -1535,6 +1612,14 @@ struct ExcelFormats {
     milestone_text: Format,
     milestone_number: Format,
     milestone_week: Format,
+    // Container task formats (bold to distinguish phases from leaf tasks)
+    container_even_text: Format,
+    container_odd_text: Format,
+    // Week column formats for alternating row banding
+    gantt_even_filled: Format,
+    gantt_odd_filled: Format,
+    gantt_even_empty: Format,
+    gantt_odd_empty: Format,
 }
 
 /// Renderer implementation that saves to file path
