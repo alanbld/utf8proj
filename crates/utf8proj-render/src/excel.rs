@@ -295,6 +295,22 @@ impl ExcelRenderer {
             .set_background_color(0xDDEBF7) // Light blue
             .set_border(FormatBorder::Thin);
 
+        // Milestone row formats (light gold tint for semantic distinction)
+        let milestone_text = Format::new()
+            .set_background_color(0xFFF2CC) // Light gold
+            .set_border(FormatBorder::Thin);
+
+        let milestone_number = Format::new()
+            .set_num_format("#,##0.0")
+            .set_background_color(0xFFF2CC) // Light gold
+            .set_border(FormatBorder::Thin);
+
+        // Milestone week cell (gold diamond marker)
+        let milestone_week = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xFFE699) // Slightly darker gold for emphasis
+            .set_border(FormatBorder::Thin);
+
         ExcelFormats {
             header,
             currency,
@@ -311,6 +327,9 @@ impl ExcelRenderer {
             row_even_number,
             row_odd_text,
             row_odd_number,
+            milestone_text,
+            milestone_number,
+            milestone_week,
         }
     }
 
@@ -450,15 +469,15 @@ impl ExcelRenderer {
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Column layout depends on show_dependencies
-        // With deps: Task ID, Activity, Profile, Depends On, Type, Lag, Effort, Start, End, W1...
-        // Without:   Activity, Profile, pd, Start, End, W1...
+        // With deps: Task ID, Activity, M, Profile, Depends On, Type, Lag, Effort, Start, End, W1...
+        // Without:   Activity, M, Profile, pd, Start, End, W1...
 
         let (week_start_col, effort_col, start_col, end_col) = if self.show_dependencies {
             self.write_schedule_headers_with_deps(sheet, formats)?;
-            (9u16, 6u16, 7u16, 8u16) // Week columns start at J (col 9)
+            (10u16, 7u16, 8u16, 9u16) // Week columns start at K (col 10)
         } else {
             self.write_schedule_headers_simple(sheet, formats)?;
-            (5u16, 2u16, 3u16, 4u16) // Week columns start at F (col 5)
+            (6u16, 3u16, 4u16, 5u16) // Week columns start at G (col 6)
         };
 
         // Week column headers
@@ -532,6 +551,9 @@ impl ExcelRenderer {
             // be counted as effort to avoid double-counting
             let is_container = task.map(|t| !t.children.is_empty()).unwrap_or(false);
 
+            // Check if this is a milestone (explicit milestone: true attribute)
+            let is_milestone = task.map(|t| t.milestone).unwrap_or(false);
+
             // Get base task name and add indentation for hierarchy
             let base_name = task
                 .map(|t| t.name.clone())
@@ -590,14 +612,14 @@ impl ExcelRenderer {
                     self.write_schedule_row_with_deps(
                         sheet, row, &scheduled.task_id, &task_name, "",
                         &predecessor, dep_type, lag, duration_days,
-                        start_week, end_week, scheduled.is_critical,
+                        start_week, end_week, scheduled.is_critical, is_milestone,
                         formats, week_start_col, effort_col, start_col, end_col,
                         last_data_row, is_odd,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
                         sheet, row, &task_name, "", duration_days,
-                        start_week, end_week, scheduled.is_critical,
+                        start_week, end_week, scheduled.is_critical, is_milestone,
                         formats, week_start_col, effort_col, start_col, end_col,
                         is_odd,
                     )?;
@@ -626,14 +648,14 @@ impl ExcelRenderer {
                         self.write_schedule_row_with_deps(
                             sheet, row, &scheduled.task_id, &task_name, &assignment.resource_id,
                             &pred, dtype, lag_val, effort,
-                            start_week, end_week, scheduled.is_critical,
+                            start_week, end_week, scheduled.is_critical, is_milestone,
                             formats, week_start_col, effort_col, start_col, end_col,
                             last_data_row, is_odd,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
                             sheet, row, &task_name, &assignment.resource_id, effort,
-                            start_week, end_week, scheduled.is_critical,
+                            start_week, end_week, scheduled.is_critical, is_milestone,
                             formats, week_start_col, effort_col, start_col, end_col,
                             is_odd,
                         )?;
@@ -648,7 +670,7 @@ impl ExcelRenderer {
         self.write_schedule_totals(sheet, row, week_start_col, formats)?;
 
         // Freeze first row and fixed columns
-        let freeze_cols = if self.show_dependencies { 9 } else { 5 };
+        let freeze_cols = if self.show_dependencies { 10 } else { 6 };
         sheet.set_freeze_panes(1, freeze_cols).ok();
 
         Ok(())
@@ -660,7 +682,7 @@ impl ExcelRenderer {
         sheet: &mut Worksheet,
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
-        let headers = ["Activity", "Profile", "pd", "Start\nweek", "End\nweek"];
+        let headers = ["Activity", "M", "Profile", "pd", "Start\nweek", "End\nweek"];
         for (col, header) in headers.iter().enumerate() {
             sheet
                 .write_with_format(0, col as u16, *header, &formats.header)
@@ -669,10 +691,11 @@ impl ExcelRenderer {
 
         // Column widths
         sheet.set_column_width(0, 25).ok(); // Activity
-        sheet.set_column_width(1, 15).ok(); // Profile
-        sheet.set_column_width(2, 6).ok();  // pd
-        sheet.set_column_width(3, 6).ok();  // Start
-        sheet.set_column_width(4, 6).ok();  // End
+        sheet.set_column_width(1, 3).ok();  // M (milestone marker)
+        sheet.set_column_width(2, 15).ok(); // Profile
+        sheet.set_column_width(3, 6).ok();  // pd
+        sheet.set_column_width(4, 6).ok();  // Start
+        sheet.set_column_width(5, 6).ok();  // End
 
         Ok(())
     }
@@ -684,7 +707,7 @@ impl ExcelRenderer {
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
         let headers = [
-            "Task ID", "Activity", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
+            "Task ID", "Activity", "M", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
             "Effort\n(pd)", "Start\nweek", "End\nweek"
         ];
         for (col, header) in headers.iter().enumerate() {
@@ -696,13 +719,14 @@ impl ExcelRenderer {
         // Column widths
         sheet.set_column_width(0, 12).ok(); // Task ID
         sheet.set_column_width(1, 25).ok(); // Activity
-        sheet.set_column_width(2, 12).ok(); // Profile
-        sheet.set_column_width(3, 10).ok(); // Depends On
-        sheet.set_column_width(4, 5).ok();  // Type
-        sheet.set_column_width(5, 5).ok();  // Lag
-        sheet.set_column_width(6, 7).ok();  // Effort
-        sheet.set_column_width(7, 6).ok();  // Start
-        sheet.set_column_width(8, 6).ok();  // End
+        sheet.set_column_width(2, 3).ok();  // M (milestone marker)
+        sheet.set_column_width(3, 12).ok(); // Profile
+        sheet.set_column_width(4, 10).ok(); // Depends On
+        sheet.set_column_width(5, 5).ok();  // Type
+        sheet.set_column_width(6, 5).ok();  // Lag
+        sheet.set_column_width(7, 7).ok();  // Effort
+        sheet.set_column_width(8, 6).ok();  // Start
+        sheet.set_column_width(9, 6).ok();  // End
 
         Ok(())
     }
@@ -719,6 +743,7 @@ impl ExcelRenderer {
         start_week: u32,
         end_week: u32,
         is_critical: bool,
+        is_milestone: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -726,24 +751,42 @@ impl ExcelRenderer {
         end_col: u16,
         is_odd: bool,
     ) -> Result<(), RenderError> {
-        // Select alternating row formats for columns A-E (before week columns)
-        let text_fmt = if is_odd { &formats.row_odd_text } else { &formats.row_even_text };
-        let number_fmt = if is_odd { &formats.row_odd_number } else { &formats.row_even_number };
+        // Select formats: milestones use gold, otherwise alternate white/blue per task
+        let (text_fmt, number_fmt) = if is_milestone {
+            (&formats.milestone_text, &formats.milestone_number)
+        } else if is_odd {
+            (&formats.row_odd_text, &formats.row_odd_number)
+        } else {
+            (&formats.row_even_text, &formats.row_even_number)
+        };
 
-        // Fixed columns: Activity, Profile, pd, Start, End
+        // Col A: Activity
         sheet.write_with_format(row, 0, task_name, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(row, 1, profile, text_fmt)
+
+        // Col B: Milestone marker (◆ for milestones, empty otherwise)
+        let milestone_marker = if is_milestone { "◆" } else { "" };
+        sheet.write_with_format(row, 1, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col C: Profile
+        sheet.write_with_format(row, 2, profile, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col D: pd (effort)
         sheet.write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col E: Start
         sheet.write_with_format(row, start_col, start_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col F: End
         sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Week columns
-        self.write_week_columns(sheet, row, start_week, end_week, is_critical,
+        self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
             formats, week_start_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
@@ -765,6 +808,7 @@ impl ExcelRenderer {
         start_week: u32,
         end_week: u32,
         is_critical: bool,
+        is_milestone: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -775,9 +819,14 @@ impl ExcelRenderer {
     ) -> Result<(), RenderError> {
         let excel_row = row + 1; // Excel is 1-indexed
 
-        // Select alternating row formats for columns A-I (before week columns)
-        let text_fmt = if is_odd { &formats.row_odd_text } else { &formats.row_even_text };
-        let number_fmt = if is_odd { &formats.row_odd_number } else { &formats.row_even_number };
+        // Select formats: milestones use gold, otherwise alternate white/blue per task
+        let (text_fmt, number_fmt) = if is_milestone {
+            (&formats.milestone_text, &formats.milestone_number)
+        } else if is_odd {
+            (&formats.row_odd_text, &formats.row_odd_number)
+        } else {
+            (&formats.row_even_text, &formats.row_even_number)
+        };
 
         // Col A: Task ID
         sheet.write_with_format(row, 0, task_id, text_fmt)
@@ -787,44 +836,47 @@ impl ExcelRenderer {
         sheet.write_with_format(row, 1, task_name, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col C: Profile
-        sheet.write_with_format(row, 2, profile, text_fmt)
+        // Col C: Milestone marker (◆ for milestones, empty otherwise)
+        let milestone_marker = if is_milestone { "◆" } else { "" };
+        sheet.write_with_format(row, 2, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col D: Depends On
-        sheet.write_with_format(row, 3, predecessor, text_fmt)
+        // Col D: Profile
+        sheet.write_with_format(row, 3, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col E: Type (FS/SS/FF/SF)
+        // Col E: Depends On
+        sheet.write_with_format(row, 4, predecessor, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col F: Type (FS/SS/FF/SF)
         let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
-        sheet.write_with_format(row, 4, dep_type_val, text_fmt)
+        sheet.write_with_format(row, 5, dep_type_val, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col F: Lag
+        // Col G: Lag
         if !predecessor.is_empty() {
-            sheet.write_with_format(row, 5, lag as f64, number_fmt)
+            sheet.write_with_format(row, 6, lag as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, 5, "", text_fmt)
+            sheet.write_with_format(row, 6, "", text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Col G: Effort (pd)
+        // Col H: Effort (pd)
         sheet.write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col H: Start Week - Formula-driven if has predecessor
+        // Col I: Start Week - Formula-driven if has predecessor
+        // Column references updated for M column insertion:
+        // E=Depends On, F=Type, G=Lag, H=Effort, I=Start, J=End
+        // VLOOKUP range A:J, End=col 10, Start=col 9
         if self.use_formulas && !predecessor.is_empty() {
-            // Formula: IF(D="", manual_start, VLOOKUP(D, A:I, 9, 0) + 1 + F)
-            // For FS: Start = Predecessor End + 1 + Lag
-            // For SS: Start = Predecessor Start + Lag
-            // For FF: Start = Predecessor End - Duration + 1 + Lag
-            // For SF: Start = Predecessor Start - Duration + 1 + Lag
             let formula = format!(
-                "=IF(D{}=\"\",{},IF(E{}=\"FS\",VLOOKUP(D{},$A$2:$I${},9,0)+1+F{},\
-                IF(E{}=\"SS\",VLOOKUP(D{},$A$2:$I${},8,0)+F{},\
-                IF(E{}=\"FF\",VLOOKUP(D{},$A$2:$I${},9,0)-CEILING(G{}*{}/{},1)+1+F{},\
-                IF(E{}=\"SF\",VLOOKUP(D{},$A$2:$I${},8,0)-CEILING(G{}*{}/{},1)+1+F{},\
+                "=IF(E{}=\"\",{},IF(F{}=\"FS\",VLOOKUP(E{},$A$2:$J${},10,0)+1+G{},\
+                IF(F{}=\"SS\",VLOOKUP(E{},$A$2:$J${},9,0)+G{},\
+                IF(F{}=\"FF\",VLOOKUP(E{},$A$2:$J${},10,0)-CEILING(H{}*{}/{},1)+1+G{},\
+                IF(F{}=\"SF\",VLOOKUP(E{},$A$2:$J${},9,0)-CEILING(H{}*{}/{},1)+1+G{},\
                 {})))))",
                 excel_row, start_week,
                 excel_row, excel_row, last_data_row, excel_row,
@@ -840,7 +892,7 @@ impl ExcelRenderer {
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Col I: End Week - Formula: Start + CEILING(effort * hours_per_day / hours_per_week) - 1
+        // Col J: End Week - Formula: Start + CEILING(effort * hours_per_day / hours_per_week) - 1
         if self.use_formulas {
             let start_col_letter = Self::col_to_letter(start_col);
             let effort_col_letter = Self::col_to_letter(effort_col);
@@ -858,7 +910,7 @@ impl ExcelRenderer {
         }
 
         // Week columns
-        self.write_week_columns(sheet, row, start_week, end_week, is_critical,
+        self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
             formats, week_start_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
@@ -873,6 +925,7 @@ impl ExcelRenderer {
         start_week: u32,
         end_week: u32,
         is_critical: bool,
+        is_milestone: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
         effort_col: u16,
@@ -893,6 +946,21 @@ impl ExcelRenderer {
             let in_range = week >= start_week && week <= end_week;
             let col_letter = Self::col_to_letter(col);
 
+            // Milestones: show ◆ in the milestone week with gold background, empty elsewhere
+            if is_milestone {
+                if in_range {
+                    // Milestone week: gold diamond
+                    sheet.write_with_format(row, col, "◆", &formats.milestone_week)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else {
+                    // Non-milestone week: empty cell with standard empty format
+                    sheet.write_with_format(row, col, "", &formats.gantt_empty)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                }
+                continue;
+            }
+
+            // Normal tasks: Gantt bar with hours distribution
             let format = if in_range {
                 if is_critical { &formats.gantt_critical } else { &formats.gantt_filled }
             } else {
@@ -1463,6 +1531,10 @@ struct ExcelFormats {
     row_even_number: Format,
     row_odd_text: Format,
     row_odd_number: Format,
+    // Milestone formats (gold tint for semantic distinction)
+    milestone_text: Format,
+    milestone_number: Format,
+    milestone_week: Format,
 }
 
 /// Renderer implementation that saves to file path
