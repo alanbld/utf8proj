@@ -463,6 +463,22 @@ impl ExcelRenderer {
             })
             .collect();
 
+        // Build set of all full task IDs for predecessor resolution
+        let all_full_ids: std::collections::HashSet<String> = tasks
+            .iter()
+            .map(|(st, _)| st.task_id.clone())
+            .collect();
+
+        // Build mapping from simple task IDs to full path IDs for VLOOKUP resolution
+        // e.g., "gnu_analysis" -> "os_migration.gnu_val.gnu_analysis"
+        let simple_to_full_id: HashMap<String, String> = tasks
+            .iter()
+            .map(|(st, _)| {
+                let simple = st.task_id.rsplit('.').next().unwrap_or(&st.task_id).to_string();
+                (simple, st.task_id.clone())
+            })
+            .collect();
+
         // Build task row mapping for VLOOKUP (task_id -> row number)
         let mut task_row_map: HashMap<String, u32> = HashMap::new();
         let mut current_row = 2u32; // Excel rows are 1-indexed, data starts at row 2
@@ -496,6 +512,7 @@ impl ExcelRenderer {
             let task_name = format!("{}{}", indent, base_name);
 
             // Get first predecessor (if any) for dependency column
+            // Resolve simple predecessor ID to full path for VLOOKUP compatibility
             let (predecessor, dep_type, lag) = task
                 .and_then(|t| t.depends.first())
                 .map(|d| {
@@ -507,7 +524,27 @@ impl ExcelRenderer {
                         DependencyType::FinishToStart => "FS",
                     };
                     let lag_days = d.lag.map(|l| l.as_days() as i32).unwrap_or(0);
-                    (d.predecessor.clone(), dep_type, lag_days)
+                    // Resolve predecessor ID to full path for VLOOKUP compatibility
+                    // Handle: simple IDs ("gnu_analysis"), partial paths ("gnu_val.gnu_analysis"),
+                    // and full paths ("os_migration.gnu_val.gnu_analysis")
+                    let full_predecessor = if all_full_ids.contains(&d.predecessor) {
+                        // Already a full path
+                        d.predecessor.clone()
+                    } else if let Some(full) = simple_to_full_id.get(&d.predecessor) {
+                        // Simple ID -> full path
+                        full.clone()
+                    } else {
+                        // Partial path - find full path that ends with this suffix
+                        all_full_ids
+                            .iter()
+                            .find(|full_id| {
+                                full_id.ends_with(&format!(".{}", d.predecessor))
+                                    || full_id.ends_with(&d.predecessor)
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| d.predecessor.clone())
+                    };
+                    (full_predecessor, dep_type, lag_days)
                 })
                 .unwrap_or_default();
 
