@@ -58,8 +58,7 @@
 
 use chrono::{Datelike, NaiveDate};
 use rust_xlsxwriter::{
-    ConditionalFormatCell, ConditionalFormatCellRule, Format, FormatAlign, FormatBorder, Workbook,
-    Worksheet,
+    ConditionalFormatFormula, Format, FormatAlign, FormatBorder, Workbook, Worksheet,
 };
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
@@ -692,20 +691,24 @@ impl ExcelRenderer {
         // Total row for each week column
         self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats)?;
 
-        // Add conditional formatting for week columns: blue fill when value > 0
+        // Add conditional formatting for week columns: blue fill when numeric value > 0
+        // Uses ISNUMBER check to exclude milestones ("◆") and empty cells ("")
         // This enables dynamic what-if analysis - colors update when effort/dependencies change
         let last_week_col = week_start_col + self.schedule_weeks as u16 - 1;
         let last_data_row_for_cf = row - 1; // Exclude totals row from conditional formatting
         if last_data_row_for_cf >= 1 {
-            // Create format for filled cells (blue background, same as gantt_filled was)
+            // Create format for filled cells (blue background for Gantt bar)
             let gantt_filled_format = Format::new()
                 .set_background_color(0x5B9BD5) // Standard blue for Gantt bar
                 .set_align(FormatAlign::Center)
                 .set_border(FormatBorder::Thin);
 
-            // Conditional format: apply blue fill when cell value > 0
-            let conditional_format = ConditionalFormatCell::new()
-                .set_rule(ConditionalFormatCellRule::GreaterThan(0))
+            // Formula-based conditional format: apply blue fill only when cell is numeric AND > 0
+            // This excludes milestones ("◆" text) and empty cells ("") from blue formatting
+            let first_week_col_letter = Self::col_to_letter(week_start_col);
+            let formula = format!("=AND(ISNUMBER({}2),{}2>0)", first_week_col_letter, first_week_col_letter);
+            let conditional_format = ConditionalFormatFormula::new()
+                .set_rule(formula.as_str())
                 .set_format(gantt_filled_format);
 
             // Apply to entire week column range (rows 1 to last_data_row, columns week_start to last_week)
@@ -844,9 +847,10 @@ impl ExcelRenderer {
         sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Week columns
+        // Week columns (M column is at index 1 for simple layout)
+        let milestone_col = 1u16;
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
     }
@@ -976,14 +980,20 @@ impl ExcelRenderer {
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Week columns
+        // Week columns (M column is at index 2 for deps layout)
+        let milestone_col = 2u16;
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days)?;
 
         Ok(())
     }
 
     /// Write week columns with Gantt bar formulas
+    ///
+    /// Formula-driven rendering for what-if analysis:
+    /// - Milestones: derived from M column ("◆"), shows "◆" in milestone week, "" elsewhere
+    /// - Tasks: shows hours when > 0, "" when zero (no hidden zeros)
+    /// - Container tasks: always empty (no effort to display)
     #[allow(clippy::too_many_arguments)]
     fn write_week_columns(
         &self,
@@ -997,6 +1007,7 @@ impl ExcelRenderer {
         is_odd: bool,
         formats: &ExcelFormats,
         week_start_col: u16,
+        milestone_col: u16, // M column position for formula reference
         effort_col: u16,
         start_col: u16,
         end_col: u16,
@@ -1006,57 +1017,77 @@ impl ExcelRenderer {
         let weeks_span = (end_week.saturating_sub(start_week) + 1).max(1);
         let hours_per_week_val = (person_days * self.hours_per_day) / weeks_span as f64;
 
+        let milestone_col_letter = Self::col_to_letter(milestone_col);
         let effort_col_letter = Self::col_to_letter(effort_col);
         let start_col_letter = Self::col_to_letter(start_col);
         let end_col_letter = Self::col_to_letter(end_col);
 
-        // Select empty format based on row alternation (for consistent row banding)
-        let empty_fmt = if is_odd { &formats.gantt_odd_empty } else { &formats.gantt_even_empty };
+        // Select format based on milestone status and row alternation
+        // Milestones get gold background, others get alternating white/blue
+        let cell_fmt = if is_milestone {
+            &formats.milestone_week
+        } else if is_odd {
+            &formats.gantt_odd_empty
+        } else {
+            &formats.gantt_even_empty
+        };
 
         for week in 1..=self.schedule_weeks {
             let col = week_start_col + (week - 1) as u16;
             let in_range = week >= start_week && week <= end_week;
             let col_letter = Self::col_to_letter(col);
 
-            // Milestones: show ◆ in the milestone week with gold background, empty elsewhere
-            if is_milestone {
-                if in_range {
-                    // Milestone week: gold diamond
-                    sheet.write_with_format(row, col, "◆", &formats.milestone_week)
-                        .map_err(|e| RenderError::Format(e.to_string()))?;
-                } else {
-                    // Non-milestone week: use milestone gold background for consistency
-                    sheet.write_with_format(row, col, "", &formats.milestone_week)
-                        .map_err(|e| RenderError::Format(e.to_string()))?;
-                }
-                continue;
-            }
-
             // Container tasks: no Gantt bar (effort is 0, dates are derived from children)
             if is_container {
-                sheet.write_with_format(row, col, "", empty_fmt)
+                sheet.write_with_format(row, col, "", cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
                 continue;
             }
 
-            // Normal tasks: write with empty format, conditional formatting handles filled color
-            // This enables what-if analysis: when effort/dependencies change, colors update dynamically
             if self.use_formulas {
-                // Formula: IF(week >= Start AND week <= End, Effort * hours_per_day / (End - Start + 1), 0)
-                // References Start/End columns which may themselves be formulas for cascading
-                let formula = format!(
-                    "=ROUND(IF(AND({}$1>=${}{},{}$1<=${}{}),({}{}*{})/(${}{}-${}{}+1),0),0)",
-                    col_letter, start_col_letter, excel_row,
-                    col_letter, end_col_letter, excel_row,
+                // Unified formula checking M column for milestone status:
+                // =IF($M2="◆",
+                //     IF(AND(week>=Start, week<=End), "◆", ""),
+                //     IF(AND(week>=Start, week<=End, hours>0), hours, ""))
+                //
+                // - Milestones: "◆" if in range, "" otherwise
+                // - Tasks: hours if in range AND > 0, "" otherwise
+                let hours_formula = format!(
+                    "({}{}*{})/(${}{}-${}{}+1)",
                     effort_col_letter, excel_row, self.hours_per_day,
                     end_col_letter, excel_row, start_col_letter, excel_row
                 );
-                sheet.write_formula_with_format(row, col, formula.as_str(), empty_fmt)
+                let in_range_condition = format!(
+                    "{}$1>=${}{},{}$1<=${}{}",
+                    col_letter, start_col_letter, excel_row,
+                    col_letter, end_col_letter, excel_row
+                );
+                let formula = format!(
+                    "=IF(${}{}=\"◆\",\
+                        IF(AND({}),\"◆\",\"\"),\
+                        IF(AND({},{}>0),ROUND({},0),\"\"))",
+                    milestone_col_letter, excel_row,
+                    in_range_condition,
+                    in_range_condition, hours_formula, hours_formula
+                );
+                sheet.write_formula_with_format(row, col, formula.as_str(), cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             } else {
-                let value = if in_range { hours_per_week_val.round() } else { 0.0 };
-                sheet.write_with_format(row, col, value, empty_fmt)
-                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Static mode: compute value directly
+                if is_milestone {
+                    let value = if in_range { "◆" } else { "" };
+                    sheet.write_with_format(row, col, value, cell_fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else {
+                    let hours = if in_range { hours_per_week_val.round() } else { 0.0 };
+                    if hours > 0.0 {
+                        sheet.write_with_format(row, col, hours, cell_fmt)
+                            .map_err(|e| RenderError::Format(e.to_string()))?;
+                    } else {
+                        sheet.write_with_format(row, col, "", cell_fmt)
+                            .map_err(|e| RenderError::Format(e.to_string()))?;
+                    }
+                }
             }
         }
 
