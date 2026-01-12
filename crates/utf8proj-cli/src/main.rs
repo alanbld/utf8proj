@@ -631,7 +631,7 @@ fn cmd_schedule(
 
             json_emitter.has_errors()
         }
-        "text" | _ => {
+        "text" => {
             // For text, emit diagnostics to stderr
             let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
             for diag in diagnostics {
@@ -658,6 +658,22 @@ fn cmd_schedule(
             }
 
             term_emitter.has_errors()
+        }
+        other => {
+            // Reject unsupported formats with helpful message
+            if other == "xlsx" || other == "svg" || other == "html" || other == "mermaid" || other == "plantuml" {
+                anyhow::bail!(
+                    "Format '{}' is not supported by 'schedule' command. Use 'gantt' command instead:\n  \
+                    utf8proj gantt {} -f {} -o <output>",
+                    other, file.display(), other
+                );
+            } else {
+                anyhow::bail!(
+                    "Unknown format '{}'. Supported formats: text, json\n\
+                    For graphical outputs (xlsx, svg, html, mermaid, plantuml), use the 'gantt' command.",
+                    other
+                );
+            }
         }
     };
 
