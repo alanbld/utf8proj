@@ -21,6 +21,19 @@
 //! - **FF (Finish-to-Finish)**: Successor finishes when predecessor finishes
 //! - **SF (Start-to-Finish)**: Successor finishes when predecessor starts
 //!
+//! ## What-If Analysis Support
+//!
+//! The Schedule sheet uses Excel **conditional formatting** for dynamic Gantt visualization:
+//! - Week cells show blue background when value > 0 (task has hours in that week)
+//! - Week cells show alternating white/light-blue when value = 0 (no hours)
+//! - This enables **live what-if analysis**: change effort/dependencies and colors update
+//!
+//! Unlike static formatting (baked in at render time), conditional formatting allows
+//! the Gantt bar visualization to respond dynamically when users modify:
+//! - Task effort (pd column)
+//! - Dependencies (Depends On column)
+//! - Lag values
+//!
 //! ## Example Output Structure
 //!
 //! ```text
@@ -44,7 +57,10 @@
 //! This creates a **live schedule** - change a task's effort and all successors update!
 
 use chrono::{Datelike, NaiveDate};
-use rust_xlsxwriter::{Format, FormatAlign, FormatBorder, Workbook, Worksheet};
+use rust_xlsxwriter::{
+    ConditionalFormatCell, ConditionalFormatCellRule, Format, FormatAlign, FormatBorder, Workbook,
+    Worksheet,
+};
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask, Severity};
@@ -252,11 +268,6 @@ impl ExcelRenderer {
             .set_font_color(0xFFFFFF)
             .set_border(FormatBorder::Thin);
 
-        let gantt_critical = Format::new()
-            .set_background_color(0xFF6B6B)
-            .set_align(FormatAlign::Center)
-            .set_border(FormatBorder::Thin);
-
         let total_row = Format::new()
             .set_bold()
             .set_background_color(0xE2EFDA)
@@ -311,22 +322,11 @@ impl ExcelRenderer {
             .set_background_color(0xDDEBF7) // Light blue
             .set_border(FormatBorder::Thin);
 
-        // Week column formats for alternating row banding
-        // Even rows: white background for empty, blue bar for filled
-        let gantt_even_filled = Format::new()
-            .set_background_color(0x5B9BD5) // Standard blue for Gantt bar
-            .set_align(FormatAlign::Center)
-            .set_border(FormatBorder::Thin);
-
+        // Week column empty formats for alternating row banding
+        // Filled color (blue) is applied via conditional formatting for what-if analysis
         let gantt_even_empty = Format::new()
             .set_align(FormatAlign::Center)
             .set_border(FormatBorder::Thin); // White (matches even row)
-
-        // Odd rows: light blue background for empty, blue bar for filled
-        let gantt_odd_filled = Format::new()
-            .set_background_color(0x5B9BD5) // Same blue (contrasts with light blue row)
-            .set_align(FormatAlign::Center)
-            .set_border(FormatBorder::Thin);
 
         let gantt_odd_empty = Format::new()
             .set_background_color(0xDDEBF7) // Light blue (matches odd row)
@@ -340,7 +340,6 @@ impl ExcelRenderer {
             integer,
             text,
             week_header,
-            gantt_critical,
             total_row,
             total_currency,
             row_even_text,
@@ -352,8 +351,6 @@ impl ExcelRenderer {
             milestone_week,
             container_even_text,
             container_odd_text,
-            gantt_even_filled,
-            gantt_odd_filled,
             gantt_even_empty,
             gantt_odd_empty,
         }
@@ -695,6 +692,34 @@ impl ExcelRenderer {
         // Total row for each week column
         self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats)?;
 
+        // Add conditional formatting for week columns: blue fill when value > 0
+        // This enables dynamic what-if analysis - colors update when effort/dependencies change
+        let last_week_col = week_start_col + self.schedule_weeks as u16 - 1;
+        let last_data_row_for_cf = row - 1; // Exclude totals row from conditional formatting
+        if last_data_row_for_cf >= 1 {
+            // Create format for filled cells (blue background, same as gantt_filled was)
+            let gantt_filled_format = Format::new()
+                .set_background_color(0x5B9BD5) // Standard blue for Gantt bar
+                .set_align(FormatAlign::Center)
+                .set_border(FormatBorder::Thin);
+
+            // Conditional format: apply blue fill when cell value > 0
+            let conditional_format = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::GreaterThan(0))
+                .set_format(gantt_filled_format);
+
+            // Apply to entire week column range (rows 1 to last_data_row, columns week_start to last_week)
+            sheet
+                .add_conditional_format(
+                    1, // Start row (after header)
+                    week_start_col,
+                    last_data_row_for_cf,
+                    last_week_col,
+                    &conditional_format,
+                )
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
         // Freeze first row and fixed columns
         let freeze_cols = if self.show_dependencies { 10 } else { 6 };
         sheet.set_freeze_panes(1, freeze_cols).ok();
@@ -966,7 +991,7 @@ impl ExcelRenderer {
         row: u32,
         start_week: u32,
         end_week: u32,
-        is_critical: bool,
+        _is_critical: bool, // Reserved for future conditional formatting of critical path
         is_milestone: bool,
         is_container: bool,
         is_odd: bool,
@@ -1014,20 +1039,8 @@ impl ExcelRenderer {
                 continue;
             }
 
-            // Normal tasks: Gantt bar with hours distribution
-            // Use alternating row colors for empty cells, blue bar for filled
-            let format = if in_range {
-                if is_critical {
-                    &formats.gantt_critical
-                } else if is_odd {
-                    &formats.gantt_odd_filled
-                } else {
-                    &formats.gantt_even_filled
-                }
-            } else {
-                empty_fmt
-            };
-
+            // Normal tasks: write with empty format, conditional formatting handles filled color
+            // This enables what-if analysis: when effort/dependencies change, colors update dynamically
             if self.use_formulas {
                 // Formula: IF(week >= Start AND week <= End, Effort * hours_per_day / (End - Start + 1), 0)
                 // References Start/End columns which may themselves be formulas for cascading
@@ -1038,11 +1051,11 @@ impl ExcelRenderer {
                     effort_col_letter, excel_row, self.hours_per_day,
                     end_col_letter, excel_row, start_col_letter, excel_row
                 );
-                sheet.write_formula_with_format(row, col, formula.as_str(), format)
+                sheet.write_formula_with_format(row, col, formula.as_str(), empty_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             } else {
                 let value = if in_range { hours_per_week_val.round() } else { 0.0 };
-                sheet.write_with_format(row, col, value, format)
+                sheet.write_with_format(row, col, value, empty_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             }
         }
@@ -1600,7 +1613,6 @@ struct ExcelFormats {
     integer: Format,
     text: Format,
     week_header: Format,
-    gantt_critical: Format,
     total_row: Format,
     total_currency: Format,
     // Alternating row colors for Schedule sheet (per-task banding)
@@ -1615,9 +1627,7 @@ struct ExcelFormats {
     // Container task formats (bold to distinguish phases from leaf tasks)
     container_even_text: Format,
     container_odd_text: Format,
-    // Week column formats for alternating row banding
-    gantt_even_filled: Format,
-    gantt_odd_filled: Format,
+    // Week column empty formats for alternating row banding (filled via conditional formatting)
     gantt_even_empty: Format,
     gantt_odd_empty: Format,
 }
