@@ -731,6 +731,33 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
             if let Some(calendar) = project.calendars.first().cloned() {
                 renderer = renderer.with_calendar(calendar);
             }
+
+            // Auto-detect if days parameter is insufficient for full project
+            let schedule_end = schedule.project_end;
+            let required_days = (schedule_end - project.start).num_days() + 1;
+            if required_days > days as i64 {
+                // Count tasks that will be omitted (start beyond the window)
+                let window_end = project.start + chrono::Duration::days(days as i64 - 1);
+                let omitted_tasks: Vec<_> = schedule.tasks.values()
+                    .filter(|t| t.start > window_end)
+                    .collect();
+                let omitted_count = omitted_tasks.len();
+                let omitted_hours: f64 = omitted_tasks.iter()
+                    .filter_map(|t| {
+                        // Get task effort from project
+                        find_task_effort(&project.tasks, &t.task_id)
+                    })
+                    .sum();
+
+                eprintln!();
+                eprintln!("⚠️  Warning: Schedule extends beyond {} days (requires {} days)", days, required_days);
+                if omitted_count > 0 {
+                    eprintln!("   {} task(s) starting after {} will show 0 hours (~{:.0}h omitted)",
+                        omitted_count, window_end.format("%Y-%m-%d"), omitted_hours * 8.0);
+                }
+                eprintln!("   Use `--days {}` to see full project timeline", required_days);
+                eprintln!();
+            }
         }
 
         // Add calendar analysis sheet if requested
@@ -1072,6 +1099,24 @@ fn find_task_info(tasks: &[utf8proj_core::Task], id: &str) -> Option<(String, Op
         if id.starts_with(&prefix) {
             let child_id = &id[prefix.len()..]; // Strip parent prefix
             if let Some(result) = find_task_info(&task.children, child_id) {
+                return Some(result);
+            }
+        }
+    }
+    None
+}
+
+/// Find task effort in person-days (recursively searches nested tasks)
+fn find_task_effort(tasks: &[utf8proj_core::Task], id: &str) -> Option<f64> {
+    for task in tasks {
+        if task.id == id {
+            return task.effort.map(|d| d.as_days() as f64);
+        }
+        // For nested tasks, the ID might be like "parent.child.grandchild"
+        let prefix = format!("{}.", task.id);
+        if id.starts_with(&prefix) {
+            let child_id = &id[prefix.len()..];
+            if let Some(result) = find_task_effort(&task.children, child_id) {
                 return Some(result);
             }
         }
