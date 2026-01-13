@@ -587,14 +587,6 @@ impl Renderer for SvgRenderer {
     }
 }
 
-/// Truncate a string to a maximum length with ellipsis
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max.saturating_sub(3)])
-    }
-}
 
 /// Plain text renderer for console output
 #[derive(Default)]
@@ -776,12 +768,6 @@ mod tests {
 
         let result = renderer.render(&project, &schedule);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn truncate_long_string() {
-        assert_eq!(truncate("Short", 20), "Short");
-        assert_eq!(truncate("This is a very long task name", 15), "This is a ve...");
     }
 
     #[test]

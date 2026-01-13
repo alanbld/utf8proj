@@ -1466,8 +1466,6 @@ mod tests {
 
     #[test]
     fn leveling_diagnostic_gets_scale_icon() {
-        use utf8proj_core::Severity;
-
         // Test that L codes get the ⚖️ icon in hover
         let code = DiagnosticCode::L001OverallocationResolved;
         let severity_icon = match code.as_str().chars().next() {
