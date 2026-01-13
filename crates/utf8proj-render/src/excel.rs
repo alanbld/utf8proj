@@ -56,13 +56,23 @@
 //! ```
 //! This creates a **live schedule** - change a task's effort and all successors update!
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, Weekday};
 use rust_xlsxwriter::{
     ConditionalFormatFormula, Format, FormatAlign, FormatBorder, Workbook, Worksheet,
 };
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask, Severity};
+
+/// Schedule time granularity for Excel export
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScheduleGranularity {
+    /// One column per calendar day (shows weekends/holidays)
+    Daily,
+    /// One column per week (current behavior)
+    #[default]
+    Weekly,
+}
 
 /// Excel costing report renderer
 #[derive(Clone, Debug)]
@@ -91,6 +101,12 @@ pub struct ExcelRenderer {
     pub include_diagnostics: bool,
     /// Diagnostics to include in the export (if include_diagnostics is true)
     diagnostics: Vec<Diagnostic>,
+    /// Schedule time granularity (daily or weekly)
+    pub granularity: ScheduleGranularity,
+    /// Number of days to show in daily schedule (default: 60)
+    pub schedule_days: u32,
+    /// Calendar for working days/holidays (used in daily mode)
+    calendar: Option<Calendar>,
 }
 
 impl Default for ExcelRenderer {
@@ -108,6 +124,9 @@ impl Default for ExcelRenderer {
             include_calendar_analysis: false,
             include_diagnostics: false,
             diagnostics: Vec::new(),
+            granularity: ScheduleGranularity::Weekly,
+            schedule_days: 60,
+            calendar: None,
         }
     }
 }
@@ -175,6 +194,32 @@ impl ExcelRenderer {
     pub fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
         self.include_diagnostics = true;
         self.diagnostics = diagnostics;
+        self
+    }
+
+    /// Use daily granularity (one column per calendar day)
+    ///
+    /// Daily mode shows weekends and holidays with distinct styling,
+    /// making it ideal for short-term operational planning (1-3 months).
+    pub fn daily(mut self) -> Self {
+        self.granularity = ScheduleGranularity::Daily;
+        self
+    }
+
+    /// Set number of days to show in daily schedule (default: 60)
+    ///
+    /// Only used when `daily()` is enabled.
+    pub fn days(mut self, days: u32) -> Self {
+        self.schedule_days = days;
+        self
+    }
+
+    /// Set calendar for working days and holidays
+    ///
+    /// Used in daily mode to determine weekend/holiday styling.
+    /// If not set, defaults to Mon-Fri working days with no holidays.
+    pub fn with_calendar(mut self, calendar: Calendar) -> Self {
+        self.calendar = Some(calendar);
         self
     }
 
@@ -332,6 +377,32 @@ impl ExcelRenderer {
             .set_align(FormatAlign::Center)
             .set_border(FormatBorder::Thin);
 
+        // Daily schedule: weekend formats (medium gray)
+        let weekend_header = Format::new()
+            .set_bold()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xA6A6A6) // Medium gray
+            .set_font_color(0xFFFFFF)
+            .set_border(FormatBorder::Thin);
+
+        let weekend_cell = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xD9D9D9) // Light gray
+            .set_border(FormatBorder::Thin);
+
+        // Daily schedule: holiday formats (gold/orange)
+        let holiday_header = Format::new()
+            .set_bold()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xED7D31) // Orange
+            .set_font_color(0xFFFFFF)
+            .set_border(FormatBorder::Thin);
+
+        let holiday_cell = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xFCE4D6) // Light orange/peach
+            .set_border(FormatBorder::Thin);
+
         ExcelFormats {
             header,
             currency,
@@ -352,6 +423,10 @@ impl ExcelRenderer {
             container_odd_text,
             gantt_even_empty,
             gantt_odd_empty,
+            weekend_header,
+            weekend_cell,
+            holiday_header,
+            holiday_cell,
         }
     }
 
@@ -485,6 +560,16 @@ impl ExcelRenderer {
         formats: &ExcelFormats,
         project_start: NaiveDate,
     ) -> Result<(), RenderError> {
+        // Branch based on granularity
+        match self.granularity {
+            ScheduleGranularity::Daily => {
+                return self.add_daily_schedule_sheet(workbook, project, schedule, formats, project_start);
+            }
+            ScheduleGranularity::Weekly => {
+                // Continue with weekly implementation below
+            }
+        }
+
         let sheet = workbook.add_worksheet();
         sheet
             .set_name("Schedule")
@@ -731,6 +816,458 @@ impl ExcelRenderer {
         sheet.set_freeze_panes(1, freeze_cols).ok();
 
         Ok(())
+    }
+
+    /// Add Daily Schedule sheet with calendar awareness (weekends/holidays)
+    fn add_daily_schedule_sheet(
+        &self,
+        workbook: &mut Workbook,
+        project: &Project,
+        schedule: &Schedule,
+        formats: &ExcelFormats,
+        project_start: NaiveDate,
+    ) -> Result<(), RenderError> {
+        let sheet = workbook.add_worksheet();
+        sheet
+            .set_name("Schedule")
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Get calendar for working day detection
+        let calendar = self.calendar.clone().unwrap_or_else(|| {
+            // Try to get from project, otherwise use default
+            project.calendars.first().cloned().unwrap_or_default()
+        });
+
+        // Column layout (same as weekly with dependencies):
+        // Task ID(0), Activity(1), Lvl(2), M(3), Profile(4), Depends(5), Type(6), Lag(7), Effort(8), Start(9), End(10), Days(11+)
+        let day_start_col = 11u16;
+        let effort_col = 8u16;
+        let start_col = 9u16;
+        let end_col = 10u16;
+
+        // Write base headers (same as weekly with deps)
+        self.write_daily_schedule_headers(sheet, formats, project_start, &calendar)?;
+
+        // Collect tasks in WBS order
+        let wbs_order = Self::collect_wbs_order(&project.tasks, 0);
+        let tasks: Vec<(&ScheduledTask, usize)> = wbs_order
+            .iter()
+            .filter_map(|(task_id, level)| {
+                schedule.tasks.get(task_id).map(|st| (st, *level))
+            })
+            .collect();
+
+        // Build predecessor resolution maps
+        let all_full_ids: std::collections::HashSet<String> = tasks
+            .iter()
+            .map(|(st, _)| st.task_id.clone())
+            .collect();
+
+        let simple_to_full_id: HashMap<String, String> = tasks
+            .iter()
+            .map(|(st, _)| {
+                let simple = st.task_id.rsplit('.').next().unwrap_or(&st.task_id).to_string();
+                (simple, st.task_id.clone())
+            })
+            .collect();
+
+        // Track last data row (for future formula-driven mode)
+        let _last_data_row: u32 = tasks.iter().map(|(st, _)| {
+            if st.assignments.is_empty() { 1 } else { st.assignments.len() as u32 }
+        }).sum::<u32>() + 1;
+
+        // Write task rows
+        let mut row = 1u32;
+        let mut prev_task_id = String::new();
+        let mut is_odd = false;
+
+        for (scheduled, level) in &tasks {
+            // Toggle alternating row color when task changes
+            if scheduled.task_id != prev_task_id {
+                is_odd = !is_odd;
+                prev_task_id = scheduled.task_id.clone();
+            }
+
+            let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
+            let task = project.get_task(simple_id);
+            let is_container = task.map(|t| !t.children.is_empty()).unwrap_or(false);
+            let is_milestone = task.map(|t| t.milestone).unwrap_or(false);
+
+            let base_name = task
+                .map(|t| t.name.clone())
+                .unwrap_or_else(|| simple_id.to_string());
+            let indent = "  ".repeat(*level);
+            let task_name = format!("{}{}", indent, base_name);
+
+            // Get dependency info
+            let (predecessor, dep_type, lag) = task
+                .and_then(|t| t.depends.first())
+                .map(|d| {
+                    use utf8proj_core::DependencyType;
+                    let dep_type = match d.dep_type {
+                        DependencyType::StartToStart => "SS",
+                        DependencyType::FinishToFinish => "FF",
+                        DependencyType::StartToFinish => "SF",
+                        DependencyType::FinishToStart => "FS",
+                    };
+                    let lag_days = d.lag.map(|l| l.as_days() as i32).unwrap_or(0);
+                    let full_predecessor = if all_full_ids.contains(&d.predecessor) {
+                        d.predecessor.clone()
+                    } else if let Some(full) = simple_to_full_id.get(&d.predecessor) {
+                        full.clone()
+                    } else {
+                        all_full_ids
+                            .iter()
+                            .find(|full_id| {
+                                full_id.ends_with(&format!(".{}", d.predecessor))
+                                    || full_id.ends_with(&d.predecessor)
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| d.predecessor.clone())
+                    };
+                    (full_predecessor, dep_type, lag_days)
+                })
+                .unwrap_or_default();
+
+            let duration_days = if is_container { 0.0 } else { scheduled.duration.as_days() };
+
+            if scheduled.assignments.is_empty() {
+                self.write_daily_schedule_row(
+                    sheet, row, &scheduled.task_id, &task_name, *level, "",
+                    &predecessor, dep_type, lag, duration_days,
+                    scheduled.start, scheduled.finish,
+                    scheduled.is_critical, is_milestone, is_container,
+                    formats, day_start_col, effort_col, start_col, end_col,
+                    project_start, &calendar, is_odd,
+                )?;
+                row += 1;
+            } else {
+                let mut first_assignment = true;
+                for assignment in &scheduled.assignments {
+                    let effort = assignment.effort_days.unwrap_or_else(|| {
+                        let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                        assignment_days * assignment.units as f64
+                    });
+
+                    let (pred, dtype, lag_val) = if first_assignment {
+                        (predecessor.clone(), dep_type, lag)
+                    } else {
+                        (String::new(), "", 0)
+                    };
+
+                    self.write_daily_schedule_row(
+                        sheet, row, &scheduled.task_id, &task_name, *level, &assignment.resource_id,
+                        &pred, dtype, lag_val, effort,
+                        scheduled.start, scheduled.finish,
+                        scheduled.is_critical, is_milestone, is_container,
+                        formats, day_start_col, effort_col, start_col, end_col,
+                        project_start, &calendar, is_odd,
+                    )?;
+                    first_assignment = false;
+                    row += 1;
+                }
+            }
+        }
+
+        // Add conditional formatting for day columns
+        let last_day_col = day_start_col + self.schedule_days as u16 - 1;
+        let last_data_row_for_cf = row - 1;
+        if last_data_row_for_cf >= 1 {
+            let gantt_filled_format = Format::new()
+                .set_background_color(0x5B9BD5)
+                .set_align(FormatAlign::Center)
+                .set_border(FormatBorder::Thin);
+
+            let first_day_col_letter = Self::col_to_letter(day_start_col);
+            let formula = format!("=AND(ISNUMBER({}2),{}2>0)", first_day_col_letter, first_day_col_letter);
+            let conditional_format = ConditionalFormatFormula::new()
+                .set_rule(formula.as_str())
+                .set_format(gantt_filled_format);
+
+            sheet
+                .add_conditional_format(1, day_start_col, last_data_row_for_cf, last_day_col, &conditional_format)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Freeze header row and fixed columns
+        sheet.set_freeze_panes(1, 10).ok();
+
+        Ok(())
+    }
+
+    /// Write headers for daily schedule
+    fn write_daily_schedule_headers(
+        &self,
+        sheet: &mut Worksheet,
+        formats: &ExcelFormats,
+        project_start: NaiveDate,
+        calendar: &Calendar,
+    ) -> Result<(), RenderError> {
+        // Fixed column headers
+        let headers = [
+            "Task ID", "Activity", "Lvl", "M", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
+            "Effort\n(pd)", "Start", "End"
+        ];
+        for (col, header) in headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Column widths for fixed columns
+        sheet.set_column_width(0, 12).ok();  // Task ID
+        sheet.set_column_width(1, 25).ok();  // Activity
+        sheet.set_column_width(2, 3).ok();   // Lvl
+        sheet.set_column_width(3, 3).ok();   // M
+        sheet.set_column_width(4, 12).ok();  // Profile
+        sheet.set_column_width(5, 10).ok();  // Depends On
+        sheet.set_column_width(6, 5).ok();   // Type
+        sheet.set_column_width(7, 5).ok();   // Lag
+        sheet.set_column_width(8, 6).ok();   // Effort
+        sheet.set_column_width(9, 8).ok();   // Start
+        sheet.set_column_width(10, 8).ok();  // End
+
+        // Day column headers with date and weekend/holiday styling
+        let day_start_col = 11u16;
+        for day in 0..self.schedule_days {
+            let col = day_start_col + day as u16;
+            let date = project_start + chrono::Duration::days(day as i64);
+
+            // Format header: "M 6/1" (weekday + date)
+            let weekday_abbrev = match date.weekday() {
+                Weekday::Mon => "M",
+                Weekday::Tue => "T",
+                Weekday::Wed => "W",
+                Weekday::Thu => "T",
+                Weekday::Fri => "F",
+                Weekday::Sat => "S",
+                Weekday::Sun => "S",
+            };
+            let header_text = format!("{}\n{}/{}", weekday_abbrev, date.day(), date.month());
+
+            // Check if it's a holiday
+            let holiday = calendar.holidays.iter().find(|h| h.contains(date));
+            let is_weekend = !calendar.working_days.contains(&(date.weekday().num_days_from_sunday() as u8));
+
+            // Choose header format based on day type
+            let header_fmt = if holiday.is_some() {
+                &formats.holiday_header
+            } else if is_weekend {
+                &formats.weekend_header
+            } else {
+                &formats.week_header
+            };
+
+            sheet
+                .write_with_format(0, col, &header_text, header_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            sheet.set_column_width(col, 4).ok();
+        }
+
+        // Set row height for header
+        sheet.set_row_height(0, 40).ok();
+
+        Ok(())
+    }
+
+    /// Write a daily schedule row
+    #[allow(clippy::too_many_arguments)]
+    fn write_daily_schedule_row(
+        &self,
+        sheet: &mut Worksheet,
+        row: u32,
+        task_id: &str,
+        task_name: &str,
+        level: usize,
+        profile: &str,
+        predecessor: &str,
+        dep_type: &str,
+        lag: i32,
+        person_days: f64,
+        task_start: NaiveDate,
+        task_finish: NaiveDate,
+        _is_critical: bool,
+        is_milestone: bool,
+        is_container: bool,
+        formats: &ExcelFormats,
+        day_start_col: u16,
+        effort_col: u16,
+        start_col: u16,
+        end_col: u16,
+        project_start: NaiveDate,
+        calendar: &Calendar,
+        is_odd: bool,
+    ) -> Result<(), RenderError> {
+        // Select formats based on row type
+        let (text_fmt, number_fmt) = if is_milestone {
+            (&formats.milestone_text, &formats.milestone_number)
+        } else if is_odd {
+            (&formats.row_odd_text, &formats.row_odd_number)
+        } else {
+            (&formats.row_even_text, &formats.row_even_number)
+        };
+
+        let activity_fmt = if is_container {
+            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+        } else {
+            text_fmt
+        };
+
+        // Col A: Task ID
+        sheet.write_with_format(row, 0, task_id, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col B: Activity
+        sheet.write_with_format(row, 1, task_name, activity_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col C: Lvl
+        sheet.write_with_format(row, 2, level as f64, number_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col D: Milestone marker
+        let milestone_marker = if is_milestone { "◆" } else { "" };
+        sheet.write_with_format(row, 3, milestone_marker, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col E: Profile
+        sheet.write_with_format(row, 4, profile, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col F: Depends On
+        sheet.write_with_format(row, 5, predecessor, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col G: Type
+        let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
+        sheet.write_with_format(row, 6, dep_type_val, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col H: Lag
+        if !predecessor.is_empty() {
+            sheet.write_with_format(row, 7, lag as f64, number_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet.write_with_format(row, 7, "", text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Col I: Effort
+        sheet.write_with_format(row, effort_col, person_days, number_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col J: Start (date format)
+        let start_str = task_start.format("%d/%m").to_string();
+        sheet.write_with_format(row, start_col, &start_str, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Col K: End (date format)
+        let end_str = task_finish.format("%d/%m").to_string();
+        sheet.write_with_format(row, end_col, &end_str, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Day columns
+        self.write_daily_columns(
+            sheet, row, task_start, task_finish, is_milestone, is_container, is_odd,
+            formats, day_start_col, project_start, calendar, person_days,
+        )?;
+
+        Ok(())
+    }
+
+    /// Write day columns for a task row
+    #[allow(clippy::too_many_arguments)]
+    fn write_daily_columns(
+        &self,
+        sheet: &mut Worksheet,
+        row: u32,
+        task_start: NaiveDate,
+        task_finish: NaiveDate,
+        is_milestone: bool,
+        is_container: bool,
+        is_odd: bool,
+        formats: &ExcelFormats,
+        day_start_col: u16,
+        project_start: NaiveDate,
+        calendar: &Calendar,
+        person_days: f64,
+    ) -> Result<(), RenderError> {
+        // Calculate working days in task span for hours distribution
+        let working_days_count = self.count_working_days(task_start, task_finish, calendar);
+        let hours_per_working_day = if working_days_count > 0 {
+            (person_days * self.hours_per_day) / working_days_count as f64
+        } else {
+            0.0
+        };
+
+        for day in 0..self.schedule_days {
+            let col = day_start_col + day as u16;
+            let date = project_start + chrono::Duration::days(day as i64);
+
+            // Check day type
+            let holiday = calendar.holidays.iter().find(|h| h.contains(date));
+            let is_weekend = !calendar.working_days.contains(&(date.weekday().num_days_from_sunday() as u8));
+            let in_task_range = date >= task_start && date <= task_finish;
+
+            // Select cell format based on day type
+            let cell_fmt = if holiday.is_some() {
+                &formats.holiday_cell
+            } else if is_weekend {
+                &formats.weekend_cell
+            } else if is_milestone {
+                &formats.milestone_week
+            } else if is_odd {
+                &formats.gantt_odd_empty
+            } else {
+                &formats.gantt_even_empty
+            };
+
+            // Container tasks: no Gantt bar
+            if is_container {
+                sheet.write_with_format(row, col, "", cell_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                continue;
+            }
+
+            // Non-working days: always empty (no hours distributed)
+            if holiday.is_some() || is_weekend {
+                sheet.write_with_format(row, col, "", cell_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+                continue;
+            }
+
+            // Working day within task range
+            if in_task_range {
+                if is_milestone {
+                    sheet.write_with_format(row, col, "◆", cell_fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else if hours_per_working_day > 0.0 {
+                    sheet.write_with_format(row, col, hours_per_working_day.round(), cell_fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else {
+                    sheet.write_with_format(row, col, "", cell_fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                }
+            } else {
+                sheet.write_with_format(row, col, "", cell_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Count working days between two dates (inclusive)
+    fn count_working_days(&self, start: NaiveDate, end: NaiveDate, calendar: &Calendar) -> u32 {
+        let mut count = 0;
+        let mut date = start;
+        while date <= end {
+            if calendar.is_working_day(date) {
+                count += 1;
+            }
+            date += chrono::Duration::days(1);
+        }
+        count
     }
 
     /// Write headers for simple schedule (no dependencies)
@@ -1676,6 +2213,12 @@ struct ExcelFormats {
     // Week column empty formats for alternating row banding (filled via conditional formatting)
     gantt_even_empty: Format,
     gantt_odd_empty: Format,
+    // Daily schedule: weekend formats (gray background)
+    weekend_header: Format,
+    weekend_cell: Format,
+    // Daily schedule: holiday formats (gold/orange background)
+    holiday_header: Format,
+    holiday_cell: Format,
 }
 
 /// Renderer implementation that saves to file path

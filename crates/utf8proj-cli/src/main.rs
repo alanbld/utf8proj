@@ -159,6 +159,14 @@ enum Commands {
         /// Context depth for non-focused tasks (default: 1, 0 = hide all non-focused)
         #[arg(long, default_value = "1")]
         context_depth: usize,
+
+        /// Use daily granularity for Excel export (one column per day, shows weekends/holidays)
+        #[arg(long)]
+        daily: bool,
+
+        /// Number of days to show in daily Excel schedule (default: 60)
+        #[arg(long, default_value = "60")]
+        days: u32,
     },
 
     /// Run performance benchmarks
@@ -244,8 +252,8 @@ fn main() -> Result<()> {
         Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
             cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars)
         }
-        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics, focus, context_depth }) => {
-            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics, focus.as_deref(), context_depth)
+        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics, focus, context_depth, daily, days }) => {
+            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics, focus.as_deref(), context_depth, daily, days)
         }
         Some(Commands::Benchmark {
             topology,
@@ -686,7 +694,8 @@ fn cmd_schedule(
 }
 
 /// Gantt command: generate Gantt chart in various formats
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool, focus: Option<&str>, context_depth: usize) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool, focus: Option<&str>, context_depth: usize, daily: bool, days: u32) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
     let project = parse_file(file)
@@ -714,6 +723,15 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
         let mut renderer = utf8proj_render::ExcelRenderer::new()
             .currency(currency)
             .weeks(weeks);
+
+        // Apply daily granularity if requested
+        if daily {
+            renderer = renderer.daily().days(days);
+            // Use project calendar for working day detection
+            if let Some(calendar) = project.calendars.first().cloned() {
+                renderer = renderer.with_calendar(calendar);
+            }
+        }
 
         // Add calendar analysis sheet if requested
         if include_calendar {
