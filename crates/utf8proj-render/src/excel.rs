@@ -1176,6 +1176,9 @@ impl ExcelRenderer {
     }
 
     /// Write day columns for a task row
+    ///
+    /// Uses smart hour distribution to ensure the sum of displayed hours
+    /// exactly matches the expected effort (no rounding errors).
     #[allow(clippy::too_many_arguments)]
     fn write_daily_columns(
         &self,
@@ -1192,13 +1195,22 @@ impl ExcelRenderer {
         calendar: &Calendar,
         person_days: f64,
     ) -> Result<(), RenderError> {
-        // Calculate working days in task span for hours distribution
+        // Calculate total hours and working days for smart distribution
+        let total_hours = (person_days * self.hours_per_day).round() as u32;
         let working_days_count = self.count_working_days(task_start, task_finish, calendar);
-        let hours_per_working_day = if working_days_count > 0 {
-            (person_days * self.hours_per_day) / working_days_count as f64
+
+        // Smart distribution: base hours per day + remainder distributed across first N days
+        // Example: 8h over 5 days -> base=1, remainder=3 -> [2,2,2,1,1] sums to 8
+        let (base_hours, remainder) = if working_days_count > 0 {
+            let base = total_hours / working_days_count;
+            let rem = total_hours % working_days_count;
+            (base, rem)
         } else {
-            0.0
+            (0, 0)
         };
+
+        // Track which working day we're on (for remainder distribution)
+        let mut working_day_index = 0u32;
 
         for day in 0..self.schedule_days {
             let col = day_start_col + day as u16;
@@ -1241,9 +1253,21 @@ impl ExcelRenderer {
                 if is_milestone {
                     sheet.write_with_format(row, col, "◆", cell_fmt)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
-                } else if hours_per_working_day > 0.0 {
-                    sheet.write_with_format(row, col, hours_per_working_day.round(), cell_fmt)
-                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else if total_hours > 0 {
+                    // Smart distribution: first `remainder` days get base+1, rest get base
+                    let hours = if working_day_index < remainder {
+                        base_hours + 1
+                    } else {
+                        base_hours
+                    };
+                    if hours > 0 {
+                        sheet.write_with_format(row, col, hours as f64, cell_fmt)
+                            .map_err(|e| RenderError::Format(e.to_string()))?;
+                    } else {
+                        sheet.write_with_format(row, col, "", cell_fmt)
+                            .map_err(|e| RenderError::Format(e.to_string()))?;
+                    }
+                    working_day_index += 1;
                 } else {
                     sheet.write_with_format(row, col, "", cell_fmt)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
