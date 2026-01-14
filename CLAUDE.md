@@ -39,6 +39,10 @@ tools/
 └── mpp_to_proj/        # MS Project companion tool (Python)
     ├── mpp_to_proj.py       # Converts .mpp → .proj/.xml
     └── test_mpp_to_proj.py  # Unit tests (99% coverage)
+
+.github/
+└── workflows/
+    └── release.yml     # Cross-platform release workflow (tag-triggered)
 ```
 
 ## Key Features Implemented
@@ -482,7 +486,17 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **RFC-0003: Deterministic Resource Leveling** (2026-01-08)
+1. **GitHub Actions Release Workflow** (2026-01-14)
+   - Added `.github/workflows/release.yml` for cross-platform binary distribution
+   - Tag-triggered releases on `vX.Y.Z` semantic version tags
+   - Builds for: Windows (x86_64-pc-windows-msvc), Linux (x86_64-unknown-linux-gnu), macOS Intel (x86_64-apple-darwin), macOS ARM (aarch64-apple-darwin)
+   - Produces `utf8proj` CLI and `utf8proj-lsp` binaries
+   - SHA256 checksums for integrity verification
+   - Unsigned binaries (matches ripgrep/bat/fd convention)
+   - Fixed: `Cargo.lock` now tracked (was previously gitignored, required for `--locked` builds)
+   - First release: v0.2.0 at https://github.com/alanbld/utf8proj/releases/tag/v0.2.0
+
+2. **RFC-0003: Deterministic Resource Leveling** (2026-01-08)
    - Implemented Phase 1 of RFC-0003 in `crates/utf8proj-solver/src/leveling.rs`
    - Added `LevelingOptions`, `LevelingStrategy`, `LevelingReason`, `LevelingMetrics` types
    - Deterministic conflict sorting: (resource_id, start_date), task_id tie-breaker
@@ -670,6 +684,21 @@ The CRM Migration example demonstrates:
 - Parallel tracks with convergence points
 - Milestones with payment triggers
 - All dependency types with lag
+
+## Internal Beta Tester Project
+
+The `personal/` directory (gitignored) contains the **TTG Migration Stream** project — an internal/private early adopter of utf8proj for real-world validation.
+
+| Aspect | TTG Migration Stream | utf8proj |
+|--------|---------------------|----------|
+| Status | Internal/Private | Open Source |
+| Location | `personal/` (gitignored) | Public repo |
+| Role | Early adopter / Beta tester | Tool being validated |
+| Data | Confidential project planning | No project data included |
+
+**Value flow:** Real-world usage on TTG surfaces bugs and improvements → fixes committed to utf8proj → benefits all open source users.
+
+The `personal/` directory has its own `.git` for private versioning, completely isolated from the public repository. See `personal/README.md` for documentation.
 
 ## Related Project
 
