@@ -1,13 +1,3 @@
-# GitHub Actions workflow for building and releasing utf8proj binaries
-# Triggered on semantic version tags (vX.Y.Z)
-#
-# Produces:
-#   - utf8proj (CLI)
-#   - utf8proj-lsp (Language Server)
-#
-# Phase 1: Unsigned binaries with SHA256 checksums
-# Future: SignPath.io integration for code signing
-
 name: Release
 
 on:
@@ -18,35 +8,28 @@ on:
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
 jobs:
   build:
-    name: Build ${{ matrix.target }}
     strategy:
-      fail-fast: false
       matrix:
         include:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            archive: zip
+            ext: .exe
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            archive: tar.gz
+            ext: ''
           - target: x86_64-apple-darwin
             os: macos-latest
-            archive: tar.gz
+            ext: ''
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: tar.gz
+            ext: ''
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -54,110 +37,49 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build release binaries
-        run: cargo build --release --locked --bin utf8proj --bin utf8proj-lsp --target ${{ matrix.target }}
+        run: cargo build --release --locked --workspace --target ${{ matrix.target }}
+
+      - name: Strip binaries (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          strip target/${{ matrix.target }}/release/utf8proj || true
+          strip target/${{ matrix.target }}/release/utf8proj-lsp || true
 
       - name: Create archive (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
+        if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
-          $version = "${{ github.ref_name }}"
-          $target = "${{ matrix.target }}"
-          $archive = "utf8proj-${version}-${target}.zip"
-
-          # Create staging directory
-          New-Item -ItemType Directory -Force -Path staging
-
-          # Copy binaries
-          Copy-Item "target/$target/release/utf8proj.exe" staging/
-          Copy-Item "target/$target/release/utf8proj-lsp.exe" staging/
-
-          # Create zip archive
-          Compress-Archive -Path staging/* -DestinationPath $archive
-
-          Write-Host "Created: $archive"
+          cd target/${{ matrix.target }}/release
+          7z a ../../../utf8proj-${{ github.ref_name }}-${{ matrix.target }}.zip utf8proj.exe utf8proj-lsp.exe
 
       - name: Create archive (Unix)
-        if: matrix.archive == 'tar.gz'
+        if: matrix.os != 'windows-latest'
+        shell: bash
         run: |
-          version="${{ github.ref_name }}"
-          target="${{ matrix.target }}"
-          archive="utf8proj-${version}-${target}.tar.gz"
-
-          # Create staging directory
-          mkdir -p staging
-
-          # Copy binaries
-          cp "target/${target}/release/utf8proj" staging/
-          cp "target/${target}/release/utf8proj-lsp" staging/
-
-          # Strip binaries (reduce size)
-          strip staging/utf8proj staging/utf8proj-lsp 2>/dev/null || true
-
-          # Create tarball
-          tar -czvf "$archive" -C staging .
-
-          echo "Created: $archive"
+          cd target/${{ matrix.target }}/release
+          tar -czvf ../../../utf8proj-${{ github.ref_name }}-${{ matrix.target }}.tar.gz utf8proj utf8proj-lsp
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: utf8proj-${{ matrix.target }}
           path: utf8proj-${{ github.ref_name }}-${{ matrix.target }}.*
-          if-no-files-found: error
 
   release:
-    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare release assets
-        run: |
-          mkdir -p release
-
-          # Move all archives to release directory
-          find artifacts -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec mv {} release/ \;
-
-          # List assets
-          echo "Release assets:"
-          ls -la release/
+      - uses: actions/download-artifact@v4
 
       - name: Generate checksums
-        working-directory: release
         run: |
-          sha256sum utf8proj-* > checksums-sha256.txt
-          echo "Checksums:"
-          cat checksums-sha256.txt
+          sha256sum utf8proj-*/utf8proj-* > checksums-sha256.txt
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
           files: |
-            release/*
+            utf8proj-*/utf8proj-*
+            checksums-sha256.txt
           generate_release_notes: true
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-# Future: SignPath.io integration
-# To enable code signing for Windows binaries:
-# 1. Register at https://signpath.io (free for OSS)
-# 2. Add SIGNPATH_API_TOKEN to repository secrets
-# 3. Uncomment and configure the signing step below:
-#
-# - name: Sign Windows binary
-#   if: matrix.target == 'x86_64-pc-windows-msvc'
-#   uses: signpath/github-action-submit-signing-request@v1
-#   with:
-#     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-#     organization-id: '<your-org-id>'
-#     project-slug: 'utf8proj'
-#     signing-policy-slug: 'release-signing'
-#     artifact-configuration-slug: 'zip'
-#     github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
