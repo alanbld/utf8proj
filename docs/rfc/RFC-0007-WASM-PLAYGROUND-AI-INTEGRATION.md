@@ -1,11 +1,12 @@
-# RFC-0004: WASM Playground with AI-Assisted Editing
+# RFC-0007: WASM Playground with AI-Assisted Editing
 
+**RFC Number:** 0007
 **Status**: Draft
 **Authors**: utf8proj contributors
-**Created**: 2026-01-14
-**Updated**: 2026-01-14
+**Created**: 2026-01-15
+**Updated**: 2026-01-15
 **Target version**: 0.3.0+
-**Related**: utf8proj-wasm, playground/, utf8proj-lsp
+**Related**: RFC-0004 (Progressive Resource), utf8proj-wasm, playground/, utf8proj-lsp
 **Confidence**: 75% (architecture validated, API design in progress)
 
 ---

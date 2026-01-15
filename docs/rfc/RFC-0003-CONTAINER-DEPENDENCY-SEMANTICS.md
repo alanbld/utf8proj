@@ -1,10 +1,11 @@
-# RFC 003: Container Dependency Semantics
+# RFC-0003: Container Dependency Semantics
 
+**RFC Number:** 0003
 **Status:** Approved
 **Created:** 2026-01-06
 **Approved:** 2026-01-07
 **Author:** Alan (utf8dok team)
-**Related:** RFC 001 (Architecture), DESIGN_PHILOSOPHY.md
+**Related:** RFC-0001 (Architecture), DESIGN_PHILOSOPHY.md
 **Design Review:** DR-2026-01-W014-container-deps.md
 
 ---

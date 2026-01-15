@@ -1,4 +1,11 @@
-# RFC: Focus View for Gantt Charts
+# RFC-0006: Focus View for Gantt Charts
+
+**RFC Number:** 0006
+**Status:** Draft
+**Created:** 2026-01-10
+**Related:** RFC-0001 (Architecture)
+
+---
 
 ## Summary
 
