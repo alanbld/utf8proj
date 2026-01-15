@@ -57,6 +57,7 @@ tools/
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: RFC-0003 deterministic leveling with full audit trail (L001-L004 diagnostics)
+- **Progress-aware scheduling**: RFC-0004 status date resolution, remaining duration calculation, P005/P006 diagnostics
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
@@ -90,10 +91,10 @@ tools/
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 757 passing, 1 ignored (render doctest)
+**Tests:** 769 passing, 1 ignored (render doctest)
 
 **Test breakdown:**
-- utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 4 progress + 19 semantic = 190 tests
+- utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 12 progress-aware + 4 variance + 19 semantic = 202 tests
 - utf8proj-render: 80 unit + 25 integration = 105 tests
 - utf8proj-parser: 79 unit + 19 integration = 98 tests
 - utf8proj-core: 74 tests + 5 doc-tests = 79 tests
@@ -141,6 +142,9 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 | L002 | Warning | Unresolvable conflict (no valid shift) |
 | L003 | Info | Project duration increased due to leveling |
 | L004 | Warning | Milestone delayed by leveling |
+| **Progress (P)** | | |
+| P005 | Warning | Remaining duration conflicts with complete% (e.g., remaining > 0 but 100% complete) |
+| P006 | Warning | Container explicit complete% differs from derived by >10% |
 | **Calendar (C)** | | |
 | C001-C023 | Various | Calendar impact diagnostics (working days vs calendar days, weekend impact, holiday impact, etc.) |
 
@@ -351,6 +355,64 @@ pub enum LevelingReason {
 6. Emit L002/L003/L004 as appropriate
 7. Return both original and leveled schedules for comparison
 
+## Progress-Aware Scheduling (RFC-0004)
+
+Progress-aware CPM scheduling that respects task completion status when forecasting remaining work.
+
+### Key Concepts
+
+- **Status Date**: The "as-of" date for progress reporting. Tasks are classified relative to this date.
+- **Task States**: Complete (100%), InProgress (0-99%), NotStarted (future tasks)
+- **Remaining Duration**: Calculated from `duration * (1 - complete%)` or explicit `remaining:` override
+
+### Status Date Resolution Chain
+
+```
+CLI --as-of flag > project.status_date > today()
+```
+
+### Task State Classification
+
+| State | Condition | Forward Pass Behavior |
+|-------|-----------|----------------------|
+| Complete | `complete = 100%` | Locks to actual dates, no rescheduling |
+| InProgress | `0 < complete < 100%` | Schedules remaining work from status date |
+| NotStarted | `complete = 0%` | Schedules from predecessor completion |
+
+### Usage
+
+```proj
+project ttg "TTG Migration" {
+    start: 2026-01-06
+    status_date: 2026-01-20  # Progress reporting date
+}
+
+task design "Design Phase" {
+    duration: 10d
+    complete: 100%           # Fully complete, locked
+}
+
+task develop "Development" {
+    duration: 20d
+    complete: 40%            # 40% done, 12d remaining
+    remaining: 8d            # Override: explicit remaining (wins over calculated)
+}
+```
+
+### Diagnostics
+
+| Code | Trigger |
+|------|---------|
+| P005 | `remaining > 0` but `complete = 100%`, or `remaining = 0` but `complete < 100%` |
+| P006 | Container's explicit `complete%` differs from weighted child rollup by >10% |
+
+### Implementation Files
+
+- `crates/utf8proj-solver/src/lib.rs` - `ProgressState` enum, `classify_progress_state()`, progress-aware forward pass
+- `crates/utf8proj-core/src/lib.rs` - `Task.explicit_remaining` field
+- `crates/utf8proj-solver/tests/progress_aware_cpm.rs` - 12 tests
+- `docs/rfc/RFC-0004-PROGRESS-AWARE-CPM.md` - Full RFC specification
+
 ## Interactive Gantt Chart
 
 Generate standalone HTML files with interactive SVG Gantt charts.
@@ -486,7 +548,17 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **GitHub Actions Release Workflow** (2026-01-14)
+1. **RFC-0004: Progress-Aware CPM Scheduling** (2026-01-15)
+   - Status date resolution chain: CLI `--as-of` > `project.status_date` > `today()`
+   - Task state classification: Complete/InProgress/NotStarted via `ProgressState` enum
+   - Progress-aware forward pass respects completion status
+   - `Task.explicit_remaining` field for user override of remaining work
+   - P005 diagnostic: remaining vs complete% conflicts
+   - P006 diagnostic: container progress mismatch (>10% threshold)
+   - 12 progress-aware CPM tests in `crates/utf8proj-solver/tests/progress_aware_cpm.rs`
+   - Full RFC in `docs/rfc/RFC-0004-PROGRESS-AWARE-CPM.md`
+
+2. **GitHub Actions Release Workflow** (2026-01-14)
    - Added `.github/workflows/release.yml` for cross-platform binary distribution
    - Tag-triggered releases on `vX.Y.Z` semantic version tags
    - Builds for: Windows (x86_64-pc-windows-msvc), Linux (x86_64-unknown-linux-gnu), macOS Intel (x86_64-apple-darwin), macOS ARM (aarch64-apple-darwin)
@@ -806,7 +878,7 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 ### Native DSL (.proj)
 
 **Project attributes:**
-- `start:`, `end:`, `currency:`, `calendar:`, `timezone:`
+- `start:`, `end:`, `currency:`, `calendar:`, `timezone:`, `status_date:`
 
 **Resource attributes:**
 - `rate: 850/day` or `rate: 100/hour`
@@ -840,6 +912,7 @@ task impl_api "Implement Backend API" {   # Quoted string = display name
 - `payment: 25000` (milestone payment)
 - `milestone: true` or dedicated `milestone id "name" { }` syntax
 - `complete: 75%` (progress tracking)
+- `remaining: 5d` (explicit remaining duration, overrides calculated)
 
 **Dependency syntax:**
 - `depends: a` (FS - Finish-to-Start, default)
