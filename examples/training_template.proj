@@ -1,0 +1,177 @@
+# ============================================================================
+# TRAINING TEMPLATE - utf8proj Project File
+# ============================================================================
+# This file teaches you what's safe to edit in a .proj file.
+# Look for these markers:
+#
+#   ✅ SAFE TO EDIT    - Change these values freely
+#   ⚠️  EDIT WITH CARE  - Can change, but affects other parts
+#   ❌ DO NOT CHANGE   - System keywords and structure
+#
+# TIP: Press Ctrl+Z to undo any mistake!
+# ============================================================================
+
+# ❌ DO NOT CHANGE: The word "project" is a keyword
+# ✅ SAFE TO EDIT: The text in quotes (your project name)
+project "My First Project" {
+
+    # ✅ SAFE TO EDIT: Change the date (use YYYY-MM-DD format)
+    start: 2026-02-01
+
+    # ✅ SAFE TO EDIT: Change the date
+    end: 2026-06-30
+
+    # ✅ SAFE TO EDIT: Change currency code (USD, EUR, GBP, etc.)
+    currency: USD
+}
+
+# ============================================================================
+# RESOURCES - The people working on your project
+# ============================================================================
+
+# ❌ DO NOT CHANGE: The word "resource" is a keyword
+# ⚠️  EDIT WITH CARE: "alice" is the ID - other parts reference this
+# ✅ SAFE TO EDIT: "Alice Smith" is the display name
+resource alice "Alice Smith" {
+
+    # ✅ SAFE TO EDIT: Change the daily rate number
+    rate: 800/day
+
+    # ✅ SAFE TO EDIT: Change capacity (1.0 = full time, 0.5 = half time)
+    capacity: 1.0
+
+    # ✅ SAFE TO EDIT: Change the email address
+    email: "alice@company.com"
+
+    # ✅ SAFE TO EDIT: Change the role description
+    role: "Project Lead"
+}
+
+resource bob "Bob Jones" {
+    rate: 650/day
+    capacity: 0.8
+    email: "bob@company.com"
+    role: "Developer"
+
+    # ✅ SAFE TO EDIT: Change leave dates (vacation/holidays)
+    leave: 2026-03-15..2026-03-22
+}
+
+# ============================================================================
+# TASKS - The work to be done
+# ============================================================================
+
+# ❌ DO NOT CHANGE: The word "task" is a keyword
+# ⚠️  EDIT WITH CARE: "phase1" is the ID - dependencies reference this
+# ✅ SAFE TO EDIT: "Planning Phase" is the display name
+task phase1 "Planning Phase" {
+
+    # ✅ SAFE TO EDIT: Change duration (use: d=days, w=weeks, m=months)
+    #    Examples: 5d, 2w, 1m
+    duration: 1w
+
+    # ✅ SAFE TO EDIT: Update progress as work completes (0% to 100%)
+    complete: 100%
+
+    # ⚠️  EDIT WITH CARE: Changing assigned person affects scheduling
+    assign: alice
+}
+
+task phase2 "Development Phase" {
+
+    # --- Nested tasks (subtasks) ---
+
+    task dev1 "Backend Development" {
+        # ✅ SAFE TO EDIT: Change effort (total person-days of work)
+        effort: 10d
+
+        complete: 50%
+        assign: bob
+
+        # ⚠️  EDIT WITH CARE: "phase1" must match an existing task ID
+        # ❌ DO NOT CHANGE: The word "depends" is a keyword
+        depends: phase1
+    }
+
+    task dev2 "Frontend Development" {
+        effort: 8d
+        complete: 25%
+        assign: alice
+
+        # Multiple dependencies: this task waits for both phase1 AND dev1
+        depends: phase1, dev1
+    }
+
+    task dev3 "Integration" {
+        duration: 3d
+        complete: 0%
+        assign: alice, bob
+
+        # ✅ SAFE TO EDIT: SS means Start-to-Start (starts when dev2 starts)
+        #    Options: SS, FS (default), FF, SF
+        # ✅ SAFE TO EDIT: +2d adds a 2-day delay (lag)
+        depends: dev2 SS +2d
+    }
+}
+
+task phase3 "Testing Phase" {
+    duration: 1w
+    complete: 0%
+    assign: bob
+    depends: phase2
+
+    # ✅ SAFE TO EDIT: Priority affects scheduling order (higher = sooner)
+    #    Range: 1-1000, default is 500
+    priority: 800
+
+    # ✅ SAFE TO EDIT: Add notes for context
+    note: "Include regression testing for all modules"
+
+    # ✅ SAFE TO EDIT: Add tags for categorization
+    tag: testing, quality
+}
+
+# ============================================================================
+# MILESTONES - Key dates with no duration
+# ============================================================================
+
+# ❌ DO NOT CHANGE: The word "milestone" is a keyword
+milestone launch "Product Launch" {
+    depends: phase3
+
+    # ✅ SAFE TO EDIT: Payment amount for this milestone
+    payment: 50000
+}
+
+# ============================================================================
+# CALENDARS - Working days and holidays
+# ============================================================================
+
+calendar standard "Standard Work Week" {
+    # ✅ SAFE TO EDIT: Change working days
+    #    Options: mon, tue, wed, thu, fri, sat, sun
+    working_days: mon, tue, wed, thu, fri
+
+    # ✅ SAFE TO EDIT: Change working hours
+    working_hours: 09:00..17:00
+
+    # ✅ SAFE TO EDIT: Add or change holidays
+    holiday "New Year" 2026-01-01
+    holiday "Easter Break" 2026-04-03..2026-04-06
+}
+
+# ============================================================================
+# QUICK REFERENCE
+# ============================================================================
+#
+# DURATIONS:        5d (days), 2w (weeks), 1m (months)
+# DATES:            2026-01-15 (always Year-Month-Day)
+# PERCENTAGES:      complete: 75%
+# CAPACITY:         1.0 (full), 0.5 (half), 0.25 (quarter)
+# DEPENDENCY TYPES: FS (finish-to-start, default)
+#                   SS (start-to-start)
+#                   FF (finish-to-finish)
+#                   SF (start-to-finish)
+# LAG/LEAD:         +2d (delay 2 days), -1d (overlap 1 day)
+#
+# ============================================================================

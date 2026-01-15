@@ -1,6 +1,6 @@
-# RFC: utf8proj - Project Scheduling Engine for Rust
+# RFC-0001: utf8proj - Project Scheduling Engine for Rust
 
-**RFC Number:** 001  
+**RFC Number:** 0001
 **Title:** utf8proj - A Modern Project Scheduling Engine  
 **Author:** Alan (utf8dok team)  
 **Status:** Draft  

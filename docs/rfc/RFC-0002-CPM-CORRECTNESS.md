@@ -1,11 +1,12 @@
-# RFC 002: CPM Correctness & Strategic Evolution
+# RFC-0002: CPM Correctness & Strategic Evolution
 
-**RFC Number:** 002  
-**Title:** CPM Solver Correctness & Strategic Repositioning  
-**Author:** Alan (utf8dok team)  
-**Status:** Draft  
-**Created:** 2026-01-03  
-**Supersedes:** Portions of RFC 001 (solver architecture)  
+**RFC Number:** 0002
+**Title:** CPM Solver Correctness & Strategic Repositioning
+**Author:** Alan (utf8dok team)
+**Status:** Implemented
+**Created:** 2026-01-03
+**Supersedes:** Portions of RFC-0001 (solver architecture)
+**Related:** RFC-0001 (Architecture)  
 
 ---
 
