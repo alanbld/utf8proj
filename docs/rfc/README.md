@@ -13,6 +13,7 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 | [RFC-0005](RFC-0005-RESOURCE-LEVELING-STATUS.md) | Resource Leveling | Phase 1 Complete | 2026-01-09 |
 | [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | Draft | 2026-01-10 |
 | [RFC-0007](RFC-0007-WASM-PLAYGROUND-AI-INTEGRATION.md) | WASM Playground with AI-Assisted Editing | Draft | 2026-01-15 |
+| [RFC-0008](RFC-0008-PROGRESS-AWARE-CPM.md) | Progress-Aware CPM (Phase 1) | Implementation Ready | 2026-01-14 |
 
 ## Status Definitions
 
@@ -33,7 +34,7 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 
 ## Creating a New RFC
 
-1. Use the next available number (currently RFC-0008)
+1. Use the next available number (currently RFC-0009)
 2. Follow the naming convention: `RFC-NNNN-SHORT-TITLE.md`
 3. Include standard header fields (RFC Number, Status, Created, Related)
 4. Update this README with the new RFC entry
