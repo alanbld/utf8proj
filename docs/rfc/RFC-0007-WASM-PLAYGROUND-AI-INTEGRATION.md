@@ -1,13 +1,14 @@
 # RFC-0007: WASM Playground with AI-Assisted Editing
 
 **RFC Number:** 0007
-**Status**: Draft
+**Status**: Draft (Phase 0 Prerequisite Required)
 **Authors**: utf8proj contributors
 **Created**: 2026-01-15
 **Updated**: 2026-01-15
 **Target version**: 0.3.0+
-**Related**: RFC-0004 (Progressive Resource), utf8proj-wasm, playground/, utf8proj-lsp
+**Related**: RFC-0006 (Focus View), RFC-0008 (Progress-Aware CPM), utf8proj-wasm, playground/, utf8proj-lsp
 **Confidence**: 75% (architecture validated, API design in progress)
+**Prerequisites**: Phase 0 Feature Parity (see Section 9.0)
 
 ---
 
@@ -654,6 +655,53 @@ interface AddDependencyEdit {
 ---
 
 ## 9. Implementation Phases
+
+### Phase 0: Feature Parity (Prerequisite)
+
+**Goal:** Sync WASM playground with current CLI capabilities before adding AI features.
+
+**Rationale:** AI features need accurate, complete data to function correctly. The playground currently lacks several features that are in the CLI, which would cause AI suggestions to be incomplete or incorrect.
+
+| Task | Scope | Effort |
+|------|-------|--------|
+| Add missing syntax keywords | `playground/src/main.js` | 1h |
+| Add `status_date` to ProjectInfo output | `utf8proj-wasm/src/lib.rs` | 1h |
+| Add `explicit_remaining` to TaskInfo output | `utf8proj-wasm/src/lib.rs` | 1h |
+| Add more example templates (hierarchical, progress) | `utf8proj-wasm` + `main.js` | 2h |
+| Expose focus view options (`--focus`, `--context-depth`) | `playground/` + WASM | 3h |
+| Add export format dropdown (HTML, Mermaid, PlantUML) | `playground/` + WASM | 3h |
+| Rebuild WASM package and test | `playground/build.sh` | 1h |
+
+**Missing Syntax Keywords to Add:**
+```javascript
+// Add to nativeDslLanguage.keywords in main.js:
+'remaining', 'status_date', 'profile', 'trait', 'specializes',
+'skills', 'tag', 'note', 'cost', 'payment', 'leave', 'role', 'email'
+```
+
+**Gap Analysis (as of 2026-01-15):**
+
+| Feature | CLI | Playground | Gap |
+|---------|-----|------------|-----|
+| Progress-aware CPM (RFC-0008) | ✅ | ❌ | `status_date` not exposed |
+| Focus view (RFC-0006) | ✅ | ❌ | No `--focus` option |
+| Explicit remaining duration | ✅ | ❌ | `remaining:` field missing |
+| Multiple export formats | ✅ | Partial | Only HTML Gantt |
+| Dependency types (SS/FF/SF) | ✅ | ✅ | OK |
+| Resource leveling | ✅ | ✅ | OK |
+| Calendar impact | ✅ | ✅ | OK |
+
+**Deliverable:** Playground feature-complete with CLI
+
+**Acceptance Criteria:**
+- [ ] All syntax keywords highlighted
+- [ ] `status_date` visible in project info
+- [ ] `remaining` visible in task info
+- [ ] 4+ example templates available
+- [ ] Focus view working for HTML output
+- [ ] Export dropdown with 3 formats
+
+---
 
 ### Phase 1: Browser LSP Features (Week 1-2)
 
