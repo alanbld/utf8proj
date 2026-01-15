@@ -3,7 +3,7 @@
 **RFC Number:** 0001
 **Title:** utf8proj - A Modern Project Scheduling Engine  
 **Author:** Alan (utf8dok team)  
-**Status:** Draft  
+**Status:** Implemented
 **Created:** 2026-01-01  
 **Target:** Separate repository (`utf8dok/utf8proj`)  
 

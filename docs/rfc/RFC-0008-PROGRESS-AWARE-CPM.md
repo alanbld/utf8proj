@@ -1,7 +1,7 @@
 # RFC-0008: Progress-Aware CPM (Phase 1)
 
 **RFC Number:** 0008
-**Status:** Implementation Ready
+**Status:** Implemented
 **Date:** 2026-01-14
 **Author:** utf8proj team
 **Related:** RFC-0002 (CPM Correctness), [UTF8PROJ_DESIGN_DECISIONS.md](./UTF8PROJ_DESIGN_DECISIONS.md) Part I (A1-A5)

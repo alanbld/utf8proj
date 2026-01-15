@@ -1,7 +1,7 @@
 # RFC-0003: Container Dependency Semantics
 
 **RFC Number:** 0003
-**Status:** Approved
+**Status:** Implemented
 **Created:** 2026-01-06
 **Approved:** 2026-01-07
 **Author:** Alan (utf8dok team)
