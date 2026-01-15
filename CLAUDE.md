@@ -61,6 +61,7 @@ tools/
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
+- **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
 - **Excel costing reports**: Formula-driven scheduling with dependency cascading
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
@@ -548,7 +549,15 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **RFC-0008: Progress-Aware CPM Scheduling** (2026-01-15)
+1. **RFC-0006: Focus View for Gantt Charts** (2026-01-15)
+   - Added `focus()` and `context_depth()` builder methods to `HtmlGanttRenderer`
+   - Pattern matching: prefix, contains, glob patterns for task filtering
+   - Context depth control: show ancestors/siblings of focused tasks
+   - CLI options: `--focus="pattern"` and `--context-depth=N`
+   - 12 focus view tests in `crates/utf8proj-render/src/gantt.rs`
+   - Full RFC in `docs/rfc/RFC-0006-FOCUS-VIEW.md`
+
+2. **RFC-0008: Progress-Aware CPM Scheduling** (2026-01-15)
    - Status date resolution chain: CLI `--as-of` > `project.status_date` > `today()`
    - Task state classification: Complete/InProgress/NotStarted via `ProgressState` enum
    - Progress-aware forward pass respects completion status
