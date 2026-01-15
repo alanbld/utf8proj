@@ -30,6 +30,7 @@ project_body = { project_attr* }
 project_attr = {
     project_start |
     project_end |
+    project_status_date |
     project_currency |
     project_calendar |
     project_timezone
@@ -37,6 +38,7 @@ project_attr = {
 
 project_start = { "start" ~ ":" ~ date }
 project_end = { "end" ~ ":" ~ date }
+project_status_date = { "status_date" ~ ":" ~ date }
 project_currency = { "currency" ~ ":" ~ identifier }
 project_calendar = { "calendar" ~ ":" ~ identifier }
 project_timezone = { "timezone" ~ ":" ~ timezone_value }
@@ -203,6 +205,7 @@ task_attr = {
     task_complete |
     task_actual_start |
     task_actual_finish |
+    task_remaining |
     task_status |
     task_note |
     task_tag |
@@ -227,6 +230,7 @@ task_milestone = { "milestone" ~ ":" ~ boolean }
 task_complete = { "complete" ~ ":" ~ percentage }
 task_actual_start = { "actual_start" ~ ":" ~ date }
 task_actual_finish = { "actual_finish" ~ ":" ~ date }
+task_remaining = { "remaining" ~ ":" ~ duration }
 task_status = { "status" ~ ":" ~ status_keyword }
 task_note = { "note" ~ ":" ~ string }
 task_tag = { "tag" ~ ":" ~ identifier_list }

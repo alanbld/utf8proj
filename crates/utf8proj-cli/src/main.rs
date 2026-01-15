@@ -106,6 +106,11 @@ enum Commands {
         /// Show only calendar diagnostics (C001-C023)
         #[arg(long)]
         calendars: bool,
+
+        /// Status date for progress-aware scheduling (RFC-0004)
+        /// Format: YYYY-MM-DD. Overrides project.status_date.
+        #[arg(long, value_name = "DATE")]
+        as_of: Option<String>,
     },
 
     /// Generate a Gantt chart
@@ -249,8 +254,8 @@ fn main() -> Result<()> {
         Some(Commands::Check { file, format, strict, quiet, calendars }) => {
             cmd_check(&file, &format, strict, quiet, calendars)
         }
-        Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars)
+        Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars, as_of }) => {
+            cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars, as_of.as_deref())
         }
         Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics, focus, context_depth, daily, days }) => {
             cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics, focus.as_deref(), context_depth, daily, days)
@@ -414,13 +419,28 @@ fn cmd_schedule(
     verbose: bool,
     width: usize,
     calendars: bool,
+    as_of: Option<&str>,
 ) -> Result<()> {
     // Parse the file
     let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
-    // Check feasibility first (always use base solver for feasibility)
-    let solver = CpmSolver::new();
+    // Parse --as-of date if provided (RFC-0004)
+    let status_date_override = if let Some(date_str) = as_of {
+        Some(chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            .with_context(|| format!("Invalid date format for --as-of: '{}'. Expected YYYY-MM-DD.", date_str))?)
+    } else {
+        None
+    };
+
+    // Create solver with status date override if provided (RFC-0004: C-01)
+    let solver = if let Some(date) = status_date_override {
+        CpmSolver::with_status_date(date)
+    } else {
+        CpmSolver::new()
+    };
+
+    // Check feasibility first
     let feasibility = solver.is_feasible(&project);
 
     if !feasibility.feasible {
@@ -1208,6 +1228,9 @@ fn serialize_project(project: &utf8proj_core::Project) -> String {
         output.push_str(&format!("project \"{}\" {{\n", project.name));
     }
     output.push_str(&format!("    start: {}\n", project.start));
+    if let Some(status_date) = project.status_date {
+        output.push_str(&format!("    status_date: {}\n", status_date));
+    }
     output.push_str("}\n\n");
 
     // Calendars

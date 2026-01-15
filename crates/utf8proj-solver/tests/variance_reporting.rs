@@ -31,10 +31,15 @@ fn no_progress_zero_variance() {
 }
 
 /// Test that tasks with actual_start show start variance
+/// NOTE: With progress-aware scheduling (RFC-0004), variance is calculated between
+/// baseline (original plan) and forecast (progress-aware projection). This test
+/// uses status_date = project.start to ensure predictable baseline calculation.
 #[test]
 fn actual_start_shows_start_variance() {
     let mut project = Project::new("Late Start");
     project.start = NaiveDate::from_ymd_opt(2026, 1, 6).unwrap();
+    // Set status_date to project start for baseline variance testing
+    project.status_date = Some(project.start);
 
     // Task planned for Jan 6, but actually started Jan 8 (2 days late)
     let mut task = Task::new("work")

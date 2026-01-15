@@ -244,6 +244,10 @@ fn parse_project_attr(pair: Pair<Rule>, project: &mut Project) -> Result<(), Par
             let date_pair = inner.into_inner().next().unwrap();
             project.end = Some(parse_date(date_pair)?);
         }
+        Rule::project_status_date => {
+            let date_pair = inner.into_inner().next().unwrap();
+            project.status_date = Some(parse_date(date_pair)?);
+        }
         Rule::project_currency => {
             let id_pair = inner.into_inner().next().unwrap();
             project.currency = parse_identifier(id_pair);
@@ -851,6 +855,10 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
             let date_pair = inner.into_inner().next().unwrap();
             task.actual_finish = Some(parse_date(date_pair)?);
         }
+        Rule::task_remaining => {
+            let dur_pair = inner.into_inner().next().unwrap();
+            task.explicit_remaining = Some(parse_duration(dur_pair)?);
+        }
         Rule::task_status => {
             let status_pair = inner.into_inner().next().unwrap();
             task.status = Some(parse_status(status_pair));
@@ -1126,6 +1134,19 @@ project "Test" {
         let project = parse(input).expect("Failed to parse project");
         assert_eq!(project.end, Some(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()));
         assert_eq!(project.calendar, "work_week");
+    }
+
+    #[test]
+    fn parse_project_status_date() {
+        let input = r#"
+project "Test" {
+    start: 2025-01-01
+    status_date: 2025-06-15
+}
+"#;
+        let project = parse(input).expect("Failed to parse project with status_date");
+        assert_eq!(project.start, NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
+        assert_eq!(project.status_date, Some(NaiveDate::from_ymd_opt(2025, 6, 15).unwrap()));
     }
 
     #[test]

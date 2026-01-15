@@ -24,7 +24,7 @@
 //! assert!(schedule.tasks.contains_key("task1"));
 //! ```
 
-use chrono::{Datelike, NaiveDate, TimeDelta};
+use chrono::{Datelike, Local, NaiveDate, TimeDelta};
 use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
@@ -55,12 +55,16 @@ pub use leveling::{
 pub struct CpmSolver {
     /// Whether to perform resource leveling
     pub resource_leveling: bool,
+    /// CLI-specified status date override (RFC-0004)
+    /// Takes precedence over project.status_date per C-01
+    pub status_date_override: Option<NaiveDate>,
 }
 
 impl CpmSolver {
     pub fn new() -> Self {
         Self {
             resource_leveling: false,
+            status_date_override: None,
         }
     }
 
@@ -68,7 +72,27 @@ impl CpmSolver {
     pub fn with_leveling() -> Self {
         Self {
             resource_leveling: true,
+            status_date_override: None,
         }
+    }
+
+    /// Create a solver with a specific status date (RFC-0004)
+    /// This overrides project.status_date per C-01: --as-of CLI > project.status_date > today()
+    pub fn with_status_date(date: NaiveDate) -> Self {
+        Self {
+            resource_leveling: false,
+            status_date_override: Some(date),
+        }
+    }
+
+    /// Resolve effective status date per C-01:
+    /// 1. CLI --as-of (status_date_override)
+    /// 2. project.status_date
+    /// 3. today()
+    pub fn effective_status_date(&self, project: &Project) -> NaiveDate {
+        self.status_date_override
+            .or(project.status_date)
+            .unwrap_or_else(|| Local::now().date_naive())
     }
 
     /// Analyze the effects of temporal constraints on a task
@@ -330,7 +354,9 @@ impl Default for CpmSolver {
 #[derive(Clone, Debug)]
 struct TaskNode<'a> {
     task: &'a Task,
-    /// Duration in working days
+    /// Duration in working days (original, not progress-adjusted)
+    original_duration_days: i64,
+    /// Duration in working days (may be updated for progress-aware scheduling)
     duration_days: i64,
     /// Early Start (days from project start)
     early_start: i64,
@@ -342,6 +368,101 @@ struct TaskNode<'a> {
     late_finish: i64,
     /// Slack/float in days
     slack: i64,
+    /// Remaining duration in working days (RFC-0004 progress-aware)
+    /// For complete tasks: 0
+    /// For in-progress tasks: derived from progress state
+    /// For not-started tasks: same as duration_days
+    remaining_days: i64,
+    /// Baseline start (original plan, ignoring progress) (RFC-0004)
+    baseline_start_days: i64,
+    /// Baseline finish (original plan, ignoring progress) (RFC-0004)
+    baseline_finish_days: i64,
+}
+
+// =============================================================================
+// RFC-0004: Progress-Aware CPM Types
+// =============================================================================
+
+/// Progress state classification for a task (RFC-0004)
+///
+/// Used in forward pass to determine scheduling behavior:
+/// - Complete: locked to actual dates
+/// - InProgress: remaining work schedules from status_date
+/// - NotStarted: normal CPM forward pass
+#[derive(Clone, Debug)]
+enum ProgressState {
+    /// Task is 100% complete - use actual dates
+    Complete {
+        /// Actual start date (converted to working days from project start)
+        actual_start_days: i64,
+        /// Actual finish date (converted to working days from project start)
+        actual_finish_days: i64,
+    },
+    /// Task is in progress (0 < complete < 100)
+    InProgress {
+        /// Actual start date (converted to working days from project start)
+        actual_start_days: i64,
+        /// Remaining duration in working days (linear derivation)
+        remaining_days: i64,
+    },
+    /// Task has not started
+    NotStarted {
+        /// Original duration in working days
+        duration_days: i64,
+    },
+}
+
+/// Classify a task's progress state (RFC-0004)
+///
+/// Rules (per C-02):
+/// - complete = 100% → Complete (remaining = 0)
+/// - 0 < complete < 100 with actual_start → InProgress
+/// - else → NotStarted
+fn classify_progress_state(
+    task: &Task,
+    project_start: NaiveDate,
+    calendar: &Calendar,
+) -> ProgressState {
+    let duration_days = get_task_duration_days(task);
+    let complete_pct = task.complete.unwrap_or(0.0);
+
+    if complete_pct >= 100.0 || task.actual_finish.is_some() {
+        // Complete: use actual dates or derive from progress
+        let actual_start_days = task
+            .actual_start
+            .map(|d| date_to_working_days(project_start, d, calendar))
+            .unwrap_or(0);
+        let actual_finish_days = task
+            .actual_finish
+            .map(|d| date_to_working_days(project_start, d, calendar) + 1) // +1 for exclusive end
+            .unwrap_or(actual_start_days + duration_days);
+
+        ProgressState::Complete {
+            actual_start_days,
+            actual_finish_days,
+        }
+    } else if complete_pct > 0.0 && task.actual_start.is_some() {
+        // InProgress: use explicit_remaining if set, otherwise linear interpolation
+        let remaining_days = if let Some(explicit) = &task.explicit_remaining {
+            explicit.as_days() as i64
+        } else {
+            // remaining = duration × (1 - complete/100)
+            ((duration_days as f64) * (1.0 - complete_pct as f64 / 100.0)).ceil() as i64
+        };
+        let actual_start_days = date_to_working_days(
+            project_start,
+            task.actual_start.unwrap(),
+            calendar,
+        );
+
+        ProgressState::InProgress {
+            actual_start_days,
+            remaining_days,
+        }
+    } else {
+        // NotStarted: normal CPM
+        ProgressState::NotStarted { duration_days }
+    }
 }
 
 // =============================================================================
@@ -558,25 +679,6 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
     }
 
     working_days
-}
-
-/// Add working days to a start date
-fn add_working_days(start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDate {
-    if days <= 0 {
-        return start;
-    }
-
-    let mut current = start;
-    let mut remaining = days;
-
-    while remaining > 0 {
-        current = current + TimeDelta::days(1);
-        if calendar.is_working_day(current) {
-            remaining -= 1;
-        }
-    }
-
-    current
 }
 
 /// Result of topological sort including precomputed successor map
@@ -949,6 +1051,9 @@ pub fn analyze_project(
     if let Some(sched) = schedule {
         check_schedule_variance(sched, config, emitter);
     }
+
+    // P005, P006: Progress conflicts
+    check_progress_conflicts(project, config, emitter);
 
     // I001: Project cost summary (requires schedule)
     if let Some(sched) = schedule {
@@ -2086,6 +2191,105 @@ fn check_schedule_variance(
     }
 }
 
+/// P005, P006: Check for progress-related conflicts
+fn check_progress_conflicts(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    check_progress_conflicts_recursive(&project.tasks, config, emitter);
+}
+
+fn check_progress_conflicts_recursive(
+    tasks: &[Task],
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for task in tasks {
+        // P005: explicit_remaining conflicts with linear derivation from complete%
+        if let (Some(explicit_remaining), Some(complete_pct)) =
+            (&task.explicit_remaining, task.complete)
+        {
+            let duration_days = get_task_duration_days(task);
+            let linear_remaining =
+                ((duration_days as f64) * (1.0 - complete_pct as f64 / 100.0)).ceil() as i64;
+            let explicit_days = explicit_remaining.as_days() as i64;
+
+            // Conflict if difference > 1 day (allow small rounding differences)
+            if (explicit_days - linear_remaining).abs() > 1 {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::P005RemainingCompleteConflict,
+                        format!(
+                            "task '{}' has explicit remaining ({}d) inconsistent with {}% complete (linear: {}d)",
+                            task.id, explicit_days, complete_pct as i32, linear_remaining
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("explicit remaining takes precedence over linear calculation")
+                    .with_hint("update complete% or remaining to be consistent"),
+                );
+            }
+        }
+
+        // P006: Container's explicit progress conflicts with weighted children average
+        if !task.children.is_empty() {
+            if let Some(explicit_complete) = task.complete {
+                let (children_weighted_sum, children_total_duration) =
+                    compute_children_progress_weighted(&task.children);
+
+                if children_total_duration > 0 {
+                    let derived_complete =
+                        (children_weighted_sum as f64 / children_total_duration as f64) * 100.0;
+                    let diff = (explicit_complete as f64 - derived_complete).abs();
+
+                    // P006 threshold: conflict if > 10% difference
+                    if diff > 10.0 {
+                        emitter.emit(
+                            Diagnostic::new(
+                                DiagnosticCode::P006ContainerProgressMismatch,
+                                format!(
+                                    "container '{}' has explicit complete ({}%) inconsistent with children average ({:.0}%)",
+                                    task.id, explicit_complete as i32, derived_complete
+                                ),
+                            )
+                            .with_file(config.file.clone().unwrap_or_default())
+                            .with_note(format!(
+                                "children weighted average: {:.1}%, explicit: {}%",
+                                derived_complete, explicit_complete as i32
+                            ))
+                            .with_hint("remove explicit complete% or update to match children"),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Recurse into children
+        check_progress_conflicts_recursive(&task.children, config, emitter);
+    }
+}
+
+/// Compute weighted progress sum and total duration for children
+fn compute_children_progress_weighted(children: &[Task]) -> (i64, i64) {
+    let mut weighted_sum: i64 = 0;
+    let mut total_duration: i64 = 0;
+
+    for child in children {
+        let duration = get_task_duration_days(child);
+        let complete = child.complete.unwrap_or(0.0);
+        weighted_sum += (duration as f64 * complete as f64 / 100.0) as i64;
+        total_duration += duration;
+
+        // Include nested children
+        let (nested_sum, nested_duration) = compute_children_progress_weighted(&child.children);
+        weighted_sum += nested_sum;
+        total_duration += nested_duration;
+    }
+
+    (weighted_sum, total_duration)
+}
+
 /// I004: Emit project status (overall progress and variance)
 fn check_project_status(
     schedule: &Schedule,
@@ -2294,20 +2498,30 @@ impl Scheduler for CpmSolver {
             .cloned()
             .unwrap_or_default();
 
+        // Step 3b: Resolve effective status_date (RFC-0004, C-01)
+        // Priority: CLI override > project.status_date > today()
+        let status_date = self.effective_status_date(project);
+        let status_date_days = date_to_working_days(project.start, status_date, &calendar);
+
         // Step 4: Initialize task nodes
         let mut nodes: HashMap<String, TaskNode> = HashMap::new();
         for id in &sorted_ids {
             let task = task_map[id];
+            let duration_days = get_task_duration_days(task);
             nodes.insert(
                 id.clone(),
                 TaskNode {
                     task,
-                    duration_days: get_task_duration_days(task),
+                    original_duration_days: duration_days,
+                    duration_days,
                     early_start: 0,
                     early_finish: 0,
                     late_start: i64::MAX,
                     late_finish: i64::MAX,
                     slack: 0,
+                    remaining_days: duration_days, // Default: full duration (updated in forward pass)
+                    baseline_start_days: 0, // Computed in forward pass
+                    baseline_finish_days: 0, // Computed in forward pass
                 },
             );
         }
@@ -2326,11 +2540,15 @@ impl Scheduler for CpmSolver {
                 // All children have already been processed (topological order)
                 let mut min_es = i64::MAX;
                 let mut max_ef = i64::MIN;
+                let mut min_baseline_es = i64::MAX;
+                let mut max_baseline_ef = i64::MIN;
 
                 for child_id in children {
                     if let Some(child_node) = nodes.get(child_id) {
                         min_es = min_es.min(child_node.early_start);
                         max_ef = max_ef.max(child_node.early_finish);
+                        min_baseline_es = min_baseline_es.min(child_node.baseline_start_days);
+                        max_baseline_ef = max_baseline_ef.max(child_node.baseline_finish_days);
                     }
                 }
 
@@ -2339,21 +2557,20 @@ impl Scheduler for CpmSolver {
                         node.early_start = min_es;
                         node.early_finish = max_ef;
                         node.duration_days = max_ef - min_es;
+                        // Also derive baseline from children
+                        node.baseline_start_days = min_baseline_es;
+                        node.baseline_finish_days = max_baseline_ef;
                     }
                 }
             } else {
-                // Leaf task: normal forward pass logic
-                let duration = nodes[id].duration_days;
+                // Leaf task: progress-aware forward pass (RFC-0004)
+                let original_duration = nodes[id].original_duration_days;
 
-                // ES = max of all dependency constraints, or 0 if no predecessors
-                // Dependency types:
-                //   FS: B.start >= A.finish + lag
-                //   SS: B.start >= A.start + lag
-                //   FF: B.finish >= A.finish + lag → B.start >= A.finish + lag - B.duration
-                //   SF: B.finish >= A.start + lag → B.start >= A.start + lag - B.duration
-                let mut es = 0i64;
+                // Step 5a: Compute baseline ES/EF (ignoring progress, using original duration)
+                // This is the ORIGINAL PLAN before any actuals are recorded
+                // Baseline includes both dependency and floor constraints
+                let mut baseline_es = 0i64;
                 for dep in &task.depends {
-                    // Resolve the dependency path to get the qualified ID
                     let resolved = resolve_dependency_path(
                         &dep.predecessor,
                         id,
@@ -2363,75 +2580,169 @@ impl Scheduler for CpmSolver {
                     if let Some(pred_id) = resolved {
                         if let Some(pred_node) = nodes.get(&pred_id) {
                             let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
+                            // Use predecessor's BASELINE finish for baseline calculation
+                            let pred_baseline_ef = pred_node.baseline_finish_days;
 
                             let constraint_es = match dep.dep_type {
                                 DependencyType::FinishToStart => {
-                                    // B.start >= A.finish + lag
-                                    // For positive lag: count from first free day (early_finish)
-                                    // For negative lag: count from last working day (early_finish - 1)
                                     if lag >= 0 {
-                                        pred_node.early_finish + lag
+                                        pred_baseline_ef + lag
                                     } else {
-                                        (pred_node.early_finish - 1 + lag).max(0)
+                                        (pred_baseline_ef - 1 + lag).max(0)
                                     }
                                 }
                                 DependencyType::StartToStart => {
-                                    // B.start >= A.start + lag
-                                    pred_node.early_start + lag
+                                    pred_node.baseline_start_days + lag
                                 }
                                 DependencyType::FinishToFinish => {
-                                    // B.finish >= A.finish + lag
-                                    // B.start >= A.finish + lag - B.duration
-                                    (pred_node.early_finish + lag - duration).max(0)
+                                    (pred_baseline_ef + lag - original_duration).max(0)
                                 }
                                 DependencyType::StartToFinish => {
-                                    // B.finish >= A.start + lag
-                                    // B.start >= A.start + lag - B.duration
-                                    (pred_node.early_start + lag - duration).max(0)
+                                    (pred_node.baseline_start_days + lag - original_duration).max(0)
                                 }
                             };
-                            es = es.max(constraint_es);
+                            baseline_es = baseline_es.max(constraint_es);
                         }
                     }
                 }
 
-                // Apply floor constraints to ES (forward pass)
-                // These constrain how early the task can start/finish
-                // Note: internal early_finish is exclusive (first day after task)
-                let mut min_finish: Option<i64> = None;
+                // Apply floor constraints to baseline ES
+                let mut baseline_min_finish: Option<i64> = None;
                 for constraint in &task.constraints {
                     match constraint {
                         TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoEarlierThan(date) => {
-                            // ES ≥ constraint date
                             let constraint_days = date_to_working_days(project.start, *date, &calendar);
-                            es = es.max(constraint_days);
+                            baseline_es = baseline_es.max(constraint_days);
                         }
                         TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoEarlierThan(date) => {
-                            // EF ≥ constraint date (inclusive)
-                            // Internal EF is exclusive, so add 1: if task must finish ON day 9,
-                            // internal EF must be 10 (first day after)
                             let constraint_days = date_to_working_days(project.start, *date, &calendar);
                             let exclusive_ef = constraint_days + 1;
-                            min_finish = Some(min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
+                            baseline_min_finish = Some(baseline_min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
                         }
-                        _ => {} // Ceiling constraints handled in backward pass
+                        _ => {} // Ceiling constraints don't affect baseline ES
                     }
                 }
 
-                // EF = ES + duration (initial calculation)
-                let mut ef = es + duration;
+                // baseline_ef = baseline_es + duration
+                let mut baseline_ef = baseline_es + original_duration;
 
-                // If finish constraint pushes EF forward, shift ES accordingly
-                if let Some(mf) = min_finish {
-                    if mf > ef {
-                        ef = mf;
-                        es = ef - duration;
+                // If finish constraint pushes EF forward, adjust baseline_es
+                if let Some(mf) = baseline_min_finish {
+                    if mf > baseline_ef {
+                        baseline_ef = mf;
+                        baseline_es = baseline_ef - original_duration;
                     }
                 }
+
+                // Step 5b: Classify progress state
+                let progress_state = classify_progress_state(task, project.start, &calendar);
+
+                // Step 5b2: Compute forecast ES from predecessors' progress-aware EF
+                // For NotStarted tasks, we need to chain from predecessors' FORECAST finish,
+                // not their baseline finish. This ensures correct cascade of progress.
+                let mut forecast_es = 0i64;
+                for dep in &task.depends {
+                    let resolved = resolve_dependency_path(
+                        &dep.predecessor,
+                        id,
+                        &context_map,
+                        &task_map,
+                    );
+                    if let Some(pred_id) = resolved {
+                        if let Some(pred_node) = nodes.get(&pred_id) {
+                            let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
+                            // Use predecessor's PROGRESS-AWARE EF (early_finish) for forecast
+                            let pred_ef = pred_node.early_finish;
+
+                            let constraint_es = match dep.dep_type {
+                                DependencyType::FinishToStart => {
+                                    if lag >= 0 {
+                                        pred_ef + lag
+                                    } else {
+                                        (pred_ef - 1 + lag).max(0)
+                                    }
+                                }
+                                DependencyType::StartToStart => {
+                                    pred_node.early_start + lag
+                                }
+                                DependencyType::FinishToFinish => {
+                                    let original_dur = nodes[id].original_duration_days;
+                                    (pred_ef + lag - original_dur).max(0)
+                                }
+                                DependencyType::StartToFinish => {
+                                    let original_dur = nodes[id].original_duration_days;
+                                    (pred_node.early_start + lag - original_dur).max(0)
+                                }
+                            };
+                            forecast_es = forecast_es.max(constraint_es);
+                        }
+                    }
+                }
+
+                // Step 5c: Compute progress-aware ES/EF (forecast)
+                let (es, ef, remaining) = match progress_state {
+                    ProgressState::Complete { actual_start_days, actual_finish_days } => {
+                        // Complete: lock to actual dates (RFC-0004 Rule 1)
+                        // Ignore dependencies and constraints - reality wins
+                        // remaining = 0 for complete tasks
+                        (actual_start_days, actual_finish_days, 0i64)
+                    }
+                    ProgressState::InProgress { actual_start_days, remaining_days } => {
+                        // InProgress: schedule remaining work from status_date (RFC-0004 Rule 2)
+                        // ES = actual_start (task already started)
+                        // EF = status_date + remaining (forecast based on current position)
+                        let es = actual_start_days;
+                        let ef = status_date_days + remaining_days;
+                        (es, ef, remaining_days)
+                    }
+                    ProgressState::NotStarted { duration_days } => {
+                        // NotStarted: use FORECAST ES from predecessors (RFC-0004 Rule 3)
+                        // This chains correctly from in-progress/complete predecessors
+                        let mut es = forecast_es;
+
+                        // Apply floor constraints to ES (forward pass)
+                        let mut min_finish: Option<i64> = None;
+                        for constraint in &task.constraints {
+                            match constraint {
+                                TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoEarlierThan(date) => {
+                                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                                    es = es.max(constraint_days);
+                                }
+                                TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoEarlierThan(date) => {
+                                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                                    let exclusive_ef = constraint_days + 1;
+                                    min_finish = Some(min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
+                                }
+                                _ => {} // Ceiling constraints handled in backward pass
+                            }
+                        }
+
+                        // EF = ES + duration
+                        let mut ef = es + duration_days;
+
+                        // If finish constraint pushes EF forward, shift ES accordingly
+                        if let Some(mf) = min_finish {
+                            if mf > ef {
+                                ef = mf;
+                                es = ef - duration_days;
+                            }
+                        }
+
+                        // Not started: remaining = full duration
+                        (es, ef, duration_days)
+                    }
+                };
 
                 if let Some(node) = nodes.get_mut(id) {
                     node.early_start = es;
                     node.early_finish = ef;
+                    // Update duration_days for backward pass calculations
+                    node.duration_days = ef - es;
+                    // Store progress-aware remaining duration (RFC-0004)
+                    node.remaining_days = remaining;
+                    // Store baseline (original plan)
+                    node.baseline_start_days = baseline_es;
+                    node.baseline_finish_days = baseline_ef;
                 }
             }
         }
@@ -2706,34 +3017,41 @@ impl Scheduler for CpmSolver {
             let percent_complete = task.effective_progress();
             let status = task.derived_status();
 
-            // Calculate remaining_duration using SCHEDULED duration (not raw effort)
-            // This accounts for resource parallelism
-            let scheduled_duration_days = node.duration_days as f64;
-            let remaining = if percent_complete == 100 {
-                Duration::zero()
-            } else {
-                let remaining_pct = 1.0 - (percent_complete as f64 / 100.0);
-                Duration::days((scheduled_duration_days * remaining_pct).ceil() as i64)
-            };
+            // Use remaining_days from forward pass (RFC-0004)
+            // This was calculated based on progress state classification
+            let remaining = Duration::days(node.remaining_days);
 
             // Forecast start: use actual_start if available, otherwise planned start
             let forecast_start = task.actual_start.unwrap_or(start_date);
 
-            // Forecast finish: based on forecast_start + remaining_duration
-            // If task is complete, use actual_finish or finish_date
+            // Forecast finish: use the EF from forward pass, which is progress-aware
+            // For complete tasks, use actual_finish
+            // For in-progress tasks, EF = status_date + remaining
+            // For not-started tasks, EF = ES + duration
             let forecast_finish = if status == TaskStatus::Complete {
                 task.actual_finish.unwrap_or(finish_date)
-            } else if remaining.minutes > 0 {
-                // Add remaining working days to forecast_start
-                let remaining_days = remaining.as_days().ceil() as i64;
-                add_working_days(forecast_start, remaining_days - 1, &calendar)
+            } else if node.remaining_days > 0 {
+                // Use the early_finish calculated in forward pass
+                // This is already progress-aware (status_date + remaining for in-progress)
+                if node.early_finish > 0 {
+                    working_day_cache.get(node.early_finish - 1)
+                } else {
+                    working_day_cache.get(node.early_finish)
+                }
             } else {
                 forecast_start // Milestone or complete
             };
 
             // Variance calculation (calendar days, positive = late)
-            let start_variance_days = (forecast_start - start_date).num_days();
-            let finish_variance_days = (forecast_finish - finish_date).num_days();
+            // Compare forecast to BASELINE (original plan), not to progress-aware dates
+            let baseline_start_date = working_day_cache.get(node.baseline_start_days);
+            let baseline_finish_date = if node.original_duration_days > 0 {
+                working_day_cache.get(node.baseline_finish_days - 1)
+            } else {
+                working_day_cache.get(node.baseline_finish_days)
+            };
+            let start_variance_days = (forecast_start - baseline_start_date).num_days();
+            let finish_variance_days = (forecast_finish - baseline_finish_date).num_days();
 
             scheduled_tasks.insert(
                 id.clone(),
@@ -2741,7 +3059,7 @@ impl Scheduler for CpmSolver {
                     task_id: id.clone(),
                     start: start_date,
                     finish: finish_date,
-                    duration: Duration::days(node.duration_days),
+                    duration: Duration::days(node.original_duration_days),
                     assignments,
                     slack: Duration::days(node.slack),
                     is_critical: node.slack == 0 && node.duration_days > 0,
@@ -2764,8 +3082,13 @@ impl Scheduler for CpmSolver {
                     percent_complete,
                     status,
                     // Variance fields (baseline vs forecast)
-                    baseline_start: start_date,
-                    baseline_finish: finish_date,
+                    // Baseline uses original plan (from baseline_start/finish_days)
+                    baseline_start: working_day_cache.get(node.baseline_start_days),
+                    baseline_finish: if node.original_duration_days > 0 {
+                        working_day_cache.get(node.baseline_finish_days - 1)
+                    } else {
+                        working_day_cache.get(node.baseline_finish_days)
+                    },
                     start_variance_days,
                     finish_variance_days,
                     // RFC-0001: Cost range fields

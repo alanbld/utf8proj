@@ -509,6 +509,9 @@ pub struct Project {
     pub start: NaiveDate,
     /// Project end date (optional, can be computed)
     pub end: Option<NaiveDate>,
+    /// Status date for progress-aware scheduling (RFC-0004)
+    /// When set, remaining work schedules from this date
+    pub status_date: Option<NaiveDate>,
     /// Default calendar for the project
     pub calendar: CalendarId,
     /// Currency for cost calculations
@@ -541,6 +544,7 @@ impl Project {
             name: name.into(),
             start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             end: None,
+            status_date: None,
             calendar: "default".into(),
             currency: "USD".into(),
             tasks: Vec::new(),
@@ -637,6 +641,9 @@ pub struct Task {
     pub actual_start: Option<NaiveDate>,
     /// Actual finish date (when work actually completed)
     pub actual_finish: Option<NaiveDate>,
+    /// Explicit remaining duration (overrides linear calculation from complete%)
+    /// When set, this takes precedence over `duration * (1 - complete/100)`
+    pub explicit_remaining: Option<Duration>,
     /// Task status for progress tracking
     pub status: Option<TaskStatus>,
     /// Custom attributes
@@ -662,6 +669,7 @@ impl Task {
             complete: None,
             actual_start: None,
             actual_finish: None,
+            explicit_remaining: None,
             status: None,
             attributes: HashMap::new(),
         }
@@ -899,6 +907,13 @@ impl Task {
     /// Set the actual finish date (builder pattern)
     pub fn actual_finish(mut self, date: NaiveDate) -> Self {
         self.actual_finish = Some(date);
+        self
+    }
+
+    /// Set explicit remaining duration (builder pattern)
+    /// When set, this overrides the linear calculation `duration * (1 - complete/100)`
+    pub fn explicit_remaining(mut self, remaining: Duration) -> Self {
+        self.explicit_remaining = Some(remaining);
         self
     }
 
@@ -1741,6 +1756,12 @@ pub enum DiagnosticCode {
     L003DurationIncreased,
     /// Milestone delayed due to leveling
     L004MilestoneDelayed,
+
+    // Progress (P) - Progress tracking diagnostics
+    /// Explicit remaining conflicts with linear derivation from complete%
+    P005RemainingCompleteConflict,
+    /// Container's explicit progress conflicts with weighted children average
+    P006ContainerProgressMismatch,
 }
 
 impl DiagnosticCode {
@@ -1779,6 +1800,8 @@ impl DiagnosticCode {
             DiagnosticCode::L002UnresolvableConflict => "L002",
             DiagnosticCode::L003DurationIncreased => "L003",
             DiagnosticCode::L004MilestoneDelayed => "L004",
+            DiagnosticCode::P005RemainingCompleteConflict => "P005",
+            DiagnosticCode::P006ContainerProgressMismatch => "P006",
         }
     }
 
@@ -1818,6 +1841,9 @@ impl DiagnosticCode {
             DiagnosticCode::L002UnresolvableConflict => Severity::Warning,
             DiagnosticCode::L003DurationIncreased => Severity::Hint,
             DiagnosticCode::L004MilestoneDelayed => Severity::Warning,
+            // Progress diagnostics (P005-P006)
+            DiagnosticCode::P005RemainingCompleteConflict => Severity::Warning,
+            DiagnosticCode::P006ContainerProgressMismatch => Severity::Warning,
         }
     }
 
@@ -1871,6 +1897,9 @@ impl DiagnosticCode {
             DiagnosticCode::L002UnresolvableConflict => 51,
             DiagnosticCode::L003DurationIncreased => 52,
             DiagnosticCode::L004MilestoneDelayed => 53,
+            // Progress diagnostics (grouped with schedule variance)
+            DiagnosticCode::P005RemainingCompleteConflict => 17,
+            DiagnosticCode::P006ContainerProgressMismatch => 18,
         }
     }
 }
@@ -2178,6 +2207,7 @@ mod tests {
             name: "Test".into(),
             start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             end: None,
+            status_date: None,
             calendar: "default".into(),
             currency: "USD".into(),
             tasks: vec![
@@ -2227,6 +2257,7 @@ mod tests {
             name: "Test".into(),
             start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             end: None,
+            status_date: None,
             calendar: "default".into(),
             currency: "USD".into(),
             tasks: vec![
@@ -2274,6 +2305,7 @@ mod tests {
             name: "Test".into(),
             start: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
             end: None,
+            status_date: None,
             calendar: "default".into(),
             currency: "USD".into(),
             tasks: Vec::new(),
