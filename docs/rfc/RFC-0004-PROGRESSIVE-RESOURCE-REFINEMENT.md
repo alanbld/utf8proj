@@ -1,11 +1,12 @@
-# RFC-0001: Progressive Resource Refinement & Cost Ranges
+# RFC-0004: Progressive Resource Refinement & Cost Ranges
 
+**RFC Number:** 0004
 **Status**: Draft (Design Complete)
 **Authors**: utf8proj contributors (via ChatGPT PERT/CPM Specialist + Claude Code)
 **Created**: 2026-01-05
 **Updated**: 2026-01-05
 **Target version**: 0.3.0+
-**Related**: UTF8PROJ_RFC_MASTER.md, Resource Model, Cost Model, LSP v0
+**Related**: RFC-0001 (Architecture), UTF8PROJ_RFC_MASTER.md, Resource Model, Cost Model, LSP v0
 **Confidence**: 85% (design questions resolved)
 
 ---

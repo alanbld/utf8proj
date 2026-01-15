@@ -1,8 +1,9 @@
-# RFC-0003 Resource Leveling: Status
+# RFC-0005: Resource Leveling
 
-**Status:** Phase 1 Complete
-**Phase 2:** Deferred pending user demand
+**RFC Number:** 0005
+**Status:** Phase 1 Complete, Phase 2 Deferred
 **Last Updated:** 2026-01-09
+**Related:** RFC-0002 (CPM Correctness)
 
 ---
 
