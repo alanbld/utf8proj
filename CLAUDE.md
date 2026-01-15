@@ -57,7 +57,7 @@ tools/
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: RFC-0003 deterministic leveling with full audit trail (L001-L004 diagnostics)
-- **Progress-aware scheduling**: RFC-0004 status date resolution, remaining duration calculation, P005/P006 diagnostics
+- **Progress-aware scheduling**: RFC-0008 status date resolution, remaining duration calculation, P005/P006 diagnostics
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
@@ -355,7 +355,7 @@ pub enum LevelingReason {
 6. Emit L002/L003/L004 as appropriate
 7. Return both original and leveled schedules for comparison
 
-## Progress-Aware Scheduling (RFC-0004)
+## Progress-Aware Scheduling (RFC-0008)
 
 Progress-aware CPM scheduling that respects task completion status when forecasting remaining work.
 
@@ -411,7 +411,7 @@ task develop "Development" {
 - `crates/utf8proj-solver/src/lib.rs` - `ProgressState` enum, `classify_progress_state()`, progress-aware forward pass
 - `crates/utf8proj-core/src/lib.rs` - `Task.explicit_remaining` field
 - `crates/utf8proj-solver/tests/progress_aware_cpm.rs` - 12 tests
-- `docs/rfc/RFC-0004-PROGRESS-AWARE-CPM.md` - Full RFC specification
+- `docs/rfc/RFC-0008-PROGRESS-AWARE-CPM.md` - Full RFC specification
 
 ## Interactive Gantt Chart
 
@@ -548,7 +548,7 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **RFC-0004: Progress-Aware CPM Scheduling** (2026-01-15)
+1. **RFC-0008: Progress-Aware CPM Scheduling** (2026-01-15)
    - Status date resolution chain: CLI `--as-of` > `project.status_date` > `today()`
    - Task state classification: Complete/InProgress/NotStarted via `ProgressState` enum
    - Progress-aware forward pass respects completion status
@@ -556,7 +556,7 @@ let renderer = ExcelRenderer::new()
    - P005 diagnostic: remaining vs complete% conflicts
    - P006 diagnostic: container progress mismatch (>10% threshold)
    - 12 progress-aware CPM tests in `crates/utf8proj-solver/tests/progress_aware_cpm.rs`
-   - Full RFC in `docs/rfc/RFC-0004-PROGRESS-AWARE-CPM.md`
+   - Full RFC in `docs/rfc/RFC-0008-PROGRESS-AWARE-CPM.md`
 
 2. **GitHub Actions Release Workflow** (2026-01-14)
    - Added `.github/workflows/release.yml` for cross-platform binary distribution
@@ -592,8 +592,8 @@ let renderer = ExcelRenderer::new()
    - Linked to EXPLAINABILITY.md manifesto
    - Updated library examples to use correct CpmSolver API
 
-4. **RFC-0003 Status & LSP Leveling Hover** (2026-01-09)
-   - Created `docs/RFC-0003-STATUS.md`: Phase 1 complete, Phase 2 deferred
+4. **RFC-0005 Status & LSP Leveling Hover** (2026-01-09)
+   - Created `docs/rfc/RFC-0005-RESOURCE-LEVELING-STATUS.md`: Phase 1 complete, Phase 2 deferred
    - Added L001-L004 diagnostics to LSP hover with ⚖️ icon
    - Added 📆 icon for calendar diagnostics in hover
    - Leveling coverage improved: 85.7% → 93.2%
@@ -642,13 +642,13 @@ let renderer = ExcelRenderer::new()
     - Location: `crates/utf8proj-parser/src/native/grammar.pest`, `native/mod.rs`
     - Now supports: `depends: task SS +5d`, `depends: task FF -2d`, etc.
 
-11. **RFC-0001: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
+11. **RFC-0004: Progressive Resource Refinement Grammar** (`crates/utf8proj-parser/src/native/grammar.pest`)
    - Added `resource_profile` declaration with specializes, skills, traits, rate ranges
    - Added `trait` declaration with description and rate_multiplier
    - Added rate range block syntax (min/max/currency) for profiles and resources
    - Added quantified assignment syntax: `assign: developer * 2`
    - Extended resource_ref to support both percentage (@50%) and quantity (*N)
-   - Full RFC in `docs/rfc/RFC-0001-PROGRESSIVE-RESOURCE-REFINEMENT.md`
+   - Full RFC in `docs/rfc/RFC-0004-PROGRESSIVE-RESOURCE-REFINEMENT.md`
 
 2. **PMI-Compliant Effort Scheduling** (`crates/utf8proj-solver/src/lib.rs`)
    - Fixed effort-to-duration calculation: `Duration = Effort / Total_Resource_Units`
@@ -871,7 +871,7 @@ let actual_attr = if attr.as_rule() == Rule::project_attr {
 - Some resource/task attribute combinations in native parser
 
 **Explicitly Deferred:**
-- RFC-0003 Phase 2: Deferred pending user demand (see `docs/RFC-0003-STATUS.md`)
+- RFC-0005 Phase 2 (Resource Leveling): Deferred pending user demand (see `docs/rfc/RFC-0005-RESOURCE-LEVELING-STATUS.md`)
 
 ## Grammar Notes
 
