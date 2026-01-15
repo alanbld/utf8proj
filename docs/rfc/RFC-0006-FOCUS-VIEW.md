@@ -1,7 +1,7 @@
 # RFC-0006: Focus View for Gantt Charts
 
 **RFC Number:** 0006
-**Status:** Draft
+**Status:** Implemented
 **Created:** 2026-01-10
 **Related:** RFC-0001 (Architecture)
 

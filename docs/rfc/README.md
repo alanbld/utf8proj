@@ -11,7 +11,7 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 | [RFC-0003](RFC-0003-CONTAINER-DEPENDENCY-SEMANTICS.md) | Container Dependency Semantics | Approved | 2026-01-06 |
 | [RFC-0004](RFC-0004-PROGRESSIVE-RESOURCE-REFINEMENT.md) | Progressive Resource Refinement & Cost Ranges | Draft | 2026-01-05 |
 | [RFC-0005](RFC-0005-RESOURCE-LEVELING-STATUS.md) | Resource Leveling | Phase 1 Complete | 2026-01-09 |
-| [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | Draft | 2026-01-10 |
+| [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | Implemented | 2026-01-10 |
 | [RFC-0007](RFC-0007-WASM-PLAYGROUND-AI-INTEGRATION.md) | WASM Playground with AI-Assisted Editing | Draft | 2026-01-15 |
 | [RFC-0008](RFC-0008-PROGRESS-AWARE-CPM.md) | Progress-Aware CPM (Phase 1) | Implementation Ready | 2026-01-14 |
 

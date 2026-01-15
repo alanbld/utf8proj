@@ -253,6 +253,45 @@ impl HtmlGanttRenderer {
         self
     }
 
+    /// Set focus view configuration
+    ///
+    /// Focus view expands tasks matching the patterns while collapsing others.
+    ///
+    /// # Arguments
+    /// * `patterns` - Task ID prefixes or glob patterns to expand
+    ///
+    /// # Example
+    /// ```ignore
+    /// let renderer = HtmlGanttRenderer::new()
+    ///     .focus(vec!["6.3.2".into(), "8.6".into()]);
+    /// ```
+    pub fn focus(mut self, patterns: Vec<String>) -> Self {
+        let context_depth = self.focus.as_ref().map(|f| f.context_depth).unwrap_or(1);
+        self.focus = Some(FocusConfig::new(patterns, context_depth));
+        self
+    }
+
+    /// Set context depth for non-focused tasks
+    ///
+    /// * `0` = hide all non-focused tasks
+    /// * `1` = show only top-level containers (default)
+    /// * `2` = show two levels of hierarchy
+    ///
+    /// # Example
+    /// ```ignore
+    /// let renderer = HtmlGanttRenderer::new()
+    ///     .focus(vec!["6.3.2".into()])
+    ///     .context_depth(0); // Hide all context
+    /// ```
+    pub fn context_depth(mut self, depth: usize) -> Self {
+        if let Some(ref mut focus) = self.focus {
+            focus.context_depth = depth;
+        } else {
+            self.focus = Some(FocusConfig::new(vec![], depth));
+        }
+        self
+    }
+
     /// Calculate pixels per day based on date range
     fn pixels_per_day(&self, start: NaiveDate, end: NaiveDate) -> f64 {
         let days = (end - start).num_days().max(1) as f64;
