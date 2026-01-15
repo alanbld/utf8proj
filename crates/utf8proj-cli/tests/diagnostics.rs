@@ -35,6 +35,8 @@ fn run_schedule(fixture: &str, strict: bool) -> String {
 
     let mut cmd = Command::new(utf8proj_binary());
     cmd.arg("schedule").arg(&input_path);
+    // Disable backtraces for reproducible snapshot testing
+    cmd.env("RUST_BACKTRACE", "0");
 
     if strict {
         cmd.arg("--strict");
