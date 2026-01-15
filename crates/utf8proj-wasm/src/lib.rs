@@ -6,8 +6,9 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use utf8proj_core::{CollectingEmitter, Scheduler, Severity};
+use utf8proj_core::{CollectingEmitter, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
+use utf8proj_render::{HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
 use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
 
 /// Initialize panic hook for better error messages in console
@@ -119,6 +120,7 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             overall_progress,
             scheduling_mode: mode_name.to_string(),
             scheduling_mode_description: scheduling_mode.description().to_string(),
+            status_date: project.status_date.map(|d| d.to_string()),
         },
         critical_path: schedule.critical_path.clone(),
         diagnostics,
@@ -140,6 +142,11 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                 // Calculate calendar impact for this task
                 let calendar_impact = Some(calculate_calendar_impact(t.start, t.finish, &project));
 
+                // Get explicit_remaining from original task if set
+                let explicit_remaining_days = orig_task
+                    .and_then(|task| task.explicit_remaining)
+                    .map(|d| d.as_days() as i64);
+
                 TaskInfo {
                     id: t.task_id.clone(),
                     name: t.task_id.clone(),
@@ -155,6 +162,7 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                     derived_progress,
                     status: format!("{}", t.status),
                     remaining_days: t.remaining_duration.as_days() as i64,
+                    explicit_remaining_days,
                     forecast_start: t.forecast_start.to_string(),
                     forecast_finish: t.forecast_finish.to_string(),
                     dependencies,
@@ -303,7 +311,571 @@ fn calculate_calendar_impact(
     }
 }
 
+// ============================================================================
+// Playground Class
+// ============================================================================
+
+/// Interactive playground for scheduling projects in the browser
+#[wasm_bindgen]
+pub struct Playground {
+    project: Option<utf8proj_core::Project>,
+    schedule: Option<utf8proj_core::Schedule>,
+    dark_theme: bool,
+    resource_leveling: bool,
+    last_error: Option<String>,
+    focus_patterns: Vec<String>,
+    context_depth: usize,
+}
+
+#[wasm_bindgen]
+impl Playground {
+    /// Create a new playground instance
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            project: None,
+            schedule: None,
+            dark_theme: false,
+            resource_leveling: false,
+            last_error: None,
+            focus_patterns: vec![],
+            context_depth: 1,
+        }
+    }
+
+    /// Parse and schedule a project
+    ///
+    /// # Arguments
+    /// * `input` - The project definition string
+    /// * `format` - Either "native" or "tjp"
+    ///
+    /// # Returns
+    /// JSON object with schedule data or error
+    pub fn schedule(&mut self, input: &str, format: &str) -> JsValue {
+        self.last_error = None;
+
+        // Parse based on format
+        let project = match format {
+            "tjp" => utf8proj_parser::parse_tjp(input),
+            _ => parse_proj(input),
+        };
+
+        let project = match project {
+            Ok(p) => p,
+            Err(e) => {
+                self.last_error = Some(e.to_string());
+                return serde_wasm_bindgen::to_value(&PlaygroundResult {
+                    success: false,
+                    error: Some(e.to_string()),
+                    data: None,
+                })
+                .unwrap();
+            }
+        };
+
+        // Schedule
+        let solver = if self.resource_leveling {
+            CpmSolver::with_leveling()
+        } else {
+            CpmSolver::new()
+        };
+
+        match solver.schedule(&project) {
+            Ok(schedule) => {
+                // Store for rendering
+                self.project = Some(project.clone());
+                self.schedule = Some(schedule.clone());
+
+                // Return simplified result
+                let data = PlaygroundScheduleData {
+                    tasks: schedule.tasks.len(),
+                    duration_days: schedule.project_duration.as_days() as i64,
+                    critical_path: schedule.critical_path.clone(),
+                };
+
+                serde_wasm_bindgen::to_value(&PlaygroundResult {
+                    success: true,
+                    error: None,
+                    data: Some(data),
+                })
+                .unwrap()
+            }
+            Err(e) => {
+                self.last_error = Some(e.to_string());
+                serde_wasm_bindgen::to_value(&PlaygroundResult {
+                    success: false,
+                    error: Some(e.to_string()),
+                    data: None,
+                })
+                .unwrap()
+            }
+        }
+    }
+
+    /// Validate input without scheduling
+    ///
+    /// # Returns
+    /// JSON object with validation errors (if any)
+    pub fn validate(&self, input: &str, format: &str) -> JsValue {
+        let result = match format {
+            "tjp" => utf8proj_parser::parse_tjp(input),
+            _ => parse_proj(input),
+        };
+
+        match result {
+            Ok(_) => serde_wasm_bindgen::to_value(&ValidationResult {
+                valid: true,
+                errors: vec![],
+            })
+            .unwrap(),
+            Err(e) => {
+                let error = ValidationError {
+                    message: e.to_string(),
+                    line: None,
+                    column: None,
+                };
+                serde_wasm_bindgen::to_value(&ValidationResult {
+                    valid: false,
+                    errors: vec![error],
+                })
+                .unwrap()
+            }
+        }
+    }
+
+    /// Check if a project is loaded
+    pub fn has_project(&self) -> bool {
+        self.project.is_some()
+    }
+
+    /// Check if a schedule is computed
+    pub fn has_schedule(&self) -> bool {
+        self.schedule.is_some()
+    }
+
+    /// Render the scheduled project as an HTML Gantt chart
+    ///
+    /// # Returns
+    /// HTML string containing the Gantt chart, or empty string if no schedule
+    pub fn render_gantt(&self) -> String {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                let mut renderer = HtmlGanttRenderer::new();
+                if self.dark_theme {
+                    renderer = renderer.dark_theme();
+                }
+                // Apply focus view settings
+                if !self.focus_patterns.is_empty() {
+                    renderer = renderer.focus(self.focus_patterns.clone());
+                    renderer = renderer.context_depth(self.context_depth);
+                }
+                renderer.render(project, schedule).unwrap_or_default()
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Render just the SVG portion of the Gantt chart (for embedding)
+    pub fn render_gantt_svg(&self) -> String {
+        // For now, return full HTML - SVG extraction can be added later
+        self.render_gantt()
+    }
+
+    /// Render as Mermaid Gantt diagram
+    ///
+    /// # Returns
+    /// Mermaid diagram syntax, or empty string if no schedule
+    pub fn render_mermaid(&self) -> String {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                let renderer = MermaidRenderer::new();
+                renderer.render(project, schedule).unwrap_or_default()
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Render as PlantUML Gantt diagram
+    ///
+    /// # Returns
+    /// PlantUML diagram syntax, or empty string if no schedule
+    pub fn render_plantuml(&self) -> String {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                let renderer = PlantUmlRenderer::new();
+                renderer.render(project, schedule).unwrap_or_default()
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Get schedule data as JSON
+    pub fn get_schedule_json(&self) -> String {
+        match (&self.project, &self.schedule) {
+            (Some(_), Some(schedule)) => {
+                serde_json::to_string_pretty(schedule).unwrap_or_default()
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Get the last error message
+    pub fn get_last_error(&self) -> Option<String> {
+        self.last_error.clone()
+    }
+
+    /// Enable or disable dark theme
+    pub fn set_dark_theme(&mut self, enabled: bool) {
+        self.dark_theme = enabled;
+    }
+
+    /// Enable or disable resource leveling
+    pub fn set_resource_leveling(&mut self, enabled: bool) {
+        self.resource_leveling = enabled;
+    }
+
+    /// Set focus patterns for focus view (RFC-0006)
+    ///
+    /// Patterns can match task IDs or names:
+    /// - "6.3.2" matches task ID 6.3.2 and all children
+    /// - "*.3.*" uses glob matching
+    /// - "Migration" matches tasks with "Migration" in the name
+    pub fn set_focus(&mut self, patterns: Vec<String>) {
+        self.focus_patterns = patterns;
+    }
+
+    /// Set context depth for non-focused tasks
+    ///
+    /// * `0` = hide all non-focused tasks completely
+    /// * `1` = show only top-level non-focused tasks (default)
+    /// * `2` = show two levels of non-focused hierarchy
+    pub fn set_context_depth(&mut self, depth: usize) {
+        self.context_depth = depth;
+    }
+
+    /// Clear focus view settings (show all tasks)
+    pub fn clear_focus(&mut self) {
+        self.focus_patterns.clear();
+        self.context_depth = 1;
+    }
+
+    /// Get example project in native format
+    pub fn get_example_native() -> String {
+        EXAMPLE_NATIVE.to_string()
+    }
+
+    /// Get example project in TJP format
+    pub fn get_example_tjp() -> String {
+        EXAMPLE_TJP.to_string()
+    }
+
+    /// Get hierarchical project example with nested tasks
+    pub fn get_example_hierarchical() -> String {
+        EXAMPLE_HIERARCHICAL.to_string()
+    }
+
+    /// Get progress tracking example with completion percentages
+    pub fn get_example_progress() -> String {
+        EXAMPLE_PROGRESS.to_string()
+    }
+}
+
+impl Default for Playground {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Serialize)]
+struct PlaygroundResult {
+    success: bool,
+    error: Option<String>,
+    data: Option<PlaygroundScheduleData>,
+}
+
+#[derive(Serialize)]
+struct PlaygroundScheduleData {
+    tasks: usize,
+    duration_days: i64,
+    critical_path: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ValidationResult {
+    valid: bool,
+    errors: Vec<ValidationError>,
+}
+
+#[derive(Serialize)]
+struct ValidationError {
+    message: String,
+    line: Option<usize>,
+    column: Option<usize>,
+}
+
+// ============================================================================
+// Example Templates
+// ============================================================================
+
+const EXAMPLE_NATIVE: &str = r#"# CRM Migration Project
+# A comprehensive example showing utf8proj capabilities
+
+project "CRM Migration" {
+    start: 2026-01-06
+    currency: EUR
+}
+
+# Define calendars
+calendar standard {
+    working_days: mon, tue, wed, thu, fri
+    working_hours: 09:00..17:00
+    holiday "New Year" 2026-01-01
+}
+
+# Define resources with rates
+resource pm "Project Manager" {
+    rate: 120/hour
+    capacity: 1.0
+}
+
+resource dev "Developer" {
+    rate: 100/hour
+    capacity: 1.0
+}
+
+resource qa "QA Engineer" {
+    rate: 85/hour
+    capacity: 1.0
+}
+
+# Phase 1: Discovery
+task discovery "Discovery Phase" {
+    task kickoff "Project Kickoff" {
+        effort: 1d
+        assign: pm
+    }
+    task requirements "Requirements Analysis" {
+        effort: 5d
+        depends: kickoff
+        assign: pm, dev
+    }
+    task design "System Design" {
+        effort: 3d
+        depends: requirements
+        assign: dev
+    }
+}
+
+# Phase 2: Development
+task development "Development Phase" {
+    task api "Backend API" {
+        effort: 10d
+        depends: discovery.design
+        assign: dev
+    }
+    task ui "Frontend UI" {
+        effort: 8d
+        depends: discovery.design
+        assign: dev
+    }
+    task integration "Integration" {
+        effort: 5d
+        depends: api, ui
+        assign: dev
+    }
+}
+
+# Phase 3: Testing & Deployment
+task testing "Testing Phase" {
+    task unit "Unit Testing" {
+        effort: 3d
+        depends: development.integration
+        assign: qa
+    }
+    task uat "User Acceptance Testing" {
+        effort: 5d
+        depends: unit
+        assign: qa, pm
+    }
+}
+
+milestone golive "Go Live" {
+    depends: testing.uat
+}
+"#;
+
+const EXAMPLE_TJP: &str = r#"# TaskJuggler Format Example
+
+project prj "Software Release" 2026-01-06 +8w {
+    timezone "UTC"
+    currency "USD"
+}
+
+resource dev "Development Team" {
+    efficiency 1.0
+    rate 95
+}
+
+resource qa "QA Team" {
+    efficiency 1.0
+    rate 80
+}
+
+task planning "Planning" {
+    effort 3d
+    allocate dev
+}
+
+task dev_phase "Development" {
+    depends !planning
+
+    task backend "Backend Services" {
+        effort 10d
+        allocate dev
+    }
+
+    task frontend "Frontend App" {
+        effort 8d
+        allocate dev
+    }
+}
+
+task testing "Testing" {
+    depends !dev_phase
+    effort 5d
+    allocate qa
+}
+
+task release "Release" {
+    depends !testing
+    milestone
+}
+"#;
+
+const EXAMPLE_HIERARCHICAL: &str = r#"# Hierarchical Task Structure Example
+# Demonstrates nested tasks and container derivation
+
+project "Product Launch" {
+    start: 2026-02-01
+}
+
+resource team "Launch Team" {
+    capacity: 1.0
+}
+
+# Top-level container with nested phases
+task product_launch "Product Launch Program" {
+
+    # Phase 1: Research
+    task research "Market Research" {
+        task surveys "Customer Surveys" {
+            effort: 5d
+            assign: team
+        }
+        task analysis "Competitor Analysis" {
+            effort: 3d
+            depends: surveys
+            assign: team
+        }
+        task report "Research Report" {
+            effort: 2d
+            depends: analysis
+            assign: team
+        }
+    }
+
+    # Phase 2: Development
+    task development "Product Development" {
+        task prototype "Prototype" {
+            effort: 10d
+            depends: product_launch.research.report
+            assign: team
+        }
+        task testing "Product Testing" {
+            effort: 5d
+            depends: prototype
+            assign: team
+        }
+        task refinement "Refinement" {
+            effort: 3d
+            depends: testing
+            assign: team
+        }
+    }
+
+    # Phase 3: Launch
+    task launch "Launch Execution" {
+        task materials "Marketing Materials" {
+            effort: 5d
+            depends: product_launch.development.refinement
+            assign: team
+        }
+        task campaign "Launch Campaign" {
+            effort: 3d
+            depends: materials
+            assign: team
+        }
+    }
+}
+
+milestone launch_complete "Product Launched" {
+    depends: product_launch.launch.campaign
+}
+"#;
+
+const EXAMPLE_PROGRESS: &str = r#"# Progress Tracking Example (RFC-0008)
+# Demonstrates status_date, completion %, and remaining duration
+
+project "Sprint Progress" {
+    start: 2026-01-06
+    status_date: 2026-01-20  # Report as of this date
+}
+
+resource dev "Developer" {
+    capacity: 1.0
+}
+
+# Completed task - locked to actual dates
+task done "Feature A - Complete" {
+    duration: 5d
+    complete: 100%
+    assign: dev
+}
+
+# In-progress task - schedules remaining from status_date
+task in_progress "Feature B - In Progress" {
+    duration: 10d
+    complete: 40%           # 40% done = 6 days remaining
+    depends: done
+    assign: dev
+}
+
+# In-progress with explicit remaining override
+task custom_remaining "Feature C - Custom Remaining" {
+    duration: 8d
+    complete: 50%           # Would be 4d remaining
+    remaining: 6d           # But we know it needs 6d more
+    depends: in_progress
+    assign: dev
+}
+
+# Future task - schedules from predecessor
+task future "Feature D - Not Started" {
+    duration: 5d
+    complete: 0%
+    depends: custom_remaining
+    assign: dev
+}
+
+# Milestone tracks overall completion
+milestone sprint_end "Sprint Complete" {
+    depends: future
+}
+"#;
+
+// ============================================================================
 // JSON output structures
+// ============================================================================
 
 #[derive(Serialize, Deserialize)]
 struct ScheduleResult {
@@ -329,6 +901,8 @@ struct ProjectInfo {
     overall_progress: u8,
     scheduling_mode: String,
     scheduling_mode_description: String,
+    /// Status date for progress reporting (RFC-0008)
+    status_date: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -347,6 +921,8 @@ struct TaskInfo {
     derived_progress: Option<u8>,
     status: String,
     remaining_days: i64,
+    /// User-specified remaining duration override (RFC-0008)
+    explicit_remaining_days: Option<i64>,
     forecast_start: String,
     forecast_finish: String,
     dependencies: Vec<String>,

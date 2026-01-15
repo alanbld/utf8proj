@@ -165,6 +165,36 @@ select {
     cursor: pointer;
 }
 
+/* Focus controls */
+.focus-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.focus-controls input[type="text"] {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.focus-controls input[type="text"]::placeholder {
+    color: var(--text-muted);
+}
+
+.focus-controls select {
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
 /* Main content */
 .main {
     display: flex;

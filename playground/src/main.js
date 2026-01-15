@@ -46,7 +46,14 @@ const nativeDslLanguage = {
         'effort', 'duration', 'depends', 'assign', 'allocate',
         'start', 'end', 'priority', 'complete', 'capacity',
         'rate', 'efficiency', 'working_hours', 'working_days',
-        'holiday', 'must_start_on', 'must_finish_on'
+        'holiday', 'must_start_on', 'must_finish_on',
+        // RFC-0008: Progress-aware scheduling
+        'remaining', 'status_date',
+        // RFC-0004: Progressive resource refinement
+        'profile', 'trait', 'specializes', 'skills',
+        // Extended task/resource attributes
+        'tag', 'note', 'cost', 'payment', 'leave', 'role', 'email',
+        'currency', 'timezone', 'summary', 'constraint'
     ],
 
     typeKeywords: ['true', 'false'],
@@ -356,12 +363,23 @@ function runSchedule() {
         monaco.editor.setModelLanguage(editor.getModel(), format === 'native' ? 'proj' : 'tjp');
     }
     const leveling = document.getElementById('leveling-checkbox').checked;
+    const focusInput = document.getElementById('focus-input').value.trim();
+    const contextDepth = parseInt(document.getElementById('context-depth-select').value, 10);
 
     setStatus('Scheduling...', '');
 
     playground.set_resource_leveling(leveling);
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     playground.set_dark_theme(isDark);
+
+    // Apply focus view settings
+    if (focusInput) {
+        const patterns = focusInput.split(',').map(p => p.trim()).filter(p => p);
+        playground.set_focus(patterns);
+        playground.set_context_depth(contextDepth);
+    } else {
+        playground.clear_focus();
+    }
 
     try {
         const result = playground.schedule(input, format);
@@ -475,16 +493,31 @@ function setupEventListeners() {
         if (!value) return;
 
         let code = '';
-        if (value === 'native') {
-            code = wasmModule ? wasmModule.Playground.get_example_native() : getDefaultCode();
-            document.getElementById('format-select').value = 'native';
-            monaco.editor.setModelLanguage(editor.getModel(), 'proj');
-        } else if (value === 'tjp') {
-            code = wasmModule ? wasmModule.Playground.get_example_tjp() : '';
-            document.getElementById('format-select').value = 'tjp';
-            monaco.editor.setModelLanguage(editor.getModel(), 'tjp');
+        let format = 'native';
+
+        switch (value) {
+            case 'native':
+                code = wasmModule ? wasmModule.Playground.get_example_native() : getDefaultCode();
+                format = 'native';
+                break;
+            case 'tjp':
+                code = wasmModule ? wasmModule.Playground.get_example_tjp() : '';
+                format = 'tjp';
+                break;
+            case 'hierarchical':
+                code = wasmModule ? wasmModule.Playground.get_example_hierarchical() : '';
+                format = 'native';
+                break;
+            case 'progress':
+                code = wasmModule ? wasmModule.Playground.get_example_progress() : '';
+                format = 'native';
+                break;
+            default:
+                return;
         }
 
+        document.getElementById('format-select').value = format;
+        monaco.editor.setModelLanguage(editor.getModel(), format === 'native' ? 'proj' : 'tjp');
         editor.setValue(code);
         e.target.value = ''; // Reset selector
     });
@@ -502,7 +535,7 @@ function setupEventListeners() {
 
     // Download buttons
     document.getElementById('download-proj-btn').addEventListener('click', downloadProject);
-    document.getElementById('download-html-btn').addEventListener('click', downloadHtml);
+    document.getElementById('export-btn').addEventListener('click', exportGantt);
 
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -642,14 +675,38 @@ function downloadProject() {
     downloadFile(`project.${ext}`, code, 'text/plain');
 }
 
-function downloadHtml() {
+function exportGantt() {
     if (!playground || !playground.has_schedule()) {
         setStatus('No schedule to export', 'error');
         return;
     }
 
-    const html = playground.render_gantt();
-    downloadFile('gantt.html', html, 'text/html');
+    const format = document.getElementById('export-format-select').value;
+    let content, filename, mimeType;
+
+    switch (format) {
+        case 'html':
+            content = playground.render_gantt();
+            filename = 'gantt.html';
+            mimeType = 'text/html';
+            break;
+        case 'mermaid':
+            content = playground.render_mermaid();
+            filename = 'gantt.mmd';
+            mimeType = 'text/plain';
+            break;
+        case 'plantuml':
+            content = playground.render_plantuml();
+            filename = 'gantt.puml';
+            mimeType = 'text/plain';
+            break;
+        default:
+            setStatus('Unknown export format', 'error');
+            return;
+    }
+
+    downloadFile(filename, content, mimeType);
+    setStatus(`Exported ${format.toUpperCase()} successfully`, 'success');
 }
 
 function downloadFile(filename, content, mimeType) {

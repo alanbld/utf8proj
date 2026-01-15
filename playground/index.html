@@ -27,12 +27,22 @@
                     <input type="checkbox" id="leveling-checkbox">
                     Resource Leveling
                 </label>
+                <div class="focus-controls" title="Focus view (RFC-0006)">
+                    <input type="text" id="focus-input" placeholder="Focus: task ID or name" style="width: 140px;">
+                    <select id="context-depth-select" title="Context depth">
+                        <option value="0">Hide non-focus</option>
+                        <option value="1" selected>1 level context</option>
+                        <option value="2">2 levels context</option>
+                    </select>
+                </div>
             </div>
             <div class="header-right">
                 <select id="example-select" title="Load example">
                     <option value="">Load Example...</option>
-                    <option value="native">Software Project (Native)</option>
-                    <option value="tjp">Software Project (TJP)</option>
+                    <option value="native">CRM Migration (Native)</option>
+                    <option value="tjp">Software Release (TJP)</option>
+                    <option value="hierarchical">Hierarchical Tasks</option>
+                    <option value="progress">Progress Tracking (RFC-0008)</option>
                 </select>
                 <button id="share-btn" class="btn" title="Share project">Share</button>
                 <button id="theme-btn" class="btn" title="Toggle dark mode">🌙</button>
@@ -64,7 +74,12 @@
                         <button class="tab" data-tab="json">JSON</button>
                     </div>
                     <div class="panel-actions">
-                        <button id="download-html-btn" class="btn-small" title="Download as HTML">Export HTML</button>
+                        <select id="export-format-select" class="btn-small" title="Export format">
+                            <option value="html">HTML</option>
+                            <option value="mermaid">Mermaid</option>
+                            <option value="plantuml">PlantUML</option>
+                        </select>
+                        <button id="export-btn" class="btn-small" title="Export Gantt chart">Export</button>
                     </div>
                 </div>
                 <div id="preview-gantt" class="preview-container active">
