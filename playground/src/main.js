@@ -602,15 +602,20 @@ function showShareModal() {
     const format = document.getElementById('format-select').value;
     const leveling = document.getElementById('leveling-checkbox').checked;
 
-    // Compress and encode the project
+    // Compress and encode the project using LZ-string
     const data = {
         code,
         format,
         leveling
     };
 
-    const encoded = btoa(encodeURIComponent(JSON.stringify(data)));
-    const url = `${window.location.origin}${window.location.pathname}?p=${encoded}`;
+    const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(data));
+    const url = `${window.location.origin}${window.location.pathname}?p=${compressed}`;
+
+    // Check URL length (browsers typically support 2000-8000 chars)
+    if (url.length > 8000) {
+        setStatus(`Warning: URL is ${url.length} chars (may not work in all browsers)`, 'error');
+    }
 
     document.getElementById('share-url').value = url;
     document.getElementById('share-modal').classList.remove('hidden');
@@ -640,7 +645,16 @@ function loadFromUrl() {
 
     if (encoded) {
         try {
-            const data = JSON.parse(decodeURIComponent(atob(encoded)));
+            let data;
+
+            // Try LZ-string decompression first (new format)
+            const decompressed = LZString.decompressFromEncodedURIComponent(encoded);
+            if (decompressed) {
+                data = JSON.parse(decompressed);
+            } else {
+                // Fallback to old base64 encoding for backward compatibility
+                data = JSON.parse(decodeURIComponent(atob(encoded)));
+            }
 
             if (data.code) {
                 editor.setValue(data.code);
