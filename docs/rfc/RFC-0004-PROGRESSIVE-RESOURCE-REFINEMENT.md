@@ -1,7 +1,7 @@
 # RFC-0004: Progressive Resource Refinement & Cost Ranges
 
 **RFC Number:** 0004
-**Status**: Draft (Design Complete)
+**Status**: Implemented
 **Authors**: utf8proj contributors (via ChatGPT PERT/CPM Specialist + Claude Code)
 **Created**: 2026-01-05
 **Updated**: 2026-01-05
@@ -626,33 +626,73 @@ resource alice {
 
 ---
 
-## 12. Implementation Phases
+## 12. Implementation Status (2026-01-15)
 
-### Phase 1: Grammar & Parser (1-2 weeks)
+### Completed ✅
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| Grammar: `resource_profile` | ✅ Done | `grammar.pest:118-143` |
+| Grammar: `trait` | ✅ Done | `grammar.pest:144-156` |
+| Grammar: quantified assignment (`* N`) | ✅ Done | `grammar.pest:260-270` |
+| Core type: `ResourceProfile` | ✅ Done | `utf8proj-core/lib.rs:297` |
+| Core type: `Trait` | ✅ Done | `utf8proj-core/lib.rs:143` |
+| Core type: `RateRange` | ✅ Done | `utf8proj-core/lib.rs:184` |
+| Core type: `CostRange` | ✅ Done | `utf8proj-core/lib.rs` |
+| Parser: `resource_profile` | ✅ Done | `native/mod.rs:563` |
+| Parser: `trait` | ✅ Done | `native/mod.rs:516` |
+| Specialization chain traversal | ✅ Done | `resolve_profile_rate()` |
+| Trait multiplier application | ✅ Done | `resolve_profile_rate()` |
+| E001: Circular specialization | ✅ Done | `check_circular_specialization()` |
+| E002: Profile without rate | ✅ Done | `check_profiles_without_rate()` |
+| W003: Unknown trait | ✅ Done | `analyze_project()` |
+| H001: Mixed abstraction | ✅ Done | `analyze_project()` |
+| H002: Unused profile | ✅ Done | `analyze_project()` |
+| H003: Unused trait | ✅ Done | `analyze_project()` |
+| `has_abstract_assignments` flag | ✅ Done | `ScheduledTask` |
+| `is_abstract` flag | ✅ Done | `Assignment` |
+
+### Remaining Work 🔧
+
+| Component | Priority | Description |
+|-----------|----------|-------------|
+| R102: Inverted rate range | P0 | Error if min > max in RateRange |
+| R104: Unknown profile reference | P0 | Error if `specializes:` references non-existent profile |
+| R012: Trait multiplier stack | P1 | Warning if compound multiplier > 2.0 |
+| Cost range calculation | P1 | Populate `CostRange` in `ScheduledTask` during scheduling |
+| Cost range propagation | P1 | Roll up task costs to project `total_cost_range` |
+| CLI cost output | P2 | Show min/expected/max in `schedule` command |
+| Excel cost columns | P2 | Add Min Cost, Expected, Max Cost columns |
+| `cost_policy` setting | P3 | Project-level setting (midpoint/pessimistic/optimistic) |
+| Threshold escalation | P3 | `abstract_warning_threshold` for R001 → W001 |
+
+### Original Phase Plan (Reference)
+
+#### Phase 1: Grammar & Parser ✅ COMPLETE
 - Add `resource_profile`, `trait` to pest grammar
-- Parse into Resource struct with `is_abstract` flag
+- Parse into ResourceProfile struct
 - Parse trait definitions
-- No semantic validation yet
 
-### Phase 2: Semantic Model (1-2 weeks)
-- Build refinement lattice
-- Validate specialization chains (no cycles, single parent)
-- Compute effective rates from profiles + traits (multiplicative)
-- Validate trait references
+#### Phase 2: Semantic Model ✅ MOSTLY COMPLETE
+- Build refinement lattice ✅
+- Validate specialization chains (no cycles, single parent) ✅
+- Compute effective rates from profiles + traits (multiplicative) ✅
+- Validate trait references ✅
+- **Remaining:** R102, R104, R012
 
-### Phase 3: Cost Propagation (1 week)
-- Extend Schedule with cost ranges (min/expected/max)
+#### Phase 3: Cost Propagation 🔧 IN PROGRESS
+- Extend Schedule with cost ranges (min/expected/max) - types exist, calculation needed
 - Propagate ranges through task hierarchy
 - Add cost fields to JSON/Excel output
 - Implement cost_policy setting
 
-### Phase 4: Diagnostics (1 week)
-- Implement diagnostic catalog (R001-R104)
-- Integrate with CLI check command
-- Implement --strict mode
-- Prepare for LSP integration
+#### Phase 4: Diagnostics 🔧 PARTIAL
+- Implement diagnostic catalog (R001-R104) - mostly done
+- Integrate with CLI check command ✅
+- Implement --strict mode ✅
+- Prepare for LSP integration ✅
 
-### Phase 5: LSP Integration (2-3 weeks)
+#### Phase 5: LSP Integration 📋 DEFERRED
 - Hover for profile chains and cost ranges
 - Autocomplete for profiles/traits
 - Quick fixes for common issues

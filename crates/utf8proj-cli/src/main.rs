@@ -932,6 +932,33 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         schedule.spi, spi_status, spi_icon,
         schedule.earned_value, schedule.planned_value
     ));
+
+    // Cost range (RFC-0004: Progressive Resource Refinement)
+    if let Some(ref cost_range) = schedule.total_cost_range {
+        let spread_pct = cost_range.spread_percent();
+        let cost_status = if spread_pct < 10.0 {
+            ("narrow", "🟢")
+        } else if spread_pct < 50.0 {
+            ("moderate", "🟡")
+        } else {
+            ("wide", "🔴")
+        };
+        output.push_str(&format!(
+            "Cost: {} {} (min: {} / expected: {} / max: {}) {}\n",
+            cost_range.expected,
+            cost_range.currency,
+            cost_range.min,
+            cost_range.expected,
+            cost_range.max,
+            cost_status.1
+        ));
+        if spread_pct > 0.0 {
+            output.push_str(&format!(
+                "      spread: {:.1}% ({} range)\n",
+                spread_pct, cost_status.0
+            ));
+        }
+    }
     output.push('\n');
 
     // Critical path

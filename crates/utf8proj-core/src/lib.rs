@@ -1684,6 +1684,10 @@ pub enum DiagnosticCode {
     E002ProfileWithoutRate,
     /// Task constraint cannot be satisfied (ES > LS)
     E003InfeasibleConstraint,
+    /// Rate range is inverted (min > max) - RFC-0004 R102
+    R102InvertedRateRange,
+    /// Unknown profile referenced in specialization - RFC-0004 R104
+    R104UnknownProfile,
 
     // Calendar Errors (C001-C009)
     /// Calendar has no working hours defined
@@ -1698,6 +1702,8 @@ pub enum DiagnosticCode {
     W002WideCostRange,
     /// Profile references undefined trait
     W003UnknownTrait,
+    /// Trait multiplier stack exceeds 2.0 - RFC-0004 R012
+    R012TraitMultiplierStack,
     /// Resource leveling could not fully resolve all conflicts
     W004ApproximateLeveling,
     /// Task constraint reduces slack to zero (now on critical path)
@@ -1771,11 +1777,14 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => "E001",
             DiagnosticCode::E002ProfileWithoutRate => "E002",
             DiagnosticCode::E003InfeasibleConstraint => "E003",
+            DiagnosticCode::R102InvertedRateRange => "R102",
+            DiagnosticCode::R104UnknownProfile => "R104",
             DiagnosticCode::C001ZeroWorkingHours => "C001",
             DiagnosticCode::C002NoWorkingDays => "C002",
             DiagnosticCode::W001AbstractAssignment => "W001",
             DiagnosticCode::W002WideCostRange => "W002",
             DiagnosticCode::W003UnknownTrait => "W003",
+            DiagnosticCode::R012TraitMultiplierStack => "R012",
             DiagnosticCode::W004ApproximateLeveling => "W004",
             DiagnosticCode::W005ConstraintZeroSlack => "W005",
             DiagnosticCode::W006ScheduleVariance => "W006",
@@ -1811,11 +1820,14 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => Severity::Error,
             DiagnosticCode::E002ProfileWithoutRate => Severity::Warning, // Error in strict mode
             DiagnosticCode::E003InfeasibleConstraint => Severity::Error,
+            DiagnosticCode::R102InvertedRateRange => Severity::Error,
+            DiagnosticCode::R104UnknownProfile => Severity::Error,
             DiagnosticCode::C001ZeroWorkingHours => Severity::Error,
             DiagnosticCode::C002NoWorkingDays => Severity::Error,
             DiagnosticCode::W001AbstractAssignment => Severity::Warning,
             DiagnosticCode::W002WideCostRange => Severity::Warning,
             DiagnosticCode::W003UnknownTrait => Severity::Warning,
+            DiagnosticCode::R012TraitMultiplierStack => Severity::Warning,
             DiagnosticCode::W004ApproximateLeveling => Severity::Warning,
             DiagnosticCode::W005ConstraintZeroSlack => Severity::Warning,
             DiagnosticCode::W006ScheduleVariance => Severity::Warning,
@@ -1856,12 +1868,15 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => 0,
             DiagnosticCode::E002ProfileWithoutRate => 1,
             DiagnosticCode::E003InfeasibleConstraint => 2,
+            DiagnosticCode::R102InvertedRateRange => 3,
+            DiagnosticCode::R104UnknownProfile => 4,
             // Calendar errors
-            DiagnosticCode::C001ZeroWorkingHours => 3,
-            DiagnosticCode::C002NoWorkingDays => 4,
+            DiagnosticCode::C001ZeroWorkingHours => 5,
+            DiagnosticCode::C002NoWorkingDays => 6,
             // Cost-related warnings
             DiagnosticCode::W002WideCostRange => 10,
-            DiagnosticCode::W004ApproximateLeveling => 11,
+            DiagnosticCode::R012TraitMultiplierStack => 11,
+            DiagnosticCode::W004ApproximateLeveling => 12,
             // Constraint warnings
             DiagnosticCode::W005ConstraintZeroSlack => 12,
             // Schedule variance warnings
@@ -3307,9 +3322,12 @@ mod tests {
         // Errors have lowest priority (emitted first)
         assert!(DiagnosticCode::E002ProfileWithoutRate.ordering_priority() < 10);
         assert!(DiagnosticCode::E003InfeasibleConstraint.ordering_priority() < 10);
+        assert!(DiagnosticCode::R102InvertedRateRange.ordering_priority() < 10);
+        assert!(DiagnosticCode::R104UnknownProfile.ordering_priority() < 10);
         // Cost warnings
         assert_eq!(DiagnosticCode::W002WideCostRange.ordering_priority(), 10);
-        assert_eq!(DiagnosticCode::W004ApproximateLeveling.ordering_priority(), 11);
+        assert_eq!(DiagnosticCode::R012TraitMultiplierStack.ordering_priority(), 11);
+        assert_eq!(DiagnosticCode::W004ApproximateLeveling.ordering_priority(), 12);
         assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.ordering_priority(), 12);
         assert_eq!(DiagnosticCode::W006ScheduleVariance.ordering_priority(), 13);
         assert_eq!(DiagnosticCode::W007UnresolvedDependency.ordering_priority(), 14);

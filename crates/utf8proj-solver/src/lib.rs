@@ -29,8 +29,8 @@ use std::collections::{HashMap, VecDeque};
 
 use utf8proj_core::{
     Assignment, Calendar, CostRange, DependencyType, Duration, Explanation, FeasibilityResult,
-    Money, Project, RateRange, ResourceProfile, Schedule, ScheduleError, ScheduledTask, Scheduler,
-    SchedulingMode, Task, TaskConstraint, TaskId, TaskStatus,
+    Money, Project, RateRange, ResourceProfile, ResourceRate, Schedule, ScheduleError, ScheduledTask,
+    Scheduler, SchedulingMode, Task, TaskConstraint, TaskId, TaskStatus,
     // Diagnostics
     Diagnostic, DiagnosticCode, DiagnosticEmitter,
 };
@@ -1004,6 +1004,15 @@ pub fn analyze_project(
     // E001: Circular specialization
     check_circular_specialization(project, config, emitter);
 
+    // R102: Inverted rate ranges (min > max)
+    check_inverted_rate_ranges(project, config, emitter);
+
+    // R104: Unknown profile references in specialization
+    check_unknown_profile_references(project, config, emitter);
+
+    // R012: Trait multiplier stack > 2.0
+    check_trait_multiplier_stack(project, config, emitter);
+
     // Calendar diagnostics (C001, C002, C010, C011, C020-C023)
     check_calendars(project, schedule, config, emitter);
 
@@ -1441,6 +1450,102 @@ fn detect_specialization_cycle(profile: &ResourceProfile, project: &Project) -> 
     }
 
     None
+}
+
+/// R102: Check for inverted rate ranges (min > max)
+fn check_inverted_rate_ranges(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for profile in &project.profiles {
+        if let Some(ResourceRate::Range(ref range)) = profile.rate {
+            if range.min > range.max {
+                emitter.emit(
+                    Diagnostic::error(
+                        DiagnosticCode::R102InvertedRateRange,
+                        format!(
+                            "profile '{}' has inverted rate range: min ({}) > max ({})",
+                            profile.id, range.min, range.max
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("rate range min must be less than or equal to max")
+                    .with_hint("swap the min and max values"),
+                );
+            }
+        }
+    }
+}
+
+/// R104: Check for unknown profile references in specialization
+fn check_unknown_profile_references(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let defined_profiles: std::collections::HashSet<_> =
+        project.profiles.iter().map(|p| p.id.as_str()).collect();
+
+    for profile in &project.profiles {
+        if let Some(ref parent_id) = profile.specializes {
+            if !defined_profiles.contains(parent_id.as_str()) {
+                emitter.emit(
+                    Diagnostic::error(
+                        DiagnosticCode::R104UnknownProfile,
+                        format!(
+                            "profile '{}' specializes unknown profile '{}'",
+                            profile.id, parent_id
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("specialized profile must be defined")
+                    .with_hint(format!("define profile '{}' or remove the specialization", parent_id)),
+                );
+            }
+        }
+    }
+}
+
+/// R012: Check for trait multiplier stack exceeding threshold (> 2.0)
+fn check_trait_multiplier_stack(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    const MULTIPLIER_THRESHOLD: f64 = 2.0;
+
+    for profile in &project.profiles {
+        if profile.traits.is_empty() {
+            continue;
+        }
+
+        // Calculate compound multiplier
+        let mut compound_multiplier = 1.0;
+        let mut applied_traits = Vec::new();
+
+        for trait_id in &profile.traits {
+            if let Some(t) = project.traits.iter().find(|t| t.id == *trait_id) {
+                compound_multiplier *= t.rate_multiplier;
+                applied_traits.push(format!("{}(×{:.2})", trait_id, t.rate_multiplier));
+            }
+        }
+
+        if compound_multiplier > MULTIPLIER_THRESHOLD {
+            emitter.emit(
+                Diagnostic::warning(
+                    DiagnosticCode::R012TraitMultiplierStack,
+                    format!(
+                        "profile '{}' has trait multiplier stack {:.2} (exceeds {:.1})",
+                        profile.id, compound_multiplier, MULTIPLIER_THRESHOLD
+                    ),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_note(format!("applied traits: {}", applied_traits.join(" × ")))
+                .with_hint("consider reducing trait multipliers or removing some traits"),
+            );
+        }
+    }
 }
 
 /// W003: Check for unknown trait references
@@ -5420,5 +5525,189 @@ mod tests {
 
         let mode = classify_scheduling_mode(&project);
         assert_eq!(mode, SchedulingMode::DurationBased);
+    }
+
+    // =========================================================================
+    // RFC-0004: Progressive Resource Refinement - TDD Tests
+    // =========================================================================
+
+    #[test]
+    fn analyze_detects_inverted_rate_range() {
+        // R102: Rate range is inverted (min > max)
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Inverted Rate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // Inverted rate range: min (500) > max (100)
+        project.profiles.push(
+            ResourceProfile::new("bad_profile")
+                .rate_range(RateRange::new(Decimal::from(500), Decimal::from(100))),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            "Expected R102 diagnostic for inverted rate range"
+        );
+        assert!(emitter.has_errors(), "Inverted rate range should be an error");
+    }
+
+    #[test]
+    fn analyze_detects_unknown_profile_reference() {
+        // R104: Unknown profile referenced in specialization
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Unknown Profile Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        // Profile that specializes a non-existent profile
+        project.profiles.push(
+            ResourceProfile::new("orphan_profile")
+                .specializes("nonexistent_parent")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R104UnknownProfile),
+            "Expected R104 diagnostic for unknown profile reference"
+        );
+        assert!(emitter.has_errors(), "Unknown profile reference should be an error");
+    }
+
+    #[test]
+    fn analyze_detects_trait_multiplier_stack_exceeds_threshold() {
+        // R012: Trait multiplier stack exceeds 2.0
+        use utf8proj_core::{CollectingEmitter, Trait};
+
+        let mut project = Project::new("High Multiplier Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Define traits with high multipliers
+        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
+        project.traits.push(Trait::new("contractor").rate_multiplier(1.4));
+
+        // Profile with both traits: 1.5 × 1.4 = 2.1 > 2.0
+        project.profiles.push(
+            ResourceProfile::new("expensive_dev")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200)))
+                .with_trait("senior")
+                .with_trait("contractor"),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
+            "Expected R012 diagnostic for trait multiplier stack > 2.0"
+        );
+    }
+
+    #[test]
+    fn analyze_no_warning_for_acceptable_trait_multiplier_stack() {
+        // No R012 warning when multiplier stack is under 2.0
+        use utf8proj_core::{CollectingEmitter, Trait};
+
+        let mut project = Project::new("Acceptable Multiplier Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Define traits with moderate multipliers
+        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project.traits.push(Trait::new("experienced").rate_multiplier(1.2));
+
+        // Profile with both traits: 1.3 × 1.2 = 1.56 < 2.0
+        project.profiles.push(
+            ResourceProfile::new("reasonable_dev")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200)))
+                .with_trait("senior")
+                .with_trait("experienced"),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
+            "Should not emit R012 when multiplier stack is under 2.0"
+        );
+    }
+
+    #[test]
+    fn analyze_valid_rate_range_no_error() {
+        // Valid rate range (min < max) should not trigger R102
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Valid Rate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("good_profile")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(500))),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            "Valid rate range should not trigger R102"
+        );
+    }
+
+    #[test]
+    fn analyze_equal_rate_range_no_error() {
+        // Equal min/max (collapsed range) should not trigger R102
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Collapsed Rate Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("fixed_rate_profile")
+                .rate_range(RateRange::new(Decimal::from(500), Decimal::from(500))),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            "Collapsed (equal) rate range should not trigger R102"
+        );
+    }
+
+    #[test]
+    fn analyze_valid_profile_specialization_no_error() {
+        // Valid specialization chain should not trigger R104
+        use utf8proj_core::CollectingEmitter;
+
+        let mut project = Project::new("Valid Specialization Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.profiles.push(
+            ResourceProfile::new("parent")
+                .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
+        );
+        project.profiles.push(
+            ResourceProfile::new("child")
+                .specializes("parent")
+                .rate_range(RateRange::new(Decimal::from(150), Decimal::from(200))),
+        );
+
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, None, &config, &mut emitter);
+
+        assert!(
+            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R104UnknownProfile),
+            "Valid specialization should not trigger R104"
+        );
     }
 }
