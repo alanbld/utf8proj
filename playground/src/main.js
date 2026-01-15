@@ -610,11 +610,12 @@ function showShareModal() {
     };
 
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(data));
-    const url = `${window.location.origin}${window.location.pathname}?p=${compressed}`;
+    // Use fragment (#) instead of query param (?) to avoid server header limits
+    const url = `${window.location.origin}${window.location.pathname}#p=${compressed}`;
 
-    // Check URL length (browsers typically support 2000-8000 chars)
-    if (url.length > 8000) {
-        setStatus(`Warning: URL is ${url.length} chars (may not work in all browsers)`, 'error');
+    // Check URL length (browsers typically support up to ~64KB for fragments)
+    if (url.length > 64000) {
+        setStatus(`Warning: URL is ${url.length} chars (may be too long)`, 'error');
     }
 
     document.getElementById('share-url').value = url;
@@ -640,8 +641,20 @@ async function copyShareUrl() {
 }
 
 function loadFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    const encoded = params.get('p');
+    // Check fragment first (new format), then query param (backward compat)
+    let encoded = null;
+
+    // Try fragment (#p=...)
+    const hash = window.location.hash;
+    if (hash.startsWith('#p=')) {
+        encoded = hash.substring(3);
+    }
+
+    // Fallback to query param (?p=...)
+    if (!encoded) {
+        const params = new URLSearchParams(window.location.search);
+        encoded = params.get('p');
+    }
 
     if (encoded) {
         try {
