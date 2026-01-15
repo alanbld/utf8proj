@@ -6,14 +6,22 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 
 | RFC | Title | Status | Created |
 |-----|-------|--------|---------|
-| [RFC-0001](RFC-0001-ARCHITECTURE.md) | Architecture - Project Scheduling Engine | Implemented | 2026-01-01 |
-| [RFC-0002](RFC-0002-CPM-CORRECTNESS.md) | CPM Correctness & Strategic Evolution | Implemented | 2026-01-03 |
-| [RFC-0003](RFC-0003-CONTAINER-DEPENDENCY-SEMANTICS.md) | Container Dependency Semantics | Approved | 2026-01-06 |
-| [RFC-0004](RFC-0004-PROGRESSIVE-RESOURCE-REFINEMENT.md) | Progressive Resource Refinement & Cost Ranges | Draft | 2026-01-05 |
-| [RFC-0005](RFC-0005-RESOURCE-LEVELING-STATUS.md) | Resource Leveling | Phase 1 Complete | 2026-01-09 |
-| [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | Implemented | 2026-01-10 |
-| [RFC-0007](RFC-0007-WASM-PLAYGROUND-AI-INTEGRATION.md) | WASM Playground with AI-Assisted Editing | Draft | 2026-01-15 |
-| [RFC-0008](RFC-0008-PROGRESS-AWARE-CPM.md) | Progress-Aware CPM (Phase 1) | Implementation Ready | 2026-01-14 |
+| [RFC-0001](RFC-0001-ARCHITECTURE.md) | Architecture - Project Scheduling Engine | ✅ Implemented | 2026-01-01 |
+| [RFC-0002](RFC-0002-CPM-CORRECTNESS.md) | CPM Correctness & Strategic Evolution | ✅ Implemented | 2026-01-03 |
+| [RFC-0003](RFC-0003-CONTAINER-DEPENDENCY-SEMANTICS.md) | Container Dependency Semantics | ✅ Implemented | 2026-01-06 |
+| [RFC-0004](RFC-0004-PROGRESSIVE-RESOURCE-REFINEMENT.md) | Progressive Resource Refinement & Cost Ranges | ⚠️ Partial (Grammar) | 2026-01-05 |
+| [RFC-0005](RFC-0005-RESOURCE-LEVELING-STATUS.md) | Resource Leveling | ⚠️ Phase 1 Only | 2026-01-09 |
+| [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | ✅ Implemented | 2026-01-15 |
+| [RFC-0007](RFC-0007-WASM-PLAYGROUND-AI-INTEGRATION.md) | WASM Playground with AI-Assisted Editing | 📝 Draft | 2026-01-15 |
+| [RFC-0008](RFC-0008-PROGRESS-AWARE-CPM.md) | Progress-Aware CPM | ✅ Implemented | 2026-01-15 |
+
+## Implementation Summary
+
+| Category | Count | RFCs |
+|----------|-------|------|
+| ✅ Fully Implemented | 5 | 0001, 0002, 0003, 0006, 0008 |
+| ⚠️ Partially Implemented | 2 | 0004 (grammar only), 0005 (Phase 1) |
+| 📝 Design Only | 1 | 0007 |
 
 ## Status Definitions
 
