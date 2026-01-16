@@ -1,6 +1,7 @@
 name: Playground E2E Tests
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'playground/**'
