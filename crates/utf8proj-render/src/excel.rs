@@ -748,6 +748,9 @@ impl ExcelRenderer {
             }
         }
 
+        // Calculate effective weeks (applies auto-fit if enabled)
+        let effective_weeks = self.get_effective_weeks(schedule, project_start);
+
         let sheet = workbook.add_worksheet();
         sheet
             .set_name("Schedule")
@@ -769,7 +772,7 @@ impl ExcelRenderer {
         };
 
         // Week column headers
-        for week in 1..=self.schedule_weeks {
+        for week in 1..=effective_weeks {
             let col = week_start_col + (week - 1) as u16;
             sheet
                 .write_with_format(0, col, week as f64, &formats.week_header)
@@ -902,14 +905,14 @@ impl ExcelRenderer {
                         &predecessor, dep_type, lag, duration_days,
                         start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                         formats, week_start_col, effort_col, start_col, end_col,
-                        last_data_row, is_odd,
+                        last_data_row, is_odd, effective_weeks,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
                         sheet, row, &task_name, *level, "", duration_days,
                         start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                         formats, week_start_col, effort_col, start_col, end_col,
-                        is_odd,
+                        is_odd, effective_weeks,
                     )?;
                 }
                 row += 1;
@@ -938,14 +941,14 @@ impl ExcelRenderer {
                             &pred, dtype, lag_val, effort,
                             start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                             formats, week_start_col, effort_col, start_col, end_col,
-                            last_data_row, is_odd,
+                            last_data_row, is_odd, effective_weeks,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
                             sheet, row, &task_name, *level, &assignment.resource_id, effort,
                             start_week, end_week, scheduled.is_critical, is_milestone, is_container,
                             formats, week_start_col, effort_col, start_col, end_col,
-                            is_odd,
+                            is_odd, effective_weeks,
                         )?;
                     }
                     first_assignment = false;
@@ -955,12 +958,12 @@ impl ExcelRenderer {
         }
 
         // Total row for each week column
-        self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats)?;
+        self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats, effective_weeks)?;
 
         // Add conditional formatting for week columns: blue fill when numeric value > 0
         // Uses ISNUMBER check to exclude milestones ("◆") and empty cells ("")
         // This enables dynamic what-if analysis - colors update when effort/dependencies change
-        let last_week_col = week_start_col + self.schedule_weeks as u16 - 1;
+        let last_week_col = week_start_col + effective_weeks as u16 - 1;
         let last_data_row_for_cf = row - 1; // Exclude totals row from conditional formatting
         if last_data_row_for_cf >= 1 {
             // Create format for filled cells (blue background for Gantt bar)
@@ -1550,6 +1553,7 @@ impl ExcelRenderer {
         start_col: u16,
         end_col: u16,
         is_odd: bool,
+        schedule_weeks: u32, // Effective weeks (auto-fit applied)
     ) -> Result<(), RenderError> {
         // Select formats: milestones use gold, otherwise alternate white/blue per task
         let (text_fmt, number_fmt) = if is_milestone {
@@ -1599,7 +1603,7 @@ impl ExcelRenderer {
         // Week columns (M column is at index 2 for simple layout)
         let milestone_col = 2u16;
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days, schedule_weeks)?;
 
         Ok(())
     }
@@ -1630,6 +1634,7 @@ impl ExcelRenderer {
         end_col: u16,
         last_data_row: u32,
         is_odd: bool,
+        schedule_weeks: u32, // Effective weeks (auto-fit applied)
     ) -> Result<(), RenderError> {
         let excel_row = row + 1; // Excel is 1-indexed
 
@@ -1737,7 +1742,7 @@ impl ExcelRenderer {
         // Week columns (M column is at index 3 for deps layout with Lvl)
         let milestone_col = 3u16;
         self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days)?;
+            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days, schedule_weeks)?;
 
         Ok(())
     }
@@ -1766,6 +1771,7 @@ impl ExcelRenderer {
         start_col: u16,
         end_col: u16,
         person_days: f64,
+        schedule_weeks: u32, // Effective weeks (auto-fit applied)
     ) -> Result<(), RenderError> {
         let excel_row = row + 1;
         let weeks_span = (end_week.saturating_sub(start_week) + 1).max(1);
@@ -1786,7 +1792,7 @@ impl ExcelRenderer {
             &formats.gantt_even_empty
         };
 
-        for week in 1..=self.schedule_weeks {
+        for week in 1..=schedule_weeks {
             let col = week_start_col + (week - 1) as u16;
             let in_range = week >= start_week && week <= end_week;
             let col_letter = Self::col_to_letter(col);
@@ -1856,6 +1862,7 @@ impl ExcelRenderer {
         week_start_col: u16,
         effort_col: u16,
         formats: &ExcelFormats,
+        schedule_weeks: u32, // Effective weeks (auto-fit applied)
     ) -> Result<(), RenderError> {
         if row <= 1 {
             return Ok(());
@@ -1889,7 +1896,7 @@ impl ExcelRenderer {
         }
 
         // Sum formulas for each week column
-        for week in 0..self.schedule_weeks {
+        for week in 0..schedule_weeks {
             let week_col = week_start_col + week as u16;
             if self.use_formulas {
                 let col_letter = Self::col_to_letter(week_col);
