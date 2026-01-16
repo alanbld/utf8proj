@@ -717,6 +717,16 @@ function exportGantt() {
             filename = 'gantt.html';
             mimeType = 'text/html';
             break;
+        case 'xlsx':
+            // Excel export returns binary data (Uint8Array)
+            const xlsxBytes = playground.render_xlsx();
+            if (xlsxBytes.length === 0) {
+                setStatus('Failed to generate Excel file', 'error');
+                return;
+            }
+            downloadBinaryFile('project.xlsx', xlsxBytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            setStatus('Exported Excel successfully', 'success');
+            return;
         case 'mermaid':
             content = playground.render_mermaid();
             filename = 'gantt.mmd';
@@ -738,6 +748,19 @@ function exportGantt() {
 
 function downloadFile(filename, content, mimeType) {
     const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function downloadBinaryFile(filename, bytes, mimeType) {
+    // Handle Uint8Array from WASM
+    const blob = new Blob([bytes], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

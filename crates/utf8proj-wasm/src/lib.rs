@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 
 use utf8proj_core::{CollectingEmitter, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
-use utf8proj_render::{HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
+use utf8proj_render::{ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
 use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
 
 /// Initialize panic hook for better error messages in console
@@ -506,6 +506,20 @@ impl Playground {
                 renderer.render(project, schedule).unwrap_or_default()
             }
             _ => String::new(),
+        }
+    }
+
+    /// Render as Excel workbook (XLSX)
+    ///
+    /// # Returns
+    /// Raw bytes of the XLSX file as a Vec<u8>, or empty if no schedule
+    pub fn render_xlsx(&self) -> Vec<u8> {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                let renderer = ExcelRenderer::new();
+                renderer.render(project, schedule).unwrap_or_default()
+            }
+            _ => Vec::new(),
         }
     }
 

@@ -1,7 +1,7 @@
 # utf8proj v1.0 Release Checklist
 
 **Target:** Production-ready release with API stability commitment
-**Current:** v0.2.0
+**Current:** v0.9.0
 **Last Updated:** 2026-01-16
 
 ---
@@ -11,7 +11,7 @@
 | Category | Progress | Status |
 |----------|----------|--------|
 | Core Features | 95% | ✅ Ready |
-| Playground | 85% | 🔄 Near ready |
+| Playground | 95% | ✅ Ready |
 | Documentation | 60% | 🔄 In progress |
 | Testing | 86% | 🔄 Near ready |
 | Polish | 70% | 🔄 In progress |
@@ -49,18 +49,19 @@ All core scheduling features are implemented and tested:
 - [x] Syntax reference page
 - [x] GitHub link
 
-### 2.2 Pending for v1.0
-- [ ] **Excel export in browser** (rust_xlsxwriter has WASM support)
-  - Add `wasm` feature to rust_xlsxwriter dependency
-  - Expose `render_xlsx()` in Playground struct
-  - Add download button for .xlsx files
-  - Estimated: 2-3 hours
+### 2.2 Completed for v0.9.0
+- [x] **Excel export in browser** (rust_xlsxwriter WASM support)
+  - Added `wasm` feature to rust_xlsxwriter dependency
+  - Exposed `render_xlsx()` in Playground struct
+  - Added Excel (XLSX) option in export dropdown
+  - Downloads project.xlsx with full costing report
 
-- [ ] **Mermaid/PlantUML export buttons**
-  - Already implemented in WASM, just need UI buttons
-  - Estimated: 30 minutes
+- [x] **Mermaid/PlantUML export buttons**
+  - Already in export dropdown menu
 
-- [ ] **Keyboard shortcuts help overlay**
+### 2.3 Pending for v1.0
+
+- [ ] **Keyboard shortcuts help overlay** (optional)
   - Ctrl+Enter = Run (already works)
   - Document other shortcuts
   - Estimated: 1 hour
@@ -204,11 +205,11 @@ Features explicitly deferred to post-v1.0:
 
 | Category | Hours |
 |----------|-------|
-| Playground (Excel export, buttons) | 3-4 |
+| ~~Playground (Excel export, buttons)~~ | ~~3-4~~ ✅ Done |
 | Documentation | 6 |
 | CLI Testing | 4 |
 | Polish | 3 |
-| **Total** | ~16-17 hours |
+| **Total** | ~13-14 hours |
 
 ---
 
