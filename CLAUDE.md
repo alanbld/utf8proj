@@ -114,7 +114,7 @@ tools/
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 809 passing, 4 ignored (render doctests)
+**Tests:** 809 passing, 4 ignored (render doctests), 813 total
 
 **Test breakdown:**
 - utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 12 progress-aware + 4 variance + 19 semantic = 202 tests
