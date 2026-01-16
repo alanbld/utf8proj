@@ -15,7 +15,7 @@ use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmi
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{
     AnalysisConfig, CpmSolver, LevelingOptions, analyze_project, calculate_utilization,
-    fix_container_dependencies, level_resources_with_options,
+    level_resources_with_options,
 };
 
 use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
@@ -1185,6 +1185,7 @@ fn get_task_display_name(tasks: &[utf8proj_core::Task], id: &str) -> String {
 }
 
 /// Fix container dependencies command: propagate container deps to children
+/// Uses text-based patching to preserve comments and formatting.
 fn cmd_fix_container_deps(
     file: &std::path::Path,
     output: Option<&std::path::Path>,
@@ -1195,8 +1196,12 @@ fn cmd_fix_container_deps(
         anyhow::bail!("Cannot specify both --in-place and --output");
     }
 
-    // Parse the file
-    let mut project = parse_file(file)
+    // Read the original file content
+    let original_content = fs::read_to_string(file)
+        .with_context(|| format!("Failed to read '{}'", file.display()))?;
+
+    // Parse the file to analyze what needs fixing
+    let project = parse_file(file)
         .with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Count W014 diagnostics before fix
@@ -1209,11 +1214,11 @@ fn cmd_fix_container_deps(
         .filter(|d| d.code == DiagnosticCode::W014ContainerDependency)
         .count();
 
-    // Apply the fix
-    let fixed_count = fix_container_dependencies(&mut project);
+    // Collect fixes needed: map from task_id to dependencies to add
+    let fixes = collect_container_dep_fixes(&project.tasks, &[]);
 
-    // Serialize the project back to .proj format
-    let output_content = serialize_project(&project);
+    // Apply text-based patches
+    let (output_content, fixed_count) = apply_dependency_patches(&original_content, &fixes)?;
 
     // Write output
     if in_place {
@@ -1241,6 +1246,169 @@ fn cmd_fix_container_deps(
     }
 
     Ok(())
+}
+
+/// Dependency to add to a task
+#[derive(Debug, Clone)]
+struct DepToAdd {
+    predecessor: String,
+    dep_type: utf8proj_core::DependencyType,
+    lag: Option<utf8proj_core::Duration>,
+}
+
+impl DepToAdd {
+    fn to_string(&self) -> String {
+        let mut s = self.predecessor.clone();
+        match self.dep_type {
+            utf8proj_core::DependencyType::StartToStart => s.push_str(" SS"),
+            utf8proj_core::DependencyType::StartToFinish => s.push_str(" SF"),
+            utf8proj_core::DependencyType::FinishToFinish => s.push_str(" FF"),
+            utf8proj_core::DependencyType::FinishToStart => {}, // Default
+        }
+        if let Some(ref lag) = self.lag {
+            let days = lag.as_days();
+            if days >= 0.0 {
+                s.push_str(&format!(" +{}d", days as i64));
+            } else {
+                s.push_str(&format!(" {}d", days as i64));
+            }
+        }
+        s
+    }
+}
+
+/// Collect all fixes needed: returns map of task_id -> dependencies to add
+fn collect_container_dep_fixes(
+    tasks: &[utf8proj_core::Task],
+    parent_deps: &[DepToAdd],
+) -> std::collections::HashMap<String, Vec<DepToAdd>> {
+    let mut fixes = std::collections::HashMap::new();
+
+    for task in tasks {
+        // Combine parent deps with this task's deps for children
+        let mut deps_for_children: Vec<DepToAdd> = parent_deps.to_vec();
+        for dep in &task.depends {
+            deps_for_children.push(DepToAdd {
+                predecessor: dep.predecessor.clone(),
+                dep_type: dep.dep_type,
+                lag: dep.lag,
+            });
+        }
+
+        if !task.children.is_empty() {
+            // This is a container - check each child
+            for child in &task.children {
+                let child_deps: std::collections::HashSet<_> = child
+                    .depends
+                    .iter()
+                    .map(|d| d.predecessor.clone())
+                    .collect();
+
+                // Check if child needs any of the container's dependencies
+                let has_container_dep = deps_for_children.iter()
+                    .any(|d| child_deps.contains(&d.predecessor));
+
+                if !has_container_dep && !deps_for_children.is_empty() {
+                    // Child needs container dependencies
+                    let deps_to_add: Vec<_> = deps_for_children.iter()
+                        .filter(|d| !child_deps.contains(&d.predecessor))
+                        .cloned()
+                        .collect();
+                    if !deps_to_add.is_empty() {
+                        fixes.insert(child.id.clone(), deps_to_add);
+                    }
+                }
+            }
+
+            // Recurse into children
+            let child_fixes = collect_container_dep_fixes(&task.children, &deps_for_children);
+            fixes.extend(child_fixes);
+        }
+    }
+
+    fixes
+}
+
+/// Apply text-based patches to add dependencies
+fn apply_dependency_patches(
+    content: &str,
+    fixes: &std::collections::HashMap<String, Vec<DepToAdd>>,
+) -> Result<(String, usize)> {
+    use regex::Regex;
+
+    let mut result = content.to_string();
+    let mut total_fixed = 0;
+
+    // Process each task that needs fixes
+    for (task_id, deps_to_add) in fixes {
+        // Find the task block: task task_id "name" { or task task_id { or milestone task_id ...
+        // Use word boundary to avoid matching task_id as substring of another task
+        let task_pattern = format!(
+            r#"(?m)^(\s*)((?:task|milestone)\s+{}\s+(?:"[^"]*"\s*)?\{{)"#,
+            regex::escape(task_id)
+        );
+        let task_re = Regex::new(&task_pattern)?;
+
+        if let Some(caps) = task_re.captures(&result) {
+            let indent = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let task_match = caps.get(0).unwrap();
+            let task_start = task_match.end();
+
+            // Find if there's already a depends: line in this task block
+            // We need to find content between { and the next }
+            // But we need to handle nested tasks, so we'll look for depends: before any nested task
+            let remaining = &result[task_start..];
+
+            // Find the position of the first nested task or closing brace
+            let nested_task_re = Regex::new(r"(?m)^\s*task\s+")?;
+            let first_nested = nested_task_re.find(remaining).map(|m| m.start());
+            let first_brace = remaining.find('}');
+
+            let search_end = match (first_nested, first_brace) {
+                (Some(n), Some(b)) => n.min(b),
+                (Some(n), None) => n,
+                (None, Some(b)) => b,
+                (None, None) => remaining.len(),
+            };
+
+            let task_body = &remaining[..search_end];
+
+            // Check for existing depends: line
+            let depends_re = Regex::new(r"(?m)^(\s*)(depends:\s*)(.*)$")?;
+
+            // Format new dependencies
+            let new_deps: Vec<String> = deps_to_add.iter().map(|d| d.to_string()).collect();
+
+            if let Some(dep_caps) = depends_re.captures(task_body) {
+                // Append to existing depends: line
+                let dep_match = dep_caps.get(0).unwrap();
+                let existing_deps = dep_caps.get(3).map(|m| m.as_str()).unwrap_or("");
+                let abs_pos = task_start + dep_match.start();
+                let abs_end = task_start + dep_match.end();
+
+                // Build new depends line
+                let dep_indent = dep_caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let new_line = if existing_deps.trim().is_empty() {
+                    format!("{}depends: {}", dep_indent, new_deps.join(", "))
+                } else {
+                    format!("{}depends: {}, {}", dep_indent, existing_deps.trim(), new_deps.join(", "))
+                };
+
+                result = format!("{}{}{}", &result[..abs_pos], new_line, &result[abs_end..]);
+            } else {
+                // Insert new depends: line after the opening brace
+                // Find position right after { and any following whitespace/newline
+                let inner_indent = format!("{}    ", indent);
+                let new_line = format!("\n{}depends: {}", inner_indent, new_deps.join(", "));
+
+                result = format!("{}{}{}", &result[..task_start], new_line, &result[task_start..]);
+            }
+
+            total_fixed += deps_to_add.len();
+        }
+    }
+
+    Ok((result, total_fixed))
 }
 
 /// Serialize a Project to .proj format
