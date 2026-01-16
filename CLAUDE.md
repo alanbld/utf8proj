@@ -26,6 +26,23 @@ version = "0.9.1"
 
 All crates inherit this version via `version.workspace = true`.
 
+## Minimal Viable Feature (MVF) Protocol
+
+**Before proposing any new feature implementation:**
+
+1. Ask: "What's the SMALLEST version that validates the concept?"
+2. Exclude by default: Interactivity, multiple formats, configuration, metrics
+3. Target: Single function, ASCII output, 10-15 tests, 1-week scope
+4. Future-proof: Note excluded features for separate RFCs
+
+**Confidence Protocol for >1 week features:**
+- **[Confidence: Low]** → "This seems complex. Can we ship 20% in 1 week to validate?"
+- **[Confidence: Medium]** → Propose MVF first, full feature as follow-up RFC
+- **[Confidence: High]** → Still ask: "Is 1-week MVP possible?"
+
+**Anti-pattern:** `User asks X → Propose X + Y + Z + UI + metrics` (scope creep)
+**Correct:** `User asks X → Propose minimal X → Exclude Y,Z for future RFCs`
+
 ## Workspace Structure
 
 ```
