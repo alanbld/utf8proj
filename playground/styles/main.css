@@ -374,11 +374,13 @@ kbd {
 }
 
 .status-right a {
-    color: var(--accent-color);
+    color: var(--text-primary);
     text-decoration: none;
+    font-weight: 500;
 }
 
 .status-right a:hover {
+    color: var(--accent-color);
     text-decoration: underline;
 }
 
