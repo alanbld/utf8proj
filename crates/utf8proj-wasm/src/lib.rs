@@ -626,9 +626,9 @@ project "CRM Migration" {
 }
 
 # Define calendars
-calendar standard {
+calendar "standard" {
     working_days: mon, tue, wed, thu, fri
-    working_hours: 09:00..17:00
+    working_hours: 09:00-17:00
     holiday "New Year" 2026-01-01
 }
 
