@@ -107,6 +107,8 @@ pub struct ExcelRenderer {
     pub schedule_days: u32,
     /// Calendar for working days/holidays (used in daily mode)
     calendar: Option<Calendar>,
+    /// Auto-fit timeframe to project duration (default: true)
+    pub auto_fit: bool,
 }
 
 impl Default for ExcelRenderer {
@@ -127,6 +129,7 @@ impl Default for ExcelRenderer {
             granularity: ScheduleGranularity::Weekly,
             schedule_days: 60,
             calendar: None,
+            auto_fit: true, // Auto-fit to project duration by default
         }
     }
 }
@@ -221,6 +224,55 @@ impl ExcelRenderer {
     pub fn with_calendar(mut self, calendar: Calendar) -> Self {
         self.calendar = Some(calendar);
         self
+    }
+
+    /// Disable auto-fit and use explicit weeks/days values
+    ///
+    /// By default, the renderer auto-fits the timeframe to cover the project
+    /// duration plus a buffer. Call this to use the fixed `schedule_weeks`
+    /// or `schedule_days` values instead.
+    pub fn no_auto_fit(mut self) -> Self {
+        self.auto_fit = false;
+        self
+    }
+
+    /// Calculate auto-fit weeks to cover project duration
+    ///
+    /// Returns the number of weeks needed to cover the full project
+    /// plus a 10% buffer (minimum 1 week).
+    pub fn calculate_auto_fit_weeks(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
+        let days = (schedule.project_end - project_start).num_days().max(0) as u32;
+        let weeks = (days + 6) / 7; // Round up to complete weeks
+        let buffer = (weeks / 10).max(1); // 10% buffer, minimum 1 week
+        (weeks + buffer).max(1) // Ensure at least 1 week
+    }
+
+    /// Calculate auto-fit days to cover project duration
+    ///
+    /// Returns the number of days needed to cover the full project
+    /// plus a 10% buffer (minimum 5 days).
+    pub fn calculate_auto_fit_days(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
+        let days = (schedule.project_end - project_start).num_days().max(0) as u32;
+        let buffer = (days / 10).max(5); // 10% buffer, minimum 5 days
+        (days + buffer).max(5) // Ensure at least 5 days
+    }
+
+    /// Get effective weeks (auto-fit or manual)
+    pub fn get_effective_weeks(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
+        if self.auto_fit {
+            self.calculate_auto_fit_weeks(schedule, project_start)
+        } else {
+            self.schedule_weeks
+        }
+    }
+
+    /// Get effective days (auto-fit or manual)
+    pub fn get_effective_days(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
+        if self.auto_fit {
+            self.calculate_auto_fit_days(schedule, project_start)
+        } else {
+            self.schedule_days
+        }
     }
 
     /// Generate Excel workbook bytes
