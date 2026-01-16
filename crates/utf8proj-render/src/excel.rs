@@ -366,8 +366,20 @@ impl ExcelRenderer {
     ///
     /// Returns the number of weeks needed to cover the full project
     /// plus a 10% buffer (minimum 1 week).
+    ///
+    /// Uses the actual max task finish date (not schedule.project_end) to ensure
+    /// all tasks are covered, even if there's a discrepancy.
     pub fn calculate_auto_fit_weeks(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
-        let days = (schedule.project_end - project_start).num_days().max(0) as u32;
+        // Find the actual max finish date from all tasks
+        let max_finish = schedule.tasks.values()
+            .map(|t| t.finish)
+            .max()
+            .unwrap_or(project_start);
+
+        // Use the later of schedule.project_end and max task finish
+        let effective_end = max_finish.max(schedule.project_end);
+
+        let days = (effective_end - project_start).num_days().max(0) as u32;
         let weeks = (days + 6) / 7; // Round up to complete weeks
         let buffer = (weeks / 10).max(1); // 10% buffer, minimum 1 week
         (weeks + buffer).max(1) // Ensure at least 1 week
@@ -377,8 +389,20 @@ impl ExcelRenderer {
     ///
     /// Returns the number of days needed to cover the full project
     /// plus a 10% buffer (minimum 5 days).
+    ///
+    /// Uses the actual max task finish date (not schedule.project_end) to ensure
+    /// all tasks are covered, even if there's a discrepancy.
     pub fn calculate_auto_fit_days(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
-        let days = (schedule.project_end - project_start).num_days().max(0) as u32;
+        // Find the actual max finish date from all tasks
+        let max_finish = schedule.tasks.values()
+            .map(|t| t.finish)
+            .max()
+            .unwrap_or(project_start);
+
+        // Use the later of schedule.project_end and max task finish
+        let effective_end = max_finish.max(schedule.project_end);
+
+        let days = (effective_end - project_start).num_days().max(0) as u32;
         let buffer = (days / 10).max(5); // 10% buffer, minimum 5 days
         (days + buffer).max(5) // Ensure at least 5 days
     }
