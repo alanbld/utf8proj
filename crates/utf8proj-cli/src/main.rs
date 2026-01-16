@@ -216,6 +216,17 @@ enum Commands {
         series: bool,
     },
 
+    /// Classify tasks by categories (RFC-0011)
+    Classify {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Classification method
+        #[arg(short, long, default_value = "status")]
+        by: String,
+    },
+
     /// Fix issues in project files
     Fix {
         #[command(subcommand)]
@@ -273,6 +284,7 @@ fn main() -> Result<()> {
             resources,
             series,
         }) => cmd_bdd_benchmark(scenario, tasks, resources, series),
+        Some(Commands::Classify { file, by }) => cmd_classify(&file, &by),
         Some(Commands::Fix { fix_command }) => match fix_command {
             FixCommands::ContainerDeps { file, output, in_place } => {
                 cmd_fix_container_deps(&file, output.as_deref(), in_place)
@@ -287,6 +299,7 @@ fn main() -> Result<()> {
             println!("  check      Parse and validate a project file");
             println!("  schedule   Schedule a project and output results");
             println!("  gantt      Generate a Gantt chart (SVG)");
+            println!("  classify   Classify tasks by categories (RFC-0011)");
             println!("  benchmark  Run performance benchmarks");
             println!();
             println!("Run 'utf8proj --help' for more information");
@@ -1737,6 +1750,44 @@ fn cmd_bdd_benchmark(
         for f in failures {
             println!("  - {} ({} tasks): {}", f.scenario, f.task_count, f.status);
         }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Classify Command (RFC-0011)
+// ============================================================================
+
+fn cmd_classify(file: &std::path::Path, by: &str) -> Result<()> {
+    use utf8proj_core::{group_by, Classifier, StatusClassifier};
+
+    // Parse project file
+    let project = parse_file(file)?;
+
+    // Schedule the project (classifiers may need schedule data)
+    let schedule = utf8proj_solver::CpmSolver::new().schedule(&project)?;
+
+    // Select classifier
+    let classifier: Box<dyn Classifier> = match by.to_lowercase().as_str() {
+        "status" => Box::new(StatusClassifier),
+        other => {
+            eprintln!("error: unknown classifier '{}'. Available: status", other);
+            std::process::exit(1);
+        }
+    };
+
+    // Group tasks
+    let groups = group_by(&project, &schedule, classifier.as_ref());
+
+    // Output results
+    println!("{}:", classifier.name());
+    for (category, tasks) in groups {
+        let task_ids: Vec<_> = tasks.iter().map(|t| t.id.as_str()).collect();
+        if task_ids.is_empty() {
+            continue;
+        }
+        println!("  {}: {}", category, task_ids.join(", "));
     }
 
     Ok(())

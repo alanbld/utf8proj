@@ -3496,3 +3496,395 @@ mod tests {
         assert!(caps.cost_tracking);
     }
 }
+
+// ============================================================================
+// Classifier Module (RFC-0011)
+// ============================================================================
+
+/// Classifiers discretize continuous task attributes into categorical labels.
+///
+/// This abstraction enables multiple view patterns (Kanban, risk matrix, budget
+/// tracking) through a single interface. Classifiers are read-only - they observe
+/// state but never mutate it.
+///
+/// # Example
+///
+/// ```rust
+/// use utf8proj_core::{Classifier, StatusClassifier, Task, Schedule};
+///
+/// let classifier = StatusClassifier;
+/// assert_eq!(classifier.name(), "Progress Status");
+/// ```
+pub trait Classifier: Send + Sync {
+    /// Human-readable name for this classification scheme
+    fn name(&self) -> &'static str;
+
+    /// Classify a task into a category with ordering.
+    ///
+    /// Returns `(label, order)` where:
+    /// - `label`: The category name (e.g., "Doing", "Critical")
+    /// - `order`: Sort position (lower = earlier in output)
+    fn classify(&self, task: &Task, schedule: &Schedule) -> (String, usize);
+}
+
+/// Classifies tasks by progress percentage into workflow stages.
+///
+/// # Categories
+///
+/// | Range | Label | Order |
+/// |-------|-------|-------|
+/// | 0% | Backlog | 0 |
+/// | 1-25% | Ready | 1 |
+/// | 26-75% | Doing | 2 |
+/// | 76-99% | Review | 3 |
+/// | 100% | Done | 4 |
+/// | >100% | Invalid | 5 |
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StatusClassifier;
+
+impl Classifier for StatusClassifier {
+    fn name(&self) -> &'static str {
+        "Progress Status"
+    }
+
+    fn classify(&self, task: &Task, _schedule: &Schedule) -> (String, usize) {
+        let pct = task.complete.unwrap_or(0.0);
+
+        match pct {
+            p if p == 0.0 => ("Backlog".into(), 0),
+            p if p > 0.0 && p <= 25.0 => ("Ready".into(), 1),
+            p if p > 25.0 && p <= 75.0 => ("Doing".into(), 2),
+            p if p > 75.0 && p < 100.0 => ("Review".into(), 3),
+            p if p == 100.0 => ("Done".into(), 4),
+            _ => ("Invalid".into(), 5),
+        }
+    }
+}
+
+/// Groups tasks by classifier categories.
+///
+/// Returns a vector of `(category_label, tasks)` tuples, sorted by the
+/// classifier's natural order. Empty categories are not included.
+///
+/// # Arguments
+///
+/// * `project` - The project containing tasks to classify
+/// * `schedule` - The computed schedule (may be used by some classifiers)
+/// * `classifier` - The classification scheme to apply
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use utf8proj_core::{group_by, StatusClassifier};
+///
+/// let groups = group_by(&project, &schedule, &StatusClassifier);
+/// for (category, tasks) in groups {
+///     println!("{}: {} tasks", category, tasks.len());
+/// }
+/// ```
+pub fn group_by<'a>(
+    project: &'a Project,
+    schedule: &'a Schedule,
+    classifier: &dyn Classifier,
+) -> Vec<(String, Vec<&'a Task>)> {
+    let mut groups: HashMap<String, (usize, Vec<&Task>)> = HashMap::new();
+
+    for task in &project.tasks {
+        let (label, order) = classifier.classify(task, schedule);
+        groups
+            .entry(label)
+            .or_insert_with(|| (order, Vec::new()))
+            .1
+            .push(task);
+    }
+
+    // Convert to vec and sort by classifier's natural order
+    let mut result: Vec<_> = groups
+        .into_iter()
+        .map(|(label, (order, tasks))| (label, order, tasks))
+        .collect();
+
+    result.sort_by_key(|(_, order, _)| *order);
+    result
+        .into_iter()
+        .map(|(label, _, tasks)| (label, tasks))
+        .collect()
+}
+
+#[cfg(test)]
+mod classifier_tests {
+    use super::*;
+
+    /// Create an empty schedule for testing
+    fn empty_schedule() -> Schedule {
+        Schedule {
+            tasks: HashMap::new(),
+            critical_path: Vec::new(),
+            project_duration: Duration::days(0),
+            project_end: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            total_cost: None,
+            total_cost_range: None,
+            project_progress: 0,
+            project_baseline_finish: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            project_forecast_finish: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            project_variance_days: 0,
+            planned_value: 0,
+            earned_value: 0,
+            spi: 1.0,
+        }
+    }
+
+    #[test]
+    fn test_classifier_trait_exists() {
+        // Verify the trait compiles and can be implemented
+        struct DummyClassifier;
+        impl Classifier for DummyClassifier {
+            fn name(&self) -> &'static str {
+                "Dummy"
+            }
+            fn classify(&self, _task: &Task, _schedule: &Schedule) -> (String, usize) {
+                ("category".into(), 0)
+            }
+        }
+
+        let classifier = DummyClassifier;
+        assert_eq!(classifier.name(), "Dummy");
+    }
+
+    #[test]
+    fn test_status_classifier_name() {
+        let classifier = StatusClassifier;
+        assert_eq!(classifier.name(), "Progress Status");
+    }
+
+    #[test]
+    fn test_status_classifier_backlog() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test");
+        // Default task has no complete % set, should be 0%
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Backlog");
+        assert_eq!(order, 0);
+    }
+
+    #[test]
+    fn test_status_classifier_ready() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(10.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Ready");
+        assert_eq!(order, 1);
+    }
+
+    #[test]
+    fn test_status_classifier_ready_boundary() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(25.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Ready");
+        assert_eq!(order, 1);
+    }
+
+    #[test]
+    fn test_status_classifier_doing() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(50.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Doing");
+        assert_eq!(order, 2);
+    }
+
+    #[test]
+    fn test_status_classifier_doing_boundaries() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+
+        // 26% should be Doing
+        let task = Task::new("test").complete(26.0);
+        let (label, _) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Doing");
+
+        // 75% should be Doing
+        let task = Task::new("test").complete(75.0);
+        let (label, _) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Doing");
+    }
+
+    #[test]
+    fn test_status_classifier_review() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(90.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Review");
+        assert_eq!(order, 3);
+    }
+
+    #[test]
+    fn test_status_classifier_review_boundary() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+
+        // 76% should be Review
+        let task = Task::new("test").complete(76.0);
+        let (label, _) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Review");
+
+        // 99% should be Review
+        let task = Task::new("test").complete(99.0);
+        let (label, _) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Review");
+    }
+
+    #[test]
+    fn test_status_classifier_done() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(100.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Done");
+        assert_eq!(order, 4);
+    }
+
+    #[test]
+    fn test_status_classifier_invalid() {
+        let classifier = StatusClassifier;
+        let schedule = empty_schedule();
+        let task = Task::new("test").complete(150.0);
+        let (label, order) = classifier.classify(&task, &schedule);
+        assert_eq!(label, "Invalid");
+        assert_eq!(order, 5);
+    }
+
+    #[test]
+    fn test_group_by_empty_project() {
+        let project = Project::new("Empty");
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn test_group_by_single_task() {
+        let mut project = Project::new("Test");
+        project.tasks.push(Task::new("task1").complete(50.0));
+
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "Doing");
+        assert_eq!(groups[0].1.len(), 1);
+    }
+
+    #[test]
+    fn test_group_by_multiple_tasks_same_category() {
+        let mut project = Project::new("Test");
+        project.tasks.push(Task::new("task1").complete(30.0));
+        project.tasks.push(Task::new("task2").complete(50.0));
+        project.tasks.push(Task::new("task3").complete(70.0));
+
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "Doing");
+        assert_eq!(groups[0].1.len(), 3);
+    }
+
+    #[test]
+    fn test_group_by_multiple_categories() {
+        let mut project = Project::new("Test");
+        project.tasks.push(Task::new("backlog").complete(0.0));
+        project.tasks.push(Task::new("doing").complete(50.0));
+        project.tasks.push(Task::new("done").complete(100.0));
+
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+        assert_eq!(groups.len(), 3);
+
+        // Verify ordering: Backlog (0) < Doing (2) < Done (4)
+        assert_eq!(groups[0].0, "Backlog");
+        assert_eq!(groups[1].0, "Doing");
+        assert_eq!(groups[2].0, "Done");
+    }
+
+    #[test]
+    fn test_group_by_ordering_correct() {
+        let mut project = Project::new("Test");
+        // Add tasks in reverse order to ensure sorting works
+        project.tasks.push(Task::new("done").complete(100.0));
+        project.tasks.push(Task::new("review").complete(90.0));
+        project.tasks.push(Task::new("doing").complete(50.0));
+        project.tasks.push(Task::new("ready").complete(10.0));
+        project.tasks.push(Task::new("backlog").complete(0.0));
+
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+
+        // Verify correct order regardless of input order
+        let labels: Vec<_> = groups.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, vec!["Backlog", "Ready", "Doing", "Review", "Done"]);
+    }
+
+    #[test]
+    fn test_group_by_no_mutation() {
+        let mut project = Project::new("Test");
+        project.tasks.push(Task::new("task1").complete(50.0));
+
+        let schedule = empty_schedule();
+        let classifier = StatusClassifier;
+
+        let task_count_before = project.tasks.len();
+        let _ = group_by(&project, &schedule, &classifier);
+        let task_count_after = project.tasks.len();
+
+        assert_eq!(task_count_before, task_count_after);
+    }
+
+    #[test]
+    fn test_custom_classifier_works() {
+        // Test that users can define their own classifiers
+        struct PriorityClassifier;
+
+        impl Classifier for PriorityClassifier {
+            fn name(&self) -> &'static str {
+                "Priority"
+            }
+
+            fn classify(&self, task: &Task, _schedule: &Schedule) -> (String, usize) {
+                match task.priority {
+                    p if p >= 800 => ("Critical".into(), 0),
+                    p if p >= 500 => ("Normal".into(), 1),
+                    _ => ("Low".into(), 2),
+                }
+            }
+        }
+
+        let mut project = Project::new("Test");
+        project.tasks.push(Task::new("high").priority(900));
+        project.tasks.push(Task::new("normal").priority(500));
+        project.tasks.push(Task::new("low").priority(100));
+
+        let schedule = empty_schedule();
+        let classifier = PriorityClassifier;
+
+        let groups = group_by(&project, &schedule, &classifier);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].0, "Critical");
+        assert_eq!(groups[1].0, "Normal");
+        assert_eq!(groups[2].0, "Low");
+    }
+}
