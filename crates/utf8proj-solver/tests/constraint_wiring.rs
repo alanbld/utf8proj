@@ -24,7 +24,8 @@ fn start_no_earlier_than_pushes_es() {
     project.start = date(2025, 1, 6); // Monday
 
     let mut task = Task::new("delayed").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13))); // Next Monday
+    task.constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13))); // Next Monday
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -44,10 +45,16 @@ fn start_no_earlier_than_respects_dependencies() {
     let mut project = Project::new("SNET + Dep");
     project.start = date(2025, 1, 6);
 
-    project.tasks.push(Task::new("first").effort(Duration::days(10))); // Finishes 2025-01-17
+    project
+        .tasks
+        .push(Task::new("first").effort(Duration::days(10))); // Finishes 2025-01-17
 
-    let mut second = Task::new("second").effort(Duration::days(5)).depends_on("first");
-    second.constraints.push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13))); // Before dep finishes
+    let mut second = Task::new("second")
+        .effort(Duration::days(5))
+        .depends_on("first");
+    second
+        .constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13))); // Before dep finishes
     project.tasks.push(second);
 
     let solver = CpmSolver::new();
@@ -70,7 +77,8 @@ fn finish_no_earlier_than_pushes_ef() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("held").effort(Duration::days(3));
-    task.constraints.push(TaskConstraint::FinishNoEarlierThan(date(2025, 1, 17))); // Must finish on/after 1/17
+    task.constraints
+        .push(TaskConstraint::FinishNoEarlierThan(date(2025, 1, 17))); // Must finish on/after 1/17
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -98,7 +106,8 @@ fn must_finish_on_sets_dates() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("pinned").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::MustFinishOn(date(2025, 1, 24))); // Friday
+    task.constraints
+        .push(TaskConstraint::MustFinishOn(date(2025, 1, 24))); // Friday
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -124,7 +133,8 @@ fn must_start_on_already_works() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("pinned").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::MustStartOn(date(2025, 1, 13)));
+    task.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 1, 13)));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -151,9 +161,14 @@ fn start_no_later_than_caps_ls() {
     project.start = date(2025, 1, 6); // Monday
 
     let pred = Task::new("pred").effort(Duration::days(5));
-    let mut task = Task::new("constrained").effort(Duration::days(3)).depends_on("pred");
-    task.constraints.push(TaskConstraint::StartNoLaterThan(date(2025, 1, 15))); // Wed of week 2
-    let end_task = Task::new("end").effort(Duration::days(5)).depends_on("constrained");
+    let mut task = Task::new("constrained")
+        .effort(Duration::days(3))
+        .depends_on("pred");
+    task.constraints
+        .push(TaskConstraint::StartNoLaterThan(date(2025, 1, 15))); // Wed of week 2
+    let end_task = Task::new("end")
+        .effort(Duration::days(5))
+        .depends_on("constrained");
 
     project.tasks.push(pred);
     project.tasks.push(task);
@@ -178,9 +193,14 @@ fn finish_no_later_than_caps_lf() {
     project.start = date(2025, 1, 6);
 
     let pred = Task::new("pred").effort(Duration::days(3));
-    let mut task = Task::new("constrained").effort(Duration::days(5)).depends_on("pred");
-    task.constraints.push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17))); // Friday week 2
-    let end_task = Task::new("end").effort(Duration::days(5)).depends_on("constrained");
+    let mut task = Task::new("constrained")
+        .effort(Duration::days(5))
+        .depends_on("pred");
+    task.constraints
+        .push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17))); // Friday week 2
+    let end_task = Task::new("end")
+        .effort(Duration::days(5))
+        .depends_on("constrained");
 
     project.tasks.push(pred);
     project.tasks.push(task);
@@ -203,7 +223,8 @@ fn must_start_on_has_zero_slack() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("pinned").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::MustStartOn(date(2025, 1, 13)));
+    task.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 1, 13)));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -227,7 +248,8 @@ fn must_finish_on_has_zero_slack() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("pinned").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::MustFinishOn(date(2025, 1, 17)));
+    task.constraints
+        .push(TaskConstraint::MustFinishOn(date(2025, 1, 17)));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -251,10 +273,16 @@ fn infeasible_constraint_dependency_conflict() {
     let mut project = Project::new("Infeasible");
     project.start = date(2025, 1, 6);
 
-    project.tasks.push(Task::new("blocker").effort(Duration::days(10))); // Finishes 2025-01-17
+    project
+        .tasks
+        .push(Task::new("blocker").effort(Duration::days(10))); // Finishes 2025-01-17
 
-    let mut blocked = Task::new("blocked").effort(Duration::days(5)).depends_on("blocker");
-    blocked.constraints.push(TaskConstraint::MustStartOn(date(2025, 1, 10))); // Before blocker finishes
+    let mut blocked = Task::new("blocked")
+        .effort(Duration::days(5))
+        .depends_on("blocker");
+    blocked
+        .constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 1, 10))); // Before blocker finishes
     project.tasks.push(blocked);
 
     let solver = CpmSolver::new();
@@ -273,8 +301,10 @@ fn infeasible_floor_ceiling_collapse() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("impossible").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 20)));
-    task.constraints.push(TaskConstraint::StartNoLaterThan(date(2025, 1, 10)));
+    task.constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 20)));
+    task.constraints
+        .push(TaskConstraint::StartNoLaterThan(date(2025, 1, 10)));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -293,8 +323,10 @@ fn infeasible_finish_before_start() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("squeezed").effort(Duration::days(10));
-    task.constraints.push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13)));
-    task.constraints.push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17))); // Only 5 days!
+    task.constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13)));
+    task.constraints
+        .push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17))); // Only 5 days!
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -313,8 +345,10 @@ fn feasible_window_fits() {
     project.start = date(2025, 1, 6);
 
     let mut task = Task::new("bounded").effort(Duration::days(5));
-    task.constraints.push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13)));
-    task.constraints.push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17)));
+    task.constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 13)));
+    task.constraints
+        .push(TaskConstraint::FinishNoLaterThan(date(2025, 1, 17)));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();

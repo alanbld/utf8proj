@@ -27,23 +27,46 @@
 use chrono::{Datelike, Local, NaiveDate, TimeDelta};
 use std::collections::{HashMap, VecDeque};
 
-use utf8proj_core::{
-    Assignment, Calendar, CostRange, DependencyType, Duration, Explanation, FeasibilityResult,
-    Money, Project, RateRange, ResourceProfile, ResourceRate, Schedule, ScheduleError, ScheduledTask,
-    Scheduler, SchedulingMode, Task, TaskConstraint, TaskId, TaskStatus,
-    // Diagnostics
-    Diagnostic, DiagnosticCode, DiagnosticEmitter,
-};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use std::path::PathBuf;
+use utf8proj_core::{
+    Assignment,
+    Calendar,
+    CostRange,
+    DependencyType,
+    // Diagnostics
+    Diagnostic,
+    DiagnosticCode,
+    DiagnosticEmitter,
+    Duration,
+    Explanation,
+    FeasibilityResult,
+    Money,
+    Project,
+    RateRange,
+    ResourceProfile,
+    ResourceRate,
+    Schedule,
+    ScheduleError,
+    ScheduledTask,
+    Scheduler,
+    SchedulingMode,
+    Task,
+    TaskConstraint,
+    TaskId,
+    TaskStatus,
+};
 
 pub mod bdd;
 pub mod cpm;
 pub mod dag;
 pub mod leveling;
 
-pub use bdd::{BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict, ShiftDirection};
+pub use bdd::{
+    BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict,
+    ShiftDirection,
+};
 pub use leveling::{
     calculate_utilization, detect_overallocations, level_resources, level_resources_with_options,
     LevelingMetrics, LevelingOptions, LevelingReason, LevelingResult, LevelingStrategy,
@@ -449,11 +472,8 @@ fn classify_progress_state(
             // remaining = duration × (1 - complete/100)
             ((duration_days as f64) * (1.0 - complete_pct as f64 / 100.0)).ceil() as i64
         };
-        let actual_start_days = date_to_working_days(
-            project_start,
-            task.actual_start.unwrap(),
-            calendar,
-        );
+        let actual_start_days =
+            date_to_working_days(project_start, task.actual_start.unwrap(), calendar);
 
         ProgressState::InProgress {
             actual_start_days,
@@ -732,12 +752,8 @@ fn topological_sort(
     for (qualified_id, task) in tasks {
         for dep in &task.depends {
             // Resolve the dependency path (handles both absolute and relative)
-            let resolved = resolve_dependency_path(
-                &dep.predecessor,
-                qualified_id,
-                context_map,
-                tasks,
-            );
+            let resolved =
+                resolve_dependency_path(&dep.predecessor, qualified_id, context_map, tasks);
 
             if let Some(pred_id) = resolved {
                 // pred_id -> qualified_id (predecessor must come before this task)
@@ -822,10 +838,7 @@ enum ResolvedAssignment<'a> {
 }
 
 /// Resolve a resource_id to either a concrete Resource or abstract ResourceProfile
-fn resolve_assignment<'a>(
-    resource_id: &'a str,
-    project: &'a Project,
-) -> ResolvedAssignment<'a> {
+fn resolve_assignment<'a>(resource_id: &'a str, project: &'a Project) -> ResolvedAssignment<'a> {
     // First, check if it's a concrete resource
     if let Some(resource) = project.get_resource(resource_id) {
         return ResolvedAssignment::Concrete {
@@ -927,7 +940,10 @@ fn calculate_assignment_cost(
                 let min_cost = range.min * factor;
                 let max_cost = range.max * factor;
                 let expected_cost = range.expected() * factor;
-                let currency = range.currency.clone().unwrap_or_else(|| project.currency.clone());
+                let currency = range
+                    .currency
+                    .clone()
+                    .unwrap_or_else(|| project.currency.clone());
 
                 let cost_range = CostRange::new(min_cost, expected_cost, max_cost, currency);
                 (Some(cost_range), true)
@@ -1099,10 +1115,7 @@ pub fn analyze_project(
 /// // Get diagnostics relevant to a specific task
 /// let task_diagnostics = filter_task_diagnostics("my_task", &emitter.diagnostics);
 /// ```
-pub fn filter_task_diagnostics(
-    task_id: &str,
-    diagnostics: &[Diagnostic],
-) -> Vec<DiagnosticCode> {
+pub fn filter_task_diagnostics(task_id: &str, diagnostics: &[Diagnostic]) -> Vec<DiagnosticCode> {
     diagnostics
         .iter()
         .filter(|d| is_diagnostic_for_task(d, task_id))
@@ -1266,7 +1279,9 @@ fn check_calendars(
                     DiagnosticCode::C020LowAvailability,
                     format!(
                         "calendar '{}' has low availability ({:.0}% working days, {} days/week)",
-                        calendar.id, pct, calendar.working_days.len()
+                        calendar.id,
+                        pct,
+                        calendar.working_days.len()
                     ),
                 )
                 .with_file(config.file.clone().unwrap_or_default())
@@ -1405,7 +1420,6 @@ fn check_calendars(
     }
 }
 
-
 /// E001: Check for circular specialization in profile inheritance
 fn check_circular_specialization(
     project: &Project,
@@ -1429,7 +1443,10 @@ fn check_circular_specialization(
 }
 
 /// Detect if a profile's specialization chain contains a cycle
-fn detect_specialization_cycle(profile: &ResourceProfile, project: &Project) -> Option<Vec<String>> {
+fn detect_specialization_cycle(
+    profile: &ResourceProfile,
+    project: &Project,
+) -> Option<Vec<String>> {
     let mut visited = std::collections::HashSet::new();
     let mut path = Vec::new();
     let mut current = Some(profile);
@@ -1500,7 +1517,10 @@ fn check_unknown_profile_references(
                     )
                     .with_file(config.file.clone().unwrap_or_default())
                     .with_note("specialized profile must be defined")
-                    .with_hint(format!("define profile '{}' or remove the specialization", parent_id)),
+                    .with_hint(format!(
+                        "define profile '{}' or remove the specialization",
+                        parent_id
+                    )),
                 );
             }
         }
@@ -1635,8 +1655,13 @@ fn check_profiles_without_rate(
                     ),
                 )
                 .with_file(config.file.clone().unwrap_or_default())
-                .with_note(format!("cost calculations will be incomplete for: {}", task_list))
-                .with_hint("add 'rate:' or 'rate_range:' block, or specialize from a profile with rate"),
+                .with_note(format!(
+                    "cost calculations will be incomplete for: {}",
+                    task_list
+                ))
+                .with_hint(
+                    "add 'rate:' or 'rate_range:' block, or specialize from a profile with rate",
+                ),
             );
         }
     }
@@ -1894,7 +1919,9 @@ fn check_unconstrained_recursive(
                         "'{}' will start on project start date (ASAP scheduling)",
                         task.name
                     ))
-                    .with_hint("add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic"),
+                    .with_hint(
+                        "add 'depends:' or 'start_no_earlier_than:' to anchor scheduling logic",
+                    ),
                 );
             }
         } else {
@@ -1938,11 +1965,8 @@ fn check_container_deps_recursive(
             // Check if container has dependencies
             if !task.depends.is_empty() {
                 // Collect container's predecessor IDs
-                let container_deps: std::collections::HashSet<_> = task
-                    .depends
-                    .iter()
-                    .map(|d| d.predecessor.clone())
-                    .collect();
+                let container_deps: std::collections::HashSet<_> =
+                    task.depends.iter().map(|d| d.predecessor.clone()).collect();
 
                 // Check each child
                 for child in &task.children {
@@ -2158,11 +2182,8 @@ fn fix_container_deps_recursive(tasks: &mut [Task]) -> usize {
         // Only process containers (tasks with children)
         if !task.children.is_empty() && !task.depends.is_empty() {
             // Collect container's predecessor IDs
-            let container_deps: std::collections::HashSet<_> = task
-                .depends
-                .iter()
-                .map(|d| d.predecessor.clone())
-                .collect();
+            let container_deps: std::collections::HashSet<_> =
+                task.depends.iter().map(|d| d.predecessor.clone()).collect();
 
             // Fix each child
             for child in &mut task.children {
@@ -2451,10 +2472,7 @@ fn check_earned_value(
     emitter.emit(
         Diagnostic::new(
             DiagnosticCode::I005EarnedValueSummary,
-            format!(
-                "SPI {:.2}: {} {}",
-                schedule.spi, spi_status, spi_emoji
-            ),
+            format!("SPI {:.2}: {} {}", schedule.spi, spi_status, spi_emoji),
         )
         .with_file(config.file.clone().unwrap_or_default())
         .with_note(format!(
@@ -2555,7 +2573,10 @@ fn emit_project_summary(
             concrete_count,
             abstract_count
         ))
-        .with_note(format!("critical path: {} tasks", schedule.critical_path.len()))
+        .with_note(format!(
+            "critical path: {} tasks",
+            schedule.critical_path.len()
+        ))
         .with_note(format!("scheduling: {}", scheduling_mode)),
     );
 }
@@ -2625,8 +2646,8 @@ impl Scheduler for CpmSolver {
                     late_finish: i64::MAX,
                     slack: 0,
                     remaining_days: duration_days, // Default: full duration (updated in forward pass)
-                    baseline_start_days: 0, // Computed in forward pass
-                    baseline_finish_days: 0, // Computed in forward pass
+                    baseline_start_days: 0,        // Computed in forward pass
+                    baseline_finish_days: 0,       // Computed in forward pass
                 },
             );
         }
@@ -2676,12 +2697,8 @@ impl Scheduler for CpmSolver {
                 // Baseline includes both dependency and floor constraints
                 let mut baseline_es = 0i64;
                 for dep in &task.depends {
-                    let resolved = resolve_dependency_path(
-                        &dep.predecessor,
-                        id,
-                        &context_map,
-                        &task_map,
-                    );
+                    let resolved =
+                        resolve_dependency_path(&dep.predecessor, id, &context_map, &task_map);
                     if let Some(pred_id) = resolved {
                         if let Some(pred_node) = nodes.get(&pred_id) {
                             let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
@@ -2696,9 +2713,7 @@ impl Scheduler for CpmSolver {
                                         (pred_baseline_ef - 1 + lag).max(0)
                                     }
                                 }
-                                DependencyType::StartToStart => {
-                                    pred_node.baseline_start_days + lag
-                                }
+                                DependencyType::StartToStart => pred_node.baseline_start_days + lag,
                                 DependencyType::FinishToFinish => {
                                     (pred_baseline_ef + lag - original_duration).max(0)
                                 }
@@ -2715,14 +2730,20 @@ impl Scheduler for CpmSolver {
                 let mut baseline_min_finish: Option<i64> = None;
                 for constraint in &task.constraints {
                     match constraint {
-                        TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoEarlierThan(date) => {
-                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                        TaskConstraint::MustStartOn(date)
+                        | TaskConstraint::StartNoEarlierThan(date) => {
+                            let constraint_days =
+                                date_to_working_days(project.start, *date, &calendar);
                             baseline_es = baseline_es.max(constraint_days);
                         }
-                        TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoEarlierThan(date) => {
-                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                        TaskConstraint::MustFinishOn(date)
+                        | TaskConstraint::FinishNoEarlierThan(date) => {
+                            let constraint_days =
+                                date_to_working_days(project.start, *date, &calendar);
                             let exclusive_ef = constraint_days + 1;
-                            baseline_min_finish = Some(baseline_min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
+                            baseline_min_finish = Some(
+                                baseline_min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                            );
                         }
                         _ => {} // Ceiling constraints don't affect baseline ES
                     }
@@ -2747,12 +2768,8 @@ impl Scheduler for CpmSolver {
                 // not their baseline finish. This ensures correct cascade of progress.
                 let mut forecast_es = 0i64;
                 for dep in &task.depends {
-                    let resolved = resolve_dependency_path(
-                        &dep.predecessor,
-                        id,
-                        &context_map,
-                        &task_map,
-                    );
+                    let resolved =
+                        resolve_dependency_path(&dep.predecessor, id, &context_map, &task_map);
                     if let Some(pred_id) = resolved {
                         if let Some(pred_node) = nodes.get(&pred_id) {
                             let lag = dep.lag.map(|d| d.as_days() as i64).unwrap_or(0);
@@ -2767,9 +2784,7 @@ impl Scheduler for CpmSolver {
                                         (pred_ef - 1 + lag).max(0)
                                     }
                                 }
-                                DependencyType::StartToStart => {
-                                    pred_node.early_start + lag
-                                }
+                                DependencyType::StartToStart => pred_node.early_start + lag,
                                 DependencyType::FinishToFinish => {
                                     let original_dur = nodes[id].original_duration_days;
                                     (pred_ef + lag - original_dur).max(0)
@@ -2786,13 +2801,19 @@ impl Scheduler for CpmSolver {
 
                 // Step 5c: Compute progress-aware ES/EF (forecast)
                 let (es, ef, remaining) = match progress_state {
-                    ProgressState::Complete { actual_start_days, actual_finish_days } => {
+                    ProgressState::Complete {
+                        actual_start_days,
+                        actual_finish_days,
+                    } => {
                         // Complete: lock to actual dates (RFC-0004 Rule 1)
                         // Ignore dependencies and constraints - reality wins
                         // remaining = 0 for complete tasks
                         (actual_start_days, actual_finish_days, 0i64)
                     }
-                    ProgressState::InProgress { actual_start_days, remaining_days } => {
+                    ProgressState::InProgress {
+                        actual_start_days,
+                        remaining_days,
+                    } => {
                         // InProgress: schedule remaining work from status_date (RFC-0004 Rule 2)
                         // ES = actual_start (task already started)
                         // EF = status_date + remaining (forecast based on current position)
@@ -2809,14 +2830,20 @@ impl Scheduler for CpmSolver {
                         let mut min_finish: Option<i64> = None;
                         for constraint in &task.constraints {
                             match constraint {
-                                TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoEarlierThan(date) => {
-                                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                                TaskConstraint::MustStartOn(date)
+                                | TaskConstraint::StartNoEarlierThan(date) => {
+                                    let constraint_days =
+                                        date_to_working_days(project.start, *date, &calendar);
                                     es = es.max(constraint_days);
                                 }
-                                TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoEarlierThan(date) => {
-                                    let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                                TaskConstraint::MustFinishOn(date)
+                                | TaskConstraint::FinishNoEarlierThan(date) => {
+                                    let constraint_days =
+                                        date_to_working_days(project.start, *date, &calendar);
                                     let exclusive_ef = constraint_days + 1;
-                                    min_finish = Some(min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)));
+                                    min_finish = Some(
+                                        min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                    );
                                 }
                                 _ => {} // Ceiling constraints handled in backward pass
                             }
@@ -2946,17 +2973,24 @@ impl Scheduler for CpmSolver {
             if let Some(task) = task {
                 for constraint in &task.constraints {
                     match constraint {
-                        TaskConstraint::MustFinishOn(date) | TaskConstraint::FinishNoLaterThan(date) => {
+                        TaskConstraint::MustFinishOn(date)
+                        | TaskConstraint::FinishNoLaterThan(date) => {
                             // LF ≤ constraint date (inclusive)
                             // Internal LF is exclusive, so add 1
-                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
+                            let constraint_days =
+                                date_to_working_days(project.start, *date, &calendar);
                             let exclusive_lf = constraint_days + 1;
-                            max_finish = Some(max_finish.map_or(exclusive_lf, |mf| mf.min(exclusive_lf)));
+                            max_finish =
+                                Some(max_finish.map_or(exclusive_lf, |mf| mf.min(exclusive_lf)));
                         }
-                        TaskConstraint::MustStartOn(date) | TaskConstraint::StartNoLaterThan(date) => {
+                        TaskConstraint::MustStartOn(date)
+                        | TaskConstraint::StartNoLaterThan(date) => {
                             // LS ≤ constraint date
-                            let constraint_days = date_to_working_days(project.start, *date, &calendar);
-                            max_start = Some(max_start.map_or(constraint_days, |ms| ms.min(constraint_days)));
+                            let constraint_days =
+                                date_to_working_days(project.start, *date, &calendar);
+                            max_start = Some(
+                                max_start.map_or(constraint_days, |ms| ms.min(constraint_days)),
+                            );
                         }
                         _ => {} // Floor constraints already handled in forward pass
                     }
@@ -3088,7 +3122,9 @@ impl Scheduler for CpmSolver {
 
                 // For concrete assignments, extract fixed cost
                 let fixed_cost = if !is_abstract {
-                    cost_range.as_ref().map(|r| Money::new(r.expected, &r.currency))
+                    cost_range
+                        .as_ref()
+                        .map(|r| Money::new(r.expected, &r.currency))
                 } else {
                     None
                 };
@@ -3262,8 +3298,7 @@ impl Scheduler for CpmSolver {
             (progress, max_baseline, max_forecast)
         };
 
-        let project_variance_days =
-            (project_forecast_finish - project_baseline_finish).num_days();
+        let project_variance_days = (project_forecast_finish - project_baseline_finish).num_days();
 
         // Step 10c: Compute Earned Value metrics (I005)
         // PV = weighted % of baseline work that should be complete by status date
@@ -3301,8 +3336,7 @@ impl Scheduler for CpmSolver {
                             let baseline_duration =
                                 (st.baseline_finish - st.baseline_start).num_days() as f64;
                             if baseline_duration > 0.0 {
-                                let elapsed =
-                                    (status_date - st.baseline_start).num_days() as f64;
+                                let elapsed = (status_date - st.baseline_start).num_days() as f64;
                                 (elapsed / baseline_duration) * 100.0
                             } else {
                                 100.0 // Milestone
@@ -3411,16 +3445,12 @@ impl Scheduler for CpmSolver {
                             suggestions,
                         )
                     }
-                    ScheduleError::CircularDependency(_) => (
-                        ConflictType::CircularDependency,
-                        vec![],
-                        vec![],
-                    ),
-                    ScheduleError::TaskNotFound(id) => (
-                        ConflictType::ImpossibleConstraint,
-                        vec![id.clone()],
-                        vec![],
-                    ),
+                    ScheduleError::CircularDependency(_) => {
+                        (ConflictType::CircularDependency, vec![], vec![])
+                    }
+                    ScheduleError::TaskNotFound(id) => {
+                        (ConflictType::ImpossibleConstraint, vec![id.clone()], vec![])
+                    }
                     _ => (ConflictType::ImpossibleConstraint, vec![], vec![]),
                 };
 
@@ -3490,7 +3520,6 @@ impl Scheduler for CpmSolver {
             }
         }
     }
-
 }
 
 // Helper methods for CpmSolver (not part of the Scheduler trait)
@@ -3539,7 +3568,11 @@ impl CpmSolver {
             }
 
             // Check if it's a holiday
-            if calendar.holidays.iter().any(|h| h.start <= current && current <= h.end) {
+            if calendar
+                .holidays
+                .iter()
+                .any(|h| h.start <= current && current <= h.end)
+            {
                 holiday_days += 1;
                 // If holiday is on a working day, it adds to non-working
                 if calendar.working_days.contains(&weekday) {
@@ -3805,8 +3838,14 @@ mod tests {
         let design_task = &schedule.tasks["phase1.design"];
         let implement_task = &schedule.tasks["phase1.implement"];
 
-        println!("design: start={}, finish={}", design_task.start, design_task.finish);
-        println!("implement: start={}, finish={}", implement_task.start, implement_task.finish);
+        println!(
+            "design: start={}, finish={}",
+            design_task.start, design_task.finish
+        );
+        println!(
+            "implement: start={}, finish={}",
+            implement_task.start, implement_task.finish
+        );
 
         // implement should start on or after design finishes
         // Note: finish is inclusive (last day of work), so implement can start on next working day
@@ -3840,9 +3879,7 @@ mod tests {
         let mut project = Project::new("Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         project.resources = vec![Resource::new("dev")];
-        project.tasks = vec![Task::new("work")
-            .effort(Duration::days(5))
-            .assign("dev")]; // 100% by default
+        project.tasks = vec![Task::new("work").effort(Duration::days(5)).assign("dev")]; // 100% by default
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -3928,9 +3965,7 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         project.resources = vec![Resource::new("dev")];
         project.tasks = vec![
-            Task::new("phase1")
-                .effort(Duration::days(5))
-                .assign("dev"), // 100% -> 5 days
+            Task::new("phase1").effort(Duration::days(5)).assign("dev"), // 100% -> 5 days
             Task::new("phase2")
                 .effort(Duration::days(5))
                 .assign_with_units("dev", 0.5) // 50% -> 10 days
@@ -4020,14 +4055,12 @@ mod tests {
 
         let mut project = Project::new("Valid Constraints");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("task1")
-                .effort(Duration::days(5))
-                // Constraint is at project start - no conflict
-                .constraint(TaskConstraint::StartNoEarlierThan(
-                    NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                )),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .effort(Duration::days(5))
+            // Constraint is at project start - no conflict
+            .constraint(TaskConstraint::StartNoEarlierThan(
+                NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
+            ))];
 
         let solver = CpmSolver::new();
         let result = solver.is_feasible(&project);
@@ -4056,9 +4089,7 @@ mod tests {
         // Task with no dependencies and nothing depends on it
         let mut project = Project::new("Isolated");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("alone").effort(Duration::days(3)),
-        ];
+        project.tasks = vec![Task::new("alone").effort(Duration::days(3))];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4072,16 +4103,11 @@ mod tests {
         // Multiple levels of nesting
         let mut project = Project::new("Deep Nesting");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("level1")
-                .child(
-                    Task::new("level2")
-                        .child(
-                            Task::new("level3")
-                                .child(Task::new("leaf").effort(Duration::days(2)))
-                        )
-                ),
-        ];
+        project.tasks =
+            vec![Task::new("level1")
+                .child(Task::new("level2").child(
+                    Task::new("level3").child(Task::new("leaf").effort(Duration::days(2))),
+                ))];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4097,9 +4123,7 @@ mod tests {
     fn explain_task_with_no_dependencies() {
         let mut project = Project::new("Simple");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("standalone").effort(Duration::days(5)),
-        ];
+        project.tasks = vec![Task::new("standalone").effort(Duration::days(5))];
 
         let solver = CpmSolver::new();
         let explanation = solver.explain(&project, &"standalone".to_string());
@@ -4120,7 +4144,10 @@ mod tests {
         assert_eq!(explanation.task_id, "implement");
         assert!(explanation.reason.contains("predecessors"));
         assert!(!explanation.constraints_applied.is_empty());
-        assert!(explanation.constraints_applied.iter().any(|c| c.contains("design")));
+        assert!(explanation
+            .constraints_applied
+            .iter()
+            .any(|c| c.contains("design")));
     }
 
     #[test]
@@ -4129,13 +4156,11 @@ mod tests {
 
         let mut project = Project::new("Constraint Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("constrained")
-                .effort(Duration::days(5))
-                .constraint(TaskConstraint::StartNoEarlierThan(
-                    NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
-                )),
-        ];
+        project.tasks = vec![Task::new("constrained")
+            .effort(Duration::days(5))
+            .constraint(TaskConstraint::StartNoEarlierThan(
+                NaiveDate::from_ymd_opt(2025, 1, 13).unwrap(),
+            ))];
 
         let solver = CpmSolver::new();
         let explanation = solver.explain(&project, &"constrained".to_string());
@@ -4158,13 +4183,9 @@ mod tests {
 
         let mut project = Project::new("Pin Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("pinned")
-                .effort(Duration::days(3))
-                .constraint(TaskConstraint::MustStartOn(
-                    NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(),
-                )),
-        ];
+        project.tasks = vec![Task::new("pinned").effort(Duration::days(3)).constraint(
+            TaskConstraint::MustStartOn(NaiveDate::from_ymd_opt(2025, 1, 6).unwrap()),
+        )];
 
         let solver = CpmSolver::new();
         let explanation = solver.explain(&project, &"pinned".to_string());
@@ -4332,19 +4353,29 @@ mod tests {
         // Sibling tasks referencing each other without qualified paths
         let mut project = Project::new("Sibling Deps");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("container")
-                .child(Task::new("first").effort(Duration::days(3)))
-                .child(Task::new("second").effort(Duration::days(2)).depends_on("first"))
-                .child(Task::new("third").effort(Duration::days(1)).depends_on("second")),
-        ];
+        project.tasks = vec![Task::new("container")
+            .child(Task::new("first").effort(Duration::days(3)))
+            .child(
+                Task::new("second")
+                    .effort(Duration::days(2))
+                    .depends_on("first"),
+            )
+            .child(
+                Task::new("third")
+                    .effort(Duration::days(1))
+                    .depends_on("second"),
+            )];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
 
         // Chain should be scheduled correctly
-        assert!(schedule.tasks["container.second"].start > schedule.tasks["container.first"].finish);
-        assert!(schedule.tasks["container.third"].start > schedule.tasks["container.second"].finish);
+        assert!(
+            schedule.tasks["container.second"].start > schedule.tasks["container.first"].finish
+        );
+        assert!(
+            schedule.tasks["container.third"].start > schedule.tasks["container.second"].finish
+        );
     }
 
     #[test]
@@ -4373,7 +4404,9 @@ mod tests {
         use utf8proj_core::Trait;
 
         let mut project = Project::new("Test");
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
 
         let multiplier = calculate_trait_multiplier(&["senior".to_string()], &project);
         assert!((multiplier - 1.3).abs() < 0.001);
@@ -4384,13 +4417,15 @@ mod tests {
         use utf8proj_core::Trait;
 
         let mut project = Project::new("Test");
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
-        project.traits.push(Trait::new("contractor").rate_multiplier(1.2));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("contractor").rate_multiplier(1.2));
 
-        let multiplier = calculate_trait_multiplier(
-            &["senior".to_string(), "contractor".to_string()],
-            &project,
-        );
+        let multiplier =
+            calculate_trait_multiplier(&["senior".to_string(), "contractor".to_string()], &project);
         // 1.3 × 1.2 = 1.56
         assert!((multiplier - 1.56).abs() < 0.001);
     }
@@ -4400,12 +4435,12 @@ mod tests {
         use utf8proj_core::Trait;
 
         let mut project = Project::new("Test");
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
 
-        let multiplier = calculate_trait_multiplier(
-            &["senior".to_string(), "unknown".to_string()],
-            &project,
-        );
+        let multiplier =
+            calculate_trait_multiplier(&["senior".to_string(), "unknown".to_string()], &project);
         // Unknown trait has no effect (multiplied by 1.0 implicitly)
         assert!((multiplier - 1.3).abs() < 0.001);
     }
@@ -4430,7 +4465,9 @@ mod tests {
         use utf8proj_core::Trait;
 
         let mut project = Project::new("Test");
-        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.5));
         project.profiles.push(
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200)))
@@ -4452,10 +4489,9 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(80), Decimal::from(120))),
         );
-        project.profiles.push(
-            ResourceProfile::new("senior_developer")
-                .specializes("developer"),
-        );
+        project
+            .profiles
+            .push(ResourceProfile::new("senior_developer").specializes("developer"));
 
         let profile = project.get_profile("senior_developer").unwrap();
         let rate = resolve_profile_rate(profile, &project).unwrap();
@@ -4470,9 +4506,9 @@ mod tests {
         use utf8proj_core::Resource;
 
         let mut project = Project::new("Test");
-        project.resources.push(
-            Resource::new("alice").rate(Money::new(Decimal::from(75), "USD")),
-        );
+        project
+            .resources
+            .push(Resource::new("alice").rate(Money::new(Decimal::from(75), "USD")));
 
         match resolve_assignment("alice", &project) {
             ResolvedAssignment::Concrete { rate, resource_id } => {
@@ -4493,7 +4529,10 @@ mod tests {
         );
 
         match resolve_assignment("developer", &project) {
-            ResolvedAssignment::Abstract { rate_range, profile_id } => {
+            ResolvedAssignment::Abstract {
+                rate_range,
+                profile_id,
+            } => {
                 assert_eq!(profile_id, "developer");
                 let range = rate_range.unwrap();
                 assert_eq!(range.min, Decimal::from(60));
@@ -4508,9 +4547,9 @@ mod tests {
         use utf8proj_core::Resource;
 
         let mut project = Project::new("Test");
-        project.resources.push(
-            Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")),
-        );
+        project
+            .resources
+            .push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
 
         let (cost, is_abstract) = calculate_assignment_cost("alice", 1.0, 5, &project);
 
@@ -4546,9 +4585,9 @@ mod tests {
         use utf8proj_core::Resource;
 
         let mut project = Project::new("Test");
-        project.resources.push(
-            Resource::new("bob").rate(Money::new(Decimal::from(200), "EUR")),
-        );
+        project
+            .resources
+            .push(Resource::new("bob").rate(Money::new(Decimal::from(200), "EUR")));
 
         let (cost, is_abstract) = calculate_assignment_cost("bob", 0.5, 4, &project);
 
@@ -4599,11 +4638,9 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
         );
-        project.tasks = vec![
-            Task::new("task1")
-                .duration(Duration::days(5))
-                .assign("developer"),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("developer")];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4624,14 +4661,12 @@ mod tests {
 
         let mut project = Project::new("Concrete Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.resources.push(
-            Resource::new("alice").rate(Money::new(Decimal::from(150), "USD")),
-        );
-        project.tasks = vec![
-            Task::new("task1")
-                .duration(Duration::days(4))
-                .assign("alice"),
-        ];
+        project
+            .resources
+            .push(Resource::new("alice").rate(Money::new(Decimal::from(150), "USD")));
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(4))
+            .assign("alice")];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4686,16 +4721,25 @@ mod tests {
 
         let mut project = Project::new("Cycle Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.profiles.push(ResourceProfile::new("a").specializes("b"));
-        project.profiles.push(ResourceProfile::new("b").specializes("c"));
-        project.profiles.push(ResourceProfile::new("c").specializes("a"));
+        project
+            .profiles
+            .push(ResourceProfile::new("a").specializes("b"));
+        project
+            .profiles
+            .push(ResourceProfile::new("b").specializes("c"));
+        project
+            .profiles
+            .push(ResourceProfile::new("c").specializes("a"));
 
         let mut emitter = CollectingEmitter::new();
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(emitter.has_errors());
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::E001CircularSpecialization));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::E001CircularSpecialization));
     }
 
     #[test]
@@ -4714,7 +4758,10 @@ mod tests {
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W003UnknownTrait));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::W003UnknownTrait));
     }
 
     #[test]
@@ -4724,15 +4771,16 @@ mod tests {
         let mut project = Project::new("No Rate Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         project.profiles.push(ResourceProfile::new("dev")); // No rate
-        project.tasks = vec![
-            Task::new("task1").duration(Duration::days(5)).assign("dev"),
-        ];
+        project.tasks = vec![Task::new("task1").duration(Duration::days(5)).assign("dev")];
 
         let mut emitter = CollectingEmitter::new();
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::E002ProfileWithoutRate));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::E002ProfileWithoutRate));
     }
 
     #[test]
@@ -4745,15 +4793,18 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
         );
-        project.tasks = vec![
-            Task::new("task1").duration(Duration::days(5)).assign("developer"),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("developer")];
 
         let mut emitter = CollectingEmitter::new();
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W001AbstractAssignment));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::W001AbstractAssignment));
     }
 
     #[test]
@@ -4762,23 +4813,26 @@ mod tests {
 
         let mut project = Project::new("Mixed Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.resources.push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
+        project
+            .resources
+            .push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
         project.profiles.push(
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
         );
-        project.tasks = vec![
-            Task::new("task1")
-                .duration(Duration::days(5))
-                .assign("alice")
-                .assign("developer"),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("alice")
+            .assign("developer")];
 
         let mut emitter = CollectingEmitter::new();
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H001MixedAbstraction));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::H001MixedAbstraction));
     }
 
     #[test]
@@ -4797,7 +4851,10 @@ mod tests {
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H002UnusedProfile));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::H002UnusedProfile));
     }
 
     #[test]
@@ -4806,14 +4863,19 @@ mod tests {
 
         let mut project = Project::new("Unused Trait Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
         // No profiles use the trait
 
         let mut emitter = CollectingEmitter::new();
         let config = AnalysisConfig::default();
         analyze_project(&project, None, &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::H003UnusedTrait));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::H003UnusedTrait));
     }
 
     #[test]
@@ -4822,10 +4884,12 @@ mod tests {
 
         let mut project = Project::new("Summary Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.resources.push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
-        project.tasks = vec![
-            Task::new("task1").duration(Duration::days(5)).assign("alice"),
-        ];
+        project
+            .resources
+            .push(Resource::new("alice").rate(Money::new(Decimal::from(100), "USD")));
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(5))
+            .assign("alice")];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4834,7 +4898,10 @@ mod tests {
         let config = AnalysisConfig::default();
         analyze_project(&project, Some(&schedule), &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::I001ProjectCostSummary));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::I001ProjectCostSummary));
     }
 
     #[test]
@@ -4848,9 +4915,9 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(50), Decimal::from(200))),
         );
-        project.tasks = vec![
-            Task::new("task1").duration(Duration::days(10)).assign("developer"),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(10))
+            .assign("developer")];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4859,7 +4926,10 @@ mod tests {
         let config = AnalysisConfig::default().with_cost_spread_threshold(50.0);
         analyze_project(&project, Some(&schedule), &config, &mut emitter);
 
-        assert!(emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W002WideCostRange));
+        assert!(emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::W002WideCostRange));
     }
 
     #[test]
@@ -4873,9 +4943,9 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(90), Decimal::from(110))),
         );
-        project.tasks = vec![
-            Task::new("task1").duration(Duration::days(10)).assign("developer"),
-        ];
+        project.tasks = vec![Task::new("task1")
+            .duration(Duration::days(10))
+            .assign("developer")];
 
         let solver = CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -4884,7 +4954,10 @@ mod tests {
         let config = AnalysisConfig::default();
         analyze_project(&project, Some(&schedule), &config, &mut emitter);
 
-        assert!(!emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::W002WideCostRange));
+        assert!(!emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::W002WideCostRange));
     }
 
     #[test]
@@ -4966,7 +5039,9 @@ mod tests {
         let mut project = Project::new("Trait Contributor Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         // Define a significant trait multiplier
-        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.5));
         // Rate range that becomes wide after trait: 50-200 * 1.5 = 75-300
         project.profiles.push(
             ResourceProfile::new("developer")
@@ -5003,9 +5078,9 @@ mod tests {
         // Profile with fixed rate (not range) - should work in analysis
         let mut project = Project::new("Fixed Rate Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.profiles.push(
-            ResourceProfile::new("developer").rate(Money::new(Decimal::from(100), "USD")),
-        );
+        project
+            .profiles
+            .push(ResourceProfile::new("developer").rate(Money::new(Decimal::from(100), "USD")));
         project.tasks = vec![Task::new("task1")
             .duration(Duration::days(5))
             .assign("developer")];
@@ -5042,7 +5117,9 @@ mod tests {
             ResourceProfile::new("developer")
                 .rate_range(RateRange::new(Decimal::from(100), Decimal::from(200))),
         );
-        project.profiles.push(ResourceProfile::new("senior_developer").specializes("developer"));
+        project
+            .profiles
+            .push(ResourceProfile::new("senior_developer").specializes("developer"));
         project.tasks = vec![Task::new("task1")
             .duration(Duration::days(5))
             .assign("senior_developer")];
@@ -5065,7 +5142,10 @@ mod tests {
             .iter()
             .find(|d| d.code == DiagnosticCode::I001ProjectCostSummary)
             .expect("Should have I001");
-        assert!(summary.notes.iter().any(|n| n.contains("$") && n.contains("-")));
+        assert!(summary
+            .notes
+            .iter()
+            .any(|n| n.contains("$") && n.contains("-")));
     }
 
     #[test]
@@ -5185,7 +5265,9 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         project.tasks = vec![
             Task::new("first").duration(Duration::days(5)),
-            Task::new("last").duration(Duration::days(3)).depends_on("first"),
+            Task::new("last")
+                .duration(Duration::days(3))
+                .depends_on("first"),
         ];
 
         let solver = CpmSolver::new();
@@ -5208,7 +5290,9 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         project.tasks = vec![
             Task::new("root_a").duration(Duration::days(3)),
-            Task::new("root_b").duration(Duration::days(2)).depends_on("root_a"),
+            Task::new("root_b")
+                .duration(Duration::days(2))
+                .depends_on("root_a"),
         ];
 
         let solver = CpmSolver::new();
@@ -5283,14 +5367,16 @@ mod tests {
         let mut task = Task::new("pinned_task");
         task.duration = Some(Duration::days(5));
         task.constraints.push(TaskConstraint::MustFinishOn(
-            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
         ));
         project.tasks = vec![task.clone()];
 
         let solver = CpmSolver::new();
         let effects = solver.analyze_constraint_effects(&project, &task);
         assert_eq!(effects.len(), 1);
-        assert!(effects[0].description.contains("pinned") || effects[0].description.contains("finish"));
+        assert!(
+            effects[0].description.contains("pinned") || effects[0].description.contains("finish")
+        );
     }
 
     #[test]
@@ -5302,7 +5388,7 @@ mod tests {
         let mut task = Task::new("capped_task");
         task.duration = Some(Duration::days(5));
         task.constraints.push(TaskConstraint::StartNoLaterThan(
-            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
         ));
         project.tasks = vec![task.clone()];
 
@@ -5322,7 +5408,7 @@ mod tests {
         let mut task = Task::new("pushed_task");
         task.duration = Some(Duration::days(5));
         task.constraints.push(TaskConstraint::FinishNoEarlierThan(
-            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
         ));
         project.tasks = vec![task.clone()];
 
@@ -5342,7 +5428,7 @@ mod tests {
         let mut task = Task::new("fnlt_task");
         task.duration = Some(Duration::days(5));
         task.constraints.push(TaskConstraint::FinishNoLaterThan(
-            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
         ));
         project.tasks = vec![task.clone()];
 
@@ -5361,10 +5447,10 @@ mod tests {
         let mut task = Task::new("multi");
         task.duration = Some(Duration::days(5));
         task.constraints.push(TaskConstraint::StartNoEarlierThan(
-            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 10).unwrap(),
         ));
         task.constraints.push(TaskConstraint::FinishNoLaterThan(
-            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap()
+            NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
         ));
         project.tasks = vec![task.clone()];
 
@@ -5389,9 +5475,11 @@ mod tests {
             lag: None,
         });
         // SNET is before when task would start due to dependency
-        successor.constraints.push(TaskConstraint::StartNoEarlierThan(
-            NaiveDate::from_ymd_opt(2025, 1, 8).unwrap()
-        ));
+        successor
+            .constraints
+            .push(TaskConstraint::StartNoEarlierThan(
+                NaiveDate::from_ymd_opt(2025, 1, 8).unwrap(),
+            ));
 
         project.tasks = vec![predecessor, successor.clone()];
 
@@ -5399,9 +5487,11 @@ mod tests {
         let effects = solver.analyze_constraint_effects(&project, &successor);
         assert_eq!(effects.len(), 1);
         // The constraint should be marked as redundant
-        assert!(effects[0].description.contains("redundant") ||
-                effects[0].description.contains("superseded") ||
-                effects[0].description.contains("already"));
+        assert!(
+            effects[0].description.contains("redundant")
+                || effects[0].description.contains("superseded")
+                || effects[0].description.contains("already")
+        );
     }
 
     #[test]
@@ -5449,8 +5539,8 @@ mod tests {
 
     #[test]
     fn classify_effort_based_project() {
-        use utf8proj_core::Resource;
         use std::collections::HashMap;
+        use utf8proj_core::Resource;
 
         let mut project = Project::new("Effort Based");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
@@ -5484,8 +5574,8 @@ mod tests {
 
     #[test]
     fn classify_resource_loaded_project() {
-        use utf8proj_core::Resource;
         use std::collections::HashMap;
+        use utf8proj_core::Resource;
 
         let mut project = Project::new("Resource Loaded");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
@@ -5549,10 +5639,16 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
             "Expected R102 diagnostic for inverted rate range"
         );
-        assert!(emitter.has_errors(), "Inverted rate range should be an error");
+        assert!(
+            emitter.has_errors(),
+            "Inverted rate range should be an error"
+        );
     }
 
     #[test]
@@ -5574,10 +5670,16 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R104UnknownProfile),
+            emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R104UnknownProfile),
             "Expected R104 diagnostic for unknown profile reference"
         );
-        assert!(emitter.has_errors(), "Unknown profile reference should be an error");
+        assert!(
+            emitter.has_errors(),
+            "Unknown profile reference should be an error"
+        );
     }
 
     #[test]
@@ -5589,8 +5691,12 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         // Define traits with high multipliers
-        project.traits.push(Trait::new("senior").rate_multiplier(1.5));
-        project.traits.push(Trait::new("contractor").rate_multiplier(1.4));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.5));
+        project
+            .traits
+            .push(Trait::new("contractor").rate_multiplier(1.4));
 
         // Profile with both traits: 1.5 × 1.4 = 2.1 > 2.0
         project.profiles.push(
@@ -5605,7 +5711,10 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
+            emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
             "Expected R012 diagnostic for trait multiplier stack > 2.0"
         );
     }
@@ -5619,8 +5728,12 @@ mod tests {
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         // Define traits with moderate multipliers
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
-        project.traits.push(Trait::new("experienced").rate_multiplier(1.2));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("experienced").rate_multiplier(1.2));
 
         // Profile with both traits: 1.3 × 1.2 = 1.56 < 2.0
         project.profiles.push(
@@ -5635,7 +5748,10 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
+            !emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R012TraitMultiplierStack),
             "Should not emit R012 when multiplier stack is under 2.0"
         );
     }
@@ -5657,7 +5773,10 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            !emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
             "Valid rate range should not trigger R102"
         );
     }
@@ -5679,7 +5798,10 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
+            !emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R102InvertedRateRange),
             "Collapsed (equal) rate range should not trigger R102"
         );
     }
@@ -5706,7 +5828,10 @@ mod tests {
         analyze_project(&project, None, &config, &mut emitter);
 
         assert!(
-            !emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::R104UnknownProfile),
+            !emitter
+                .diagnostics
+                .iter()
+                .any(|d| d.code == DiagnosticCode::R104UnknownProfile),
             "Valid specialization should not trigger R104"
         );
     }

@@ -19,8 +19,16 @@ fn auto_fit_weeks_short_project_2_weeks() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // 14 days = 2 weeks, plus 10% buffer (min 1) = 3 weeks
-    assert!(weeks >= 3, "Expected at least 3 weeks for 14-day project, got {}", weeks);
-    assert!(weeks <= 5, "Expected at most 5 weeks for 14-day project, got {}", weeks);
+    assert!(
+        weeks >= 3,
+        "Expected at least 3 weeks for 14-day project, got {}",
+        weeks
+    );
+    assert!(
+        weeks <= 5,
+        "Expected at most 5 weeks for 14-day project, got {}",
+        weeks
+    );
 }
 
 #[test]
@@ -33,8 +41,16 @@ fn auto_fit_weeks_medium_project_8_weeks() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // 56 days = 8 weeks, plus ~10% buffer = 9 weeks
-    assert!(weeks >= 9, "Expected at least 9 weeks for 56-day project, got {}", weeks);
-    assert!(weeks <= 11, "Expected at most 11 weeks for 56-day project, got {}", weeks);
+    assert!(
+        weeks >= 9,
+        "Expected at least 9 weeks for 56-day project, got {}",
+        weeks
+    );
+    assert!(
+        weeks <= 11,
+        "Expected at most 11 weeks for 56-day project, got {}",
+        weeks
+    );
 }
 
 #[test]
@@ -47,8 +63,16 @@ fn auto_fit_weeks_long_project_6_months() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // 180 days = ~26 weeks, plus ~10% buffer = ~29 weeks
-    assert!(weeks >= 28, "Expected at least 28 weeks for 180-day project, got {}", weeks);
-    assert!(weeks <= 32, "Expected at most 32 weeks for 180-day project, got {}", weeks);
+    assert!(
+        weeks >= 28,
+        "Expected at least 28 weeks for 180-day project, got {}",
+        weeks
+    );
+    assert!(
+        weeks <= 32,
+        "Expected at most 32 weeks for 180-day project, got {}",
+        weeks
+    );
 }
 
 #[test]
@@ -61,8 +85,16 @@ fn auto_fit_weeks_zero_duration_minimum() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // Should have at least 1 week even for zero-duration
-    assert!(weeks >= 1, "Expected at least 1 week for empty project, got {}", weeks);
-    assert!(weeks <= 4, "Expected at most 4 weeks for empty project, got {}", weeks);
+    assert!(
+        weeks >= 1,
+        "Expected at least 1 week for empty project, got {}",
+        weeks
+    );
+    assert!(
+        weeks <= 4,
+        "Expected at most 4 weeks for empty project, got {}",
+        weeks
+    );
 }
 
 #[test]
@@ -75,7 +107,11 @@ fn auto_fit_weeks_partial_week_rounds_up() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // 10 days rounds to 2 weeks, plus buffer = 3 weeks
-    assert!(weeks >= 3, "Expected at least 3 weeks for 10-day project, got {}", weeks);
+    assert!(
+        weeks >= 3,
+        "Expected at least 3 weeks for 10-day project, got {}",
+        weeks
+    );
 }
 
 // =============================================================================
@@ -92,8 +128,16 @@ fn auto_fit_days_short_project() {
     let days = calculate_days(&renderer, project_start, project_end);
 
     // 13 days (end - start) + 10% buffer (min 5) = 18 days
-    assert!(days >= 18, "Expected at least 18 days for 14-day project, got {}", days);
-    assert!(days <= 25, "Expected at most 25 days for 14-day project, got {}", days);
+    assert!(
+        days >= 18,
+        "Expected at least 18 days for 14-day project, got {}",
+        days
+    );
+    assert!(
+        days <= 25,
+        "Expected at most 25 days for 14-day project, got {}",
+        days
+    );
 }
 
 #[test]
@@ -106,8 +150,16 @@ fn auto_fit_days_medium_project() {
     let days = calculate_days(&renderer, project_start, project_end);
 
     // 44 days (end - start) + 10% buffer = ~49 days
-    assert!(days >= 49, "Expected at least 49 days for 45-day project, got {}", days);
-    assert!(days <= 55, "Expected at most 55 days for 45-day project, got {}", days);
+    assert!(
+        days >= 49,
+        "Expected at least 49 days for 45-day project, got {}",
+        days
+    );
+    assert!(
+        days <= 55,
+        "Expected at most 55 days for 45-day project, got {}",
+        days
+    );
 }
 
 #[test]
@@ -120,7 +172,11 @@ fn auto_fit_days_zero_duration_minimum() {
     let days = calculate_days(&renderer, project_start, project_end);
 
     // Should have at least 5 days (minimum buffer)
-    assert!(days >= 5, "Expected at least 5 days for empty project, got {}", days);
+    assert!(
+        days >= 5,
+        "Expected at least 5 days for empty project, got {}",
+        days
+    );
 }
 
 // =============================================================================
@@ -129,9 +185,7 @@ fn auto_fit_days_zero_duration_minimum() {
 
 #[test]
 fn manual_weeks_overrides_auto_fit() {
-    let renderer = ExcelRenderer::new()
-        .no_auto_fit()
-        .weeks(52); // Force 52 weeks
+    let renderer = ExcelRenderer::new().no_auto_fit().weeks(52); // Force 52 weeks
 
     assert!(!renderer.auto_fit, "auto_fit should be false");
     assert_eq!(renderer.schedule_weeks, 52, "Manual weeks should be set");
@@ -139,10 +193,7 @@ fn manual_weeks_overrides_auto_fit() {
 
 #[test]
 fn manual_days_overrides_auto_fit() {
-    let renderer = ExcelRenderer::new()
-        .daily()
-        .no_auto_fit()
-        .days(90); // Force 90 days
+    let renderer = ExcelRenderer::new().daily().no_auto_fit().days(90); // Force 90 days
 
     assert!(!renderer.auto_fit, "auto_fit should be false");
     assert_eq!(renderer.schedule_days, 90, "Manual days should be set");
@@ -185,7 +236,10 @@ fn auto_fit_handles_very_long_project() {
 
     // Should cap at reasonable maximum or handle gracefully
     assert!(weeks >= 104, "Should cover full project duration");
-    assert!(weeks <= 120, "Should not have excessive buffer for long projects");
+    assert!(
+        weeks <= 120,
+        "Should not have excessive buffer for long projects"
+    );
 }
 
 #[test]
@@ -198,7 +252,10 @@ fn auto_fit_handles_project_ending_before_start() {
     let weeks = calculate_weeks(&renderer, project_start, project_end);
 
     // Should return minimum, not negative
-    assert!(weeks >= 1, "Should return positive weeks even for invalid schedule");
+    assert!(
+        weeks >= 1,
+        "Should return positive weeks even for invalid schedule"
+    );
 }
 
 // =============================================================================
@@ -206,7 +263,11 @@ fn auto_fit_handles_project_ending_before_start() {
 // =============================================================================
 
 /// Calculate weeks using the same formula as ExcelRenderer
-fn calculate_weeks(_renderer: &ExcelRenderer, project_start: NaiveDate, project_end: NaiveDate) -> u32 {
+fn calculate_weeks(
+    _renderer: &ExcelRenderer,
+    project_start: NaiveDate,
+    project_end: NaiveDate,
+) -> u32 {
     let days = (project_end - project_start).num_days().max(0) as u32;
     let weeks = (days + 6) / 7; // Round up to complete weeks
     let buffer = (weeks / 10).max(1); // 10% buffer, minimum 1 week
@@ -214,7 +275,11 @@ fn calculate_weeks(_renderer: &ExcelRenderer, project_start: NaiveDate, project_
 }
 
 /// Calculate days using the same formula as ExcelRenderer
-fn calculate_days(_renderer: &ExcelRenderer, project_start: NaiveDate, project_end: NaiveDate) -> u32 {
+fn calculate_days(
+    _renderer: &ExcelRenderer,
+    project_start: NaiveDate,
+    project_end: NaiveDate,
+) -> u32 {
     let days = (project_end - project_start).num_days().max(0) as u32;
     let buffer = (days / 10).max(5); // 10% buffer, minimum 5 days
     (days + buffer).max(5) // Ensure at least 5 days

@@ -371,60 +371,75 @@ task act2 "Activity 2" {
 
 #[test]
 fn parse_ttg_01_base() {
-    let content = std::fs::read_to_string(
-        "../../msproject-to-taskjuggler/examples/ttg_01_base.tjp"
-    );
+    let content =
+        std::fs::read_to_string("../../msproject-to-taskjuggler/examples/ttg_01_base.tjp");
 
     if let Ok(content) = content {
         let result = parse(&content);
-        assert!(result.is_ok(), "ttg_01_base.tjp should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ttg_01_base.tjp should parse: {:?}",
+            result.err()
+        );
     }
 }
 
 #[test]
 fn parse_ttg_02_deps() {
-    let content = std::fs::read_to_string(
-        "../../msproject-to-taskjuggler/examples/ttg_02_deps.tjp"
-    );
+    let content =
+        std::fs::read_to_string("../../msproject-to-taskjuggler/examples/ttg_02_deps.tjp");
 
     if let Ok(content) = content {
         let result = parse(&content);
-        assert!(result.is_ok(), "ttg_02_deps.tjp should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ttg_02_deps.tjp should parse: {:?}",
+            result.err()
+        );
     }
 }
 
 #[test]
 fn parse_ttg_03_hierarchy() {
-    let content = std::fs::read_to_string(
-        "../../msproject-to-taskjuggler/examples/ttg_03_hierarchy.tjp"
-    );
+    let content =
+        std::fs::read_to_string("../../msproject-to-taskjuggler/examples/ttg_03_hierarchy.tjp");
 
     if let Ok(content) = content {
         let result = parse(&content);
-        assert!(result.is_ok(), "ttg_03_hierarchy.tjp should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ttg_03_hierarchy.tjp should parse: {:?}",
+            result.err()
+        );
     }
 }
 
 #[test]
 fn parse_ttg_04_milestones() {
-    let content = std::fs::read_to_string(
-        "../../msproject-to-taskjuggler/examples/ttg_04_milestones.tjp"
-    );
+    let content =
+        std::fs::read_to_string("../../msproject-to-taskjuggler/examples/ttg_04_milestones.tjp");
 
     if let Ok(content) = content {
         let result = parse(&content);
-        assert!(result.is_ok(), "ttg_04_milestones.tjp should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ttg_04_milestones.tjp should parse: {:?}",
+            result.err()
+        );
     }
 }
 
 #[test]
 fn parse_ttg_05_detailed() {
-    let content = std::fs::read_to_string(
-        "../../msproject-to-taskjuggler/examples/ttg_05_detailed.tjp"
-    );
+    let content =
+        std::fs::read_to_string("../../msproject-to-taskjuggler/examples/ttg_05_detailed.tjp");
 
     if let Ok(content) = content {
         let result = parse(&content);
-        assert!(result.is_ok(), "ttg_05_detailed.tjp should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "ttg_05_detailed.tjp should parse: {:?}",
+            result.err()
+        );
     }
 }

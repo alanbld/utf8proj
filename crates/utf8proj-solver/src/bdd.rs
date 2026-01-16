@@ -665,7 +665,10 @@ mod tests {
 
         let analysis = analyzer.analyze(&project, &schedule);
 
-        assert!(!analysis.suggestions.is_empty(), "Should suggest resolution");
+        assert!(
+            !analysis.suggestions.is_empty(),
+            "Should suggest resolution"
+        );
 
         // Should suggest shifting task2 (it has slack)
         let suggestion = &analysis.suggestions[0];
@@ -746,7 +749,9 @@ mod tests {
         let resolution = analyzer.find_optimal_resolution(&project, &schedule);
 
         assert!(resolution.is_some());
-        assert!(resolution.unwrap().is_empty(), "No shifts needed for valid schedule");
+        assert!(
+            resolution.unwrap().is_empty(),
+            "No shifts needed for valid schedule"
+        );
     }
-
 }

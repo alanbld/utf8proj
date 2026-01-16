@@ -7,7 +7,9 @@ use pest::Parser;
 use pest_derive::Parser;
 
 use crate::ParseError;
-use utf8proj_core::{Dependency, DependencyType, Duration, Project, Resource, ResourceRef, Task, TaskConstraint};
+use utf8proj_core::{
+    Dependency, DependencyType, Duration, Project, Resource, ResourceRef, Task, TaskConstraint,
+};
 
 #[derive(Parser)]
 #[grammar = "tjp/grammar.pest"]
@@ -67,7 +69,10 @@ pub fn parse(input: &str) -> Result<Project, ParseError> {
 }
 
 /// Parse project declaration
-fn parse_project_decl(pair: pest::iterators::Pair<Rule>, project: &mut Project) -> Result<(), ParseError> {
+fn parse_project_decl(
+    pair: pest::iterators::Pair<Rule>,
+    project: &mut Project,
+) -> Result<(), ParseError> {
     let mut inner = pair.into_inner();
 
     // project id
@@ -226,22 +231,35 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                                         match part.as_rule() {
                                             Rule::dep_ss_marker => has_ss_marker = true,
                                             Rule::dep_ff_marker => has_ff_marker = true,
-                                            Rule::task_path => task_path = part.as_str().to_string(),
+                                            Rule::task_path => {
+                                                task_path = part.as_str().to_string()
+                                            }
                                             Rule::dep_modifier => {
                                                 // Parse lag from modifier
                                                 // dep_modifier contains dep_attr rules
                                                 for dep_attr in part.into_inner() {
                                                     if dep_attr.as_rule() == Rule::dep_attr {
                                                         // dep_attr wraps the actual attribute
-                                                        if let Some(attr) = dep_attr.into_inner().next() {
+                                                        if let Some(attr) =
+                                                            dep_attr.into_inner().next()
+                                                        {
                                                             match attr.as_rule() {
-                                                                Rule::gaplength_attr | Rule::gapduration_attr => {
-                                                                    if let Some(dur) = attr.into_inner().next() {
-                                                                        lag = Some(parse_duration(dur.as_str())?);
+                                                                Rule::gaplength_attr
+                                                                | Rule::gapduration_attr => {
+                                                                    if let Some(dur) =
+                                                                        attr.into_inner().next()
+                                                                    {
+                                                                        lag = Some(parse_duration(
+                                                                            dur.as_str(),
+                                                                        )?);
                                                                     }
                                                                 }
-                                                                Rule::onstart_attr => has_ss_marker = true,
-                                                                Rule::onend_attr => has_ff_marker = true,
+                                                                Rule::onstart_attr => {
+                                                                    has_ss_marker = true
+                                                                }
+                                                                Rule::onend_attr => {
+                                                                    has_ff_marker = true
+                                                                }
                                                                 _ => {}
                                                             }
                                                         }
@@ -299,7 +317,8 @@ fn parse_task_decl(pair: pest::iterators::Pair<Rule>) -> Result<Option<Task>, Pa
                     let mut inner = actual_attr.into_inner();
                     if let Some(note) = inner.next() {
                         // TJP note is supplementary info, store in attributes
-                        task.attributes.insert("note".to_string(), parse_string(note.as_str()));
+                        task.attributes
+                            .insert("note".to_string(), parse_string(note.as_str()));
                     }
                 }
                 Rule::complete_attr => {
@@ -351,9 +370,9 @@ fn parse_duration(s: &str) -> Result<Duration, ParseError> {
     let minutes = match unit.trim() {
         "min" => num as i64,
         "h" => (num * 60.0) as i64,
-        "d" => (num * 8.0 * 60.0) as i64, // 8 hours per day
-        "w" => (num * 5.0 * 8.0 * 60.0) as i64, // 5 days per week
-        "m" => (num * 20.0 * 8.0 * 60.0) as i64, // ~20 working days per month
+        "d" => (num * 8.0 * 60.0) as i64,         // 8 hours per day
+        "w" => (num * 5.0 * 8.0 * 60.0) as i64,   // 5 days per week
+        "m" => (num * 20.0 * 8.0 * 60.0) as i64,  // ~20 working days per month
         "y" => (num * 250.0 * 8.0 * 60.0) as i64, // ~250 working days per year
         _ => {
             return Err(ParseError::InvalidValue(format!(
@@ -494,7 +513,10 @@ mod tests {
         // TJP quoted string is the task name (primary display)
         assert_eq!(project.tasks[0].name, "Task 1");
         // TJP note is supplementary info stored in attributes
-        assert_eq!(project.tasks[0].attributes.get("note"), Some(&"This is a note".to_string()));
+        assert_eq!(
+            project.tasks[0].attributes.get("note"),
+            Some(&"This is a note".to_string())
+        );
     }
 
     #[test]
@@ -641,7 +663,10 @@ mod tests {
         let t2 = &project.tasks[1];
         assert!(!t2.depends.is_empty());
         // onstart creates SS dependency
-        assert_eq!(t2.depends[0].dep_type, utf8proj_core::DependencyType::StartToStart);
+        assert_eq!(
+            t2.depends[0].dep_type,
+            utf8proj_core::DependencyType::StartToStart
+        );
     }
 
     #[test]
@@ -660,6 +685,9 @@ mod tests {
         let t2 = &project.tasks[1];
         assert!(!t2.depends.is_empty());
         // onend creates FF dependency
-        assert_eq!(t2.depends[0].dep_type, utf8proj_core::DependencyType::FinishToFinish);
+        assert_eq!(
+            t2.depends[0].dep_type,
+            utf8proj_core::DependencyType::FinishToFinish
+        );
     }
 }

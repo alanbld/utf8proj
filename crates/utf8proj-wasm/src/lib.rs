@@ -8,7 +8,9 @@ use wasm_bindgen::prelude::*;
 
 use utf8proj_core::{CollectingEmitter, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
-use utf8proj_render::{ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
+use utf8proj_render::{
+    ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer,
+};
 use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
 
 /// Initialize panic hook for better error messages in console
@@ -47,7 +49,10 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Scheduling error: {}", e)))?;
 
     // Build task lookup for dependencies and milestone info
-    fn find_task<'a>(tasks: &'a [utf8proj_core::Task], id: &str) -> Option<&'a utf8proj_core::Task> {
+    fn find_task<'a>(
+        tasks: &'a [utf8proj_core::Task],
+        id: &str,
+    ) -> Option<&'a utf8proj_core::Task> {
         for task in tasks {
             if task.id == id {
                 return Some(task);
@@ -70,8 +75,11 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
                     total_weighted += w;
                     total_duration += d;
                 } else {
-                    let dur = task.duration.or(task.effort)
-                        .unwrap_or(utf8proj_core::Duration::zero()).minutes;
+                    let dur = task
+                        .duration
+                        .or(task.effort)
+                        .unwrap_or(utf8proj_core::Duration::zero())
+                        .minutes;
                     let pct = task.effective_percent_complete() as i64;
                     total_weighted += pct * dur;
                     total_duration += dur;
@@ -80,7 +88,11 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             (total_weighted, total_duration)
         }
         let (weighted, duration) = collect_leaf_progress(tasks);
-        if duration == 0 { 0 } else { (weighted as f64 / duration as f64).round() as u8 }
+        if duration == 0 {
+            0
+        } else {
+            (weighted as f64 / duration as f64).round() as u8
+        }
     }
 
     let overall_progress = calculate_overall_progress(&project.tasks);
@@ -129,16 +141,17 @@ pub fn schedule(project_source: &str) -> Result<String, JsValue> {
             .values()
             .map(|t| {
                 let orig_task = find_task(&project.tasks, &t.task_id);
-                let (is_milestone, is_container, child_count, derived_progress, dependencies) = match orig_task {
-                    Some(task) => (
-                        task.milestone,
-                        task.is_container(),
-                        task.children.len(),
-                        task.container_progress(),
-                        task.depends.iter().map(|d| d.predecessor.clone()).collect(),
-                    ),
-                    None => (false, false, 0, None, vec![]),
-                };
+                let (is_milestone, is_container, child_count, derived_progress, dependencies) =
+                    match orig_task {
+                        Some(task) => (
+                            task.milestone,
+                            task.is_container(),
+                            task.children.len(),
+                            task.container_progress(),
+                            task.depends.iter().map(|d| d.predecessor.clone()).collect(),
+                        ),
+                        None => (false, false, 0, None, vec![]),
+                    };
                 // Calculate calendar impact for this task
                 let calendar_impact = Some(calculate_calendar_impact(t.start, t.finish, &project));
 
@@ -215,7 +228,10 @@ pub fn update_task_progress(project_source: &str, task_id: &str, new_percent: f6
     if let Some(idx) = complete_line {
         lines[idx] = format!("    complete: {}%", new_percent as i32);
     } else if in_target_task && task_end_line > 0 {
-        lines.insert(task_end_line, format!("    complete: {}%", new_percent as i32));
+        lines.insert(
+            task_end_line,
+            format!("    complete: {}%", new_percent as i32),
+        );
     }
 
     lines.join("\n")
@@ -234,8 +250,7 @@ pub fn get_project_info(project_source: &str) -> Result<String, JsValue> {
         resource_count: project.resources.len(),
     };
 
-    serde_json::to_string(&info)
-        .map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
+    serde_json::to_string(&info).map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
 }
 
 fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
@@ -280,7 +295,11 @@ fn calculate_calendar_impact(
         }
 
         // Check if it's a holiday
-        if calendar.holidays.iter().any(|h| h.start <= current && current <= h.end) {
+        if calendar
+            .holidays
+            .iter()
+            .any(|h| h.start <= current && current <= h.end)
+        {
             holiday_days += 1;
             // If holiday is on a working day, it also counts as non-working
             if !is_non_working_day {
@@ -542,8 +561,8 @@ impl Playground {
         match (&self.project, &self.schedule) {
             (Some(project), Some(schedule)) => {
                 // Deserialize config from JavaScript, falling back to defaults
-                let config: ExcelConfig = serde_wasm_bindgen::from_value(config)
-                    .unwrap_or_default();
+                let config: ExcelConfig =
+                    serde_wasm_bindgen::from_value(config).unwrap_or_default();
 
                 let renderer = config.to_renderer();
                 renderer.render(project, schedule).unwrap_or_default()
@@ -555,9 +574,7 @@ impl Playground {
     /// Get schedule data as JSON
     pub fn get_schedule_json(&self) -> String {
         match (&self.project, &self.schedule) {
-            (Some(_), Some(schedule)) => {
-                serde_json::to_string_pretty(schedule).unwrap_or_default()
-            }
+            (Some(_), Some(schedule)) => serde_json::to_string_pretty(schedule).unwrap_or_default(),
             _ => String::new(),
         }
     }

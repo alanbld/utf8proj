@@ -76,8 +76,7 @@ fn c002_no_working_days() {
         emitter
             .diagnostics
             .iter()
-            .any(|d| d.code == DiagnosticCode::C002NoWorkingDays
-                && d.message.contains("no_days")),
+            .any(|d| d.code == DiagnosticCode::C002NoWorkingDays && d.message.contains("no_days")),
         "Should emit C002NoWorkingDays for calendar with no working days"
     );
 }
@@ -146,9 +145,7 @@ fn c011_calendar_mismatch() {
     project.resources.push(resource);
 
     // Task assigned to resource with different calendar
-    let task = Task::new("task1")
-        .duration(Duration::days(5))
-        .assign("dev");
+    let task = Task::new("task1").duration(Duration::days(5)).assign("dev");
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -230,11 +227,9 @@ fn c022_suspicious_hours_high() {
 
     // Should have C022 diagnostic for suspicious hours
     assert!(
-        emitter
-            .diagnostics
-            .iter()
-            .any(|d| d.code == DiagnosticCode::C022SuspiciousHours
-                && d.message.contains("too_long")),
+        emitter.diagnostics.iter().any(
+            |d| d.code == DiagnosticCode::C022SuspiciousHours && d.message.contains("too_long")
+        ),
         "Should emit C022SuspiciousHours for calendar with >12 hours/day"
     );
 }
@@ -250,8 +245,8 @@ fn c022_suspicious_seven_day_week() {
     seven_day_cal.id = "seven_day".to_string();
     seven_day_cal.working_days = vec![0, 1, 2, 3, 4, 5, 6]; // All 7 days
     seven_day_cal.working_hours = vec![TimeRange {
-        start: 9 * 60,  // 09:00
-        end: 17 * 60,   // 17:00 (8 hours)
+        start: 9 * 60, // 09:00
+        end: 17 * 60,  // 17:00 (8 hours)
     }];
     project.calendars.push(seven_day_cal);
 
@@ -335,8 +330,8 @@ fn valid_calendar_no_diagnostics() {
     standard_cal.id = "standard".to_string();
     standard_cal.working_days = vec![1, 2, 3, 4, 5]; // Mon-Fri
     standard_cal.working_hours = vec![TimeRange {
-        start: 9 * 60,  // 09:00
-        end: 17 * 60,   // 17:00 (8 hours)
+        start: 9 * 60, // 09:00
+        end: 17 * 60,  // 17:00 (8 hours)
     }];
     project.calendars.push(standard_cal);
     project.calendar = "standard".to_string();
@@ -537,9 +532,11 @@ fn filter_diagnostics_empty_for_unrelated_task() {
         .push(Task::new("first_task").duration(Duration::days(1)));
 
     // Second task depends on first (starts on Monday, no issues)
-    project
-        .tasks
-        .push(Task::new("second_task").duration(Duration::days(1)).depends_on("first_task"));
+    project.tasks.push(
+        Task::new("second_task")
+            .duration(Duration::days(1))
+            .depends_on("first_task"),
+    );
 
     let solver = CpmSolver::new();
     let schedule = solver.schedule(&project).expect("Should succeed");

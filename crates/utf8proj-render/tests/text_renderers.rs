@@ -1,7 +1,7 @@
 //! Tests for Mermaid and PlantUML text renderers
 
 use chrono::NaiveDate;
-use utf8proj_core::{Duration, Project, Resource, Renderer, Scheduler, Task};
+use utf8proj_core::{Duration, Project, Renderer, Resource, Scheduler, Task};
 use utf8proj_render::{MermaidRenderer, PlantUmlRenderer};
 use utf8proj_solver::CpmSolver;
 
@@ -18,8 +18,13 @@ fn mermaid_basic_project() {
     let mut project = Project::new("Mermaid Test");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("task1").name("Task One").duration(Duration::days(5)),
-        Task::new("task2").name("Task Two").duration(Duration::days(3)).depends_on("task1"),
+        Task::new("task1")
+            .name("Task One")
+            .duration(Duration::days(5)),
+        Task::new("task2")
+            .name("Task Two")
+            .duration(Duration::days(3))
+            .depends_on("task1"),
     ];
 
     let solver = CpmSolver::new();
@@ -39,8 +44,13 @@ fn mermaid_with_milestones() {
     let mut project = Project::new("Milestone Project");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("dev").name("Development").duration(Duration::days(10)),
-        Task::new("release").name("Release").milestone().depends_on("dev"),
+        Task::new("dev")
+            .name("Development")
+            .duration(Duration::days(10)),
+        Task::new("release")
+            .name("Release")
+            .milestone()
+            .depends_on("dev"),
     ];
 
     let solver = CpmSolver::new();
@@ -60,11 +70,21 @@ fn mermaid_with_sections() {
     let mut project = Project::new("Sectioned Project");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("phase1").name("Phase 1")
+        Task::new("phase1")
+            .name("Phase 1")
             .child(Task::new("a").name("Task A").duration(Duration::days(5)))
-            .child(Task::new("b").name("Task B").duration(Duration::days(3)).depends_on("a")),
-        Task::new("phase2").name("Phase 2")
-            .child(Task::new("c").name("Task C").duration(Duration::days(4)).depends_on("phase1.b")),
+            .child(
+                Task::new("b")
+                    .name("Task B")
+                    .duration(Duration::days(3))
+                    .depends_on("a"),
+            ),
+        Task::new("phase2").name("Phase 2").child(
+            Task::new("c")
+                .name("Task C")
+                .duration(Duration::days(4))
+                .depends_on("phase1.b"),
+        ),
     ];
 
     let solver = CpmSolver::new();
@@ -88,8 +108,14 @@ fn mermaid_with_critical_path() {
     project.start = date(2025, 1, 6);
     project.tasks = vec![
         Task::new("a").name("Task A").duration(Duration::days(5)),
-        Task::new("b").name("Task B").duration(Duration::days(3)).depends_on("a"),
-        Task::new("c").name("Task C").duration(Duration::days(2)).depends_on("b"),
+        Task::new("b")
+            .name("Task B")
+            .duration(Duration::days(3))
+            .depends_on("a"),
+        Task::new("c")
+            .name("Task C")
+            .duration(Duration::days(2))
+            .depends_on("b"),
     ];
 
     let solver = CpmSolver::new();
@@ -111,8 +137,15 @@ fn mermaid_with_resources() {
         Resource::new("qa").name("QA"),
     ];
     project.tasks = vec![
-        Task::new("impl").name("Implementation").duration(Duration::days(5)).assign("dev"),
-        Task::new("test").name("Testing").duration(Duration::days(3)).depends_on("impl").assign("qa"),
+        Task::new("impl")
+            .name("Implementation")
+            .duration(Duration::days(5))
+            .assign("dev"),
+        Task::new("test")
+            .name("Testing")
+            .duration(Duration::days(3))
+            .depends_on("impl")
+            .assign("qa"),
     ];
 
     let solver = CpmSolver::new();
@@ -134,8 +167,13 @@ fn plantuml_basic_project() {
     let mut project = Project::new("PlantUML Test");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("task1").name("Task One").duration(Duration::days(5)),
-        Task::new("task2").name("Task Two").duration(Duration::days(3)).depends_on("task1"),
+        Task::new("task1")
+            .name("Task One")
+            .duration(Duration::days(5)),
+        Task::new("task2")
+            .name("Task Two")
+            .duration(Duration::days(3))
+            .depends_on("task1"),
     ];
 
     let solver = CpmSolver::new();
@@ -155,8 +193,13 @@ fn plantuml_with_milestones() {
     let mut project = Project::new("Milestone Project");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("dev").name("Development").duration(Duration::days(10)),
-        Task::new("release").name("Release").milestone().depends_on("dev"),
+        Task::new("dev")
+            .name("Development")
+            .duration(Duration::days(10)),
+        Task::new("release")
+            .name("Release")
+            .milestone()
+            .depends_on("dev"),
     ];
 
     let solver = CpmSolver::new();
@@ -176,7 +219,11 @@ fn plantuml_with_dependencies() {
     project.tasks = vec![
         Task::new("a").name("Task A").duration(Duration::days(5)),
         Task::new("b").name("Task B").duration(Duration::days(5)),
-        Task::new("c").name("Task C").duration(Duration::days(3)).depends_on("a").depends_on("b"),
+        Task::new("c")
+            .name("Task C")
+            .duration(Duration::days(3))
+            .depends_on("a")
+            .depends_on("b"),
     ];
 
     let solver = CpmSolver::new();
@@ -194,9 +241,19 @@ fn plantuml_with_progress() {
     let mut project = Project::new("Progress Project");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("done").name("Completed").duration(Duration::days(5)).complete(100.0),
-        Task::new("half").name("Half Done").duration(Duration::days(5)).complete(50.0).depends_on("done"),
-        Task::new("pending").name("Pending").duration(Duration::days(5)).depends_on("half"),
+        Task::new("done")
+            .name("Completed")
+            .duration(Duration::days(5))
+            .complete(100.0),
+        Task::new("half")
+            .name("Half Done")
+            .duration(Duration::days(5))
+            .complete(50.0)
+            .depends_on("done"),
+        Task::new("pending")
+            .name("Pending")
+            .duration(Duration::days(5))
+            .depends_on("half"),
     ];
 
     let solver = CpmSolver::new();
@@ -214,11 +271,21 @@ fn plantuml_with_hierarchical_tasks() {
     let mut project = Project::new("Hierarchical");
     project.start = date(2025, 1, 6);
     project.tasks = vec![
-        Task::new("phase1").name("Phase 1")
+        Task::new("phase1")
+            .name("Phase 1")
             .child(Task::new("a").name("Task A").duration(Duration::days(5)))
-            .child(Task::new("b").name("Task B").duration(Duration::days(3)).depends_on("a")),
-        Task::new("phase2").name("Phase 2")
-            .child(Task::new("c").name("Task C").duration(Duration::days(4)).depends_on("phase1.b")),
+            .child(
+                Task::new("b")
+                    .name("Task B")
+                    .duration(Duration::days(3))
+                    .depends_on("a"),
+            ),
+        Task::new("phase2").name("Phase 2").child(
+            Task::new("c")
+                .name("Task C")
+                .duration(Duration::days(4))
+                .depends_on("phase1.b"),
+        ),
     ];
 
     let solver = CpmSolver::new();
@@ -242,7 +309,10 @@ fn plantuml_long_project() {
     project.start = date(2025, 1, 6);
     project.tasks = vec![
         Task::new("q1").name("Q1 Work").duration(Duration::days(60)),
-        Task::new("q2").name("Q2 Work").duration(Duration::days(60)).depends_on("q1"),
+        Task::new("q2")
+            .name("Q2 Work")
+            .duration(Duration::days(60))
+            .depends_on("q1"),
     ];
 
     let solver = CpmSolver::new();

@@ -42,7 +42,12 @@ fn leveling_is_deterministic() {
     assert_eq!(result1.shifted_tasks.len(), result2.shifted_tasks.len());
     assert_eq!(result2.shifted_tasks.len(), result3.shifted_tasks.len());
 
-    for (i, (s1, s2)) in result1.shifted_tasks.iter().zip(&result2.shifted_tasks).enumerate() {
+    for (i, (s1, s2)) in result1
+        .shifted_tasks
+        .iter()
+        .zip(&result2.shifted_tasks)
+        .enumerate()
+    {
         assert_eq!(
             s1.task_id, s2.task_id,
             "Run 1 vs 2: Task order differs at index {}: {} vs {}",
@@ -60,7 +65,12 @@ fn leveling_is_deterministic() {
         );
     }
 
-    for (i, (s2, s3)) in result2.shifted_tasks.iter().zip(&result3.shifted_tasks).enumerate() {
+    for (i, (s2, s3)) in result2
+        .shifted_tasks
+        .iter()
+        .zip(&result3.shifted_tasks)
+        .enumerate()
+    {
         assert_eq!(
             s2.task_id, s3.task_id,
             "Run 2 vs 3: Task order differs at index {}: {} vs {}",
@@ -139,7 +149,9 @@ fn leveling_preserves_critical_path_priority() {
     // Two tasks: one critical (on longest path), one with slack
     project.tasks = vec![
         // Critical task - depends on nothing, successor depends on it
-        Task::new("critical").effort(Duration::days(5)).assign("dev"),
+        Task::new("critical")
+            .effort(Duration::days(5))
+            .assign("dev"),
         // Non-critical task - parallel, has slack
         Task::new("non_critical")
             .effort(Duration::days(3))
@@ -203,10 +215,7 @@ fn solver_with_leveling_enabled() {
     assert!(
         sequential,
         "Tasks should be sequential after leveling: task1 {} - {}, task2 {} - {}",
-        task1.start,
-        task1.finish,
-        task2.start,
-        task2.finish
+        task1.start, task1.finish, task2.start, task2.finish
     );
 }
 
@@ -281,12 +290,8 @@ fn leveling_with_partial_allocation() {
 
     // Two tasks at 50% each - should be able to run in parallel
     project.tasks = vec![
-        Task::new("task1")
-            .effort(Duration::days(5))
-            .assign("dev"), // Default 100%
-        Task::new("task2")
-            .effort(Duration::days(5))
-            .assign("dev"), // Default 100%
+        Task::new("task1").effort(Duration::days(5)).assign("dev"), // Default 100%
+        Task::new("task2").effort(Duration::days(5)).assign("dev"), // Default 100%
     ];
 
     // Both at 100% = 200% usage = conflict
@@ -530,7 +535,10 @@ fn leveling_emits_l001_on_resolution() {
     let result = level_resources(&project, &schedule, &calendar);
 
     // Should have shifted at least one task
-    assert!(!result.shifted_tasks.is_empty(), "Should have shifted tasks");
+    assert!(
+        !result.shifted_tasks.is_empty(),
+        "Should have shifted tasks"
+    );
 
     // Should have emitted L001 diagnostic
     let l001_count = result
@@ -615,7 +623,10 @@ fn leveling_reason_resource_overallocated() {
             dates,
         } => {
             assert_eq!(resource, "alice", "Resource should be 'alice'");
-            assert!(*peak_demand > *capacity, "Peak demand should exceed capacity");
+            assert!(
+                *peak_demand > *capacity,
+                "Peak demand should exceed capacity"
+            );
             assert!(!dates.is_empty(), "Should have conflict dates");
         }
         LevelingReason::DependencyChain { .. } => {
@@ -695,13 +706,11 @@ fn leveling_preserves_original_schedule() {
 
     // Original schedule in result should match input
     assert_eq!(
-        result.original_schedule.tasks["task1"].start,
-        original_task1_start,
+        result.original_schedule.tasks["task1"].start, original_task1_start,
         "Original task1 start should be preserved"
     );
     assert_eq!(
-        result.original_schedule.tasks["task2"].start,
-        original_task2_start,
+        result.original_schedule.tasks["task2"].start, original_task2_start,
         "Original task2 start should be preserved"
     );
     assert_eq!(
@@ -734,8 +743,14 @@ fn leveling_reason_display_resource_overallocated() {
 
     let display = format!("{}", reason);
     assert!(display.contains("dev"), "Should mention resource name");
-    assert!(display.contains("200%"), "Should show peak demand as percentage");
-    assert!(display.contains("100%"), "Should show capacity as percentage");
+    assert!(
+        display.contains("200%"),
+        "Should show peak demand as percentage"
+    );
+    assert!(
+        display.contains("100%"),
+        "Should show capacity as percentage"
+    );
     assert!(display.contains("2 day"), "Should mention number of days");
 }
 

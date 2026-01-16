@@ -57,13 +57,16 @@
 //! This creates a **live schedule** - change a task's effort and all successors update!
 
 use chrono::{Datelike, NaiveDate, Weekday};
+use rust_decimal::prelude::ToPrimitive;
 use rust_xlsxwriter::{
     ConditionalFormatFormula, Format, FormatAlign, FormatBorder, Workbook, Worksheet,
 };
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask, Severity};
+use utf8proj_core::{
+    Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask,
+    Severity,
+};
 
 /// Schedule time granularity for Excel export
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -371,7 +374,9 @@ impl ExcelRenderer {
     /// all tasks are covered, even if there's a discrepancy.
     pub fn calculate_auto_fit_weeks(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
         // Find the actual max finish date from all tasks
-        let max_finish = schedule.tasks.values()
+        let max_finish = schedule
+            .tasks
+            .values()
             .map(|t| t.finish)
             .max()
             .unwrap_or(project_start);
@@ -394,7 +399,9 @@ impl ExcelRenderer {
     /// all tasks are covered, even if there's a discrepancy.
     pub fn calculate_auto_fit_days(&self, schedule: &Schedule, project_start: NaiveDate) -> u32 {
         // Find the actual max finish date from all tasks
-        let max_finish = schedule.tasks.values()
+        let max_finish = schedule
+            .tasks
+            .values()
             .map(|t| t.finish)
             .max()
             .unwrap_or(project_start);
@@ -441,7 +448,9 @@ impl ExcelRenderer {
             .resources
             .iter()
             .map(|r| {
-                let rate = r.rate.as_ref()
+                let rate = r
+                    .rate
+                    .as_ref()
                     .and_then(|m| m.amount.to_f64())
                     .unwrap_or(self.default_rate);
                 (r.id.clone(), rate)
@@ -453,16 +462,16 @@ impl ExcelRenderer {
 
         // Add sheets
         self.add_profiles_sheet(&mut workbook, project, schedule, &formats, &resource_rates)?;
-        self.add_schedule_sheet(
-            &mut workbook,
-            project,
-            schedule,
-            &formats,
-            project_start,
-        )?;
+        self.add_schedule_sheet(&mut workbook, project, schedule, &formats, project_start)?;
 
         if self.include_summary {
-            self.add_executive_summary(&mut workbook, project, schedule, &formats, &resource_rates)?;
+            self.add_executive_summary(
+                &mut workbook,
+                project,
+                schedule,
+                &formats,
+                &resource_rates,
+            )?;
         }
 
         // Add Calendar Analysis sheet if enabled
@@ -526,8 +535,7 @@ impl ExcelRenderer {
             .set_border(FormatBorder::Thin);
 
         // Alternating row colors for Schedule sheet (light blue/white banding per task)
-        let row_even_text = Format::new()
-            .set_border(FormatBorder::Thin);
+        let row_even_text = Format::new().set_border(FormatBorder::Thin);
 
         let row_even_number = Format::new()
             .set_num_format("#,##0.0")
@@ -559,9 +567,7 @@ impl ExcelRenderer {
             .set_border(FormatBorder::Thin);
 
         // Container task formats (bold to distinguish phases from leaf tasks)
-        let container_even_text = Format::new()
-            .set_bold()
-            .set_border(FormatBorder::Thin);
+        let container_even_text = Format::new().set_bold().set_border(FormatBorder::Thin);
 
         let container_odd_text = Format::new()
             .set_bold()
@@ -679,7 +685,9 @@ impl ExcelRenderer {
                     let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
                     assignment_days * assignment.units as f64
                 };
-                *resource_effort.entry(assignment.resource_id.clone()).or_default() += effort;
+                *resource_effort
+                    .entry(assignment.resource_id.clone())
+                    .or_default() += effort;
             }
         }
 
@@ -688,7 +696,10 @@ impl ExcelRenderer {
         let mut total_cost = 0.0;
 
         for resource in &project.resources {
-            let rate = resource_rates.get(&resource.id).copied().unwrap_or(self.default_rate);
+            let rate = resource_rates
+                .get(&resource.id)
+                .copied()
+                .unwrap_or(self.default_rate);
             let days = resource_effort.get(&resource.id).copied().unwrap_or(0.0);
             let cost = rate * days;
             total_cost += cost;
@@ -765,7 +776,13 @@ impl ExcelRenderer {
         // Branch based on granularity
         match self.granularity {
             ScheduleGranularity::Daily => {
-                return self.add_daily_schedule_sheet(workbook, project, schedule, formats, project_start);
+                return self.add_daily_schedule_sheet(
+                    workbook,
+                    project,
+                    schedule,
+                    formats,
+                    project_start,
+                );
             }
             ScheduleGranularity::Weekly => {
                 // Continue with weekly implementation below
@@ -813,23 +830,24 @@ impl ExcelRenderer {
         // Map scheduled tasks to WBS order
         let tasks: Vec<(&ScheduledTask, usize)> = wbs_order
             .iter()
-            .filter_map(|(task_id, level)| {
-                schedule.tasks.get(task_id).map(|st| (st, *level))
-            })
+            .filter_map(|(task_id, level)| schedule.tasks.get(task_id).map(|st| (st, *level)))
             .collect();
 
         // Build set of all full task IDs for predecessor resolution
-        let all_full_ids: std::collections::HashSet<String> = tasks
-            .iter()
-            .map(|(st, _)| st.task_id.clone())
-            .collect();
+        let all_full_ids: std::collections::HashSet<String> =
+            tasks.iter().map(|(st, _)| st.task_id.clone()).collect();
 
         // Build mapping from simple task IDs to full path IDs for VLOOKUP resolution
         // e.g., "gnu_analysis" -> "os_migration.gnu_val.gnu_analysis"
         let simple_to_full_id: HashMap<String, String> = tasks
             .iter()
             .map(|(st, _)| {
-                let simple = st.task_id.rsplit('.').next().unwrap_or(&st.task_id).to_string();
+                let simple = st
+                    .task_id
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&st.task_id)
+                    .to_string();
                 (simple, st.task_id.clone())
             })
             .collect();
@@ -858,7 +876,11 @@ impl ExcelRenderer {
                 prev_task_id = scheduled.task_id.clone();
             }
             // Extract the simple task ID from the path (e.g., "task_5.task_6.task_7" -> "task_7")
-            let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
+            let simple_id = scheduled
+                .task_id
+                .rsplit('.')
+                .next()
+                .unwrap_or(&scheduled.task_id);
             let task = project.get_task(simple_id);
 
             // Check if this is a container task (has children)
@@ -919,24 +941,60 @@ impl ExcelRenderer {
 
             // For container tasks, effort is 0 (their duration is derived from children)
             // Only leaf tasks contribute actual effort
-            let duration_days = if is_container { 0.0 } else { scheduled.duration.as_days() };
+            let duration_days = if is_container {
+                0.0
+            } else {
+                scheduled.duration.as_days()
+            };
 
             // If task has assignments, create a row per assignment
             if scheduled.assignments.is_empty() {
                 if self.show_dependencies {
                     self.write_schedule_row_with_deps(
-                        sheet, row, &scheduled.task_id, &task_name, *level, "",
-                        &predecessor, dep_type, lag, duration_days,
-                        start_week, end_week, scheduled.is_critical, is_milestone, is_container,
-                        formats, week_start_col, effort_col, start_col, end_col,
-                        last_data_row, is_odd, effective_weeks,
+                        sheet,
+                        row,
+                        &scheduled.task_id,
+                        &task_name,
+                        *level,
+                        "",
+                        &predecessor,
+                        dep_type,
+                        lag,
+                        duration_days,
+                        start_week,
+                        end_week,
+                        scheduled.is_critical,
+                        is_milestone,
+                        is_container,
+                        formats,
+                        week_start_col,
+                        effort_col,
+                        start_col,
+                        end_col,
+                        last_data_row,
+                        is_odd,
+                        effective_weeks,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
-                        sheet, row, &task_name, *level, "", duration_days,
-                        start_week, end_week, scheduled.is_critical, is_milestone, is_container,
-                        formats, week_start_col, effort_col, start_col, end_col,
-                        is_odd, effective_weeks,
+                        sheet,
+                        row,
+                        &task_name,
+                        *level,
+                        "",
+                        duration_days,
+                        start_week,
+                        end_week,
+                        scheduled.is_critical,
+                        is_milestone,
+                        is_container,
+                        formats,
+                        week_start_col,
+                        effort_col,
+                        start_col,
+                        end_col,
+                        is_odd,
+                        effective_weeks,
                     )?;
                 }
                 row += 1;
@@ -948,7 +1006,8 @@ impl ExcelRenderer {
                     let effort = if let Some(effort_days) = assignment.effort_days {
                         effort_days
                     } else {
-                        let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                        let assignment_days =
+                            (assignment.finish - assignment.start).num_days() as f64;
                         assignment_days * assignment.units as f64
                     };
 
@@ -961,18 +1020,50 @@ impl ExcelRenderer {
 
                     if self.show_dependencies {
                         self.write_schedule_row_with_deps(
-                            sheet, row, &scheduled.task_id, &task_name, *level, &assignment.resource_id,
-                            &pred, dtype, lag_val, effort,
-                            start_week, end_week, scheduled.is_critical, is_milestone, is_container,
-                            formats, week_start_col, effort_col, start_col, end_col,
-                            last_data_row, is_odd, effective_weeks,
+                            sheet,
+                            row,
+                            &scheduled.task_id,
+                            &task_name,
+                            *level,
+                            &assignment.resource_id,
+                            &pred,
+                            dtype,
+                            lag_val,
+                            effort,
+                            start_week,
+                            end_week,
+                            scheduled.is_critical,
+                            is_milestone,
+                            is_container,
+                            formats,
+                            week_start_col,
+                            effort_col,
+                            start_col,
+                            end_col,
+                            last_data_row,
+                            is_odd,
+                            effective_weeks,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
-                            sheet, row, &task_name, *level, &assignment.resource_id, effort,
-                            start_week, end_week, scheduled.is_critical, is_milestone, is_container,
-                            formats, week_start_col, effort_col, start_col, end_col,
-                            is_odd, effective_weeks,
+                            sheet,
+                            row,
+                            &task_name,
+                            *level,
+                            &assignment.resource_id,
+                            effort,
+                            start_week,
+                            end_week,
+                            scheduled.is_critical,
+                            is_milestone,
+                            is_container,
+                            formats,
+                            week_start_col,
+                            effort_col,
+                            start_col,
+                            end_col,
+                            is_odd,
+                            effective_weeks,
                         )?;
                     }
                     first_assignment = false;
@@ -982,7 +1073,14 @@ impl ExcelRenderer {
         }
 
         // Total row for each week column
-        self.write_schedule_totals(sheet, row, week_start_col, effort_col, formats, effective_weeks)?;
+        self.write_schedule_totals(
+            sheet,
+            row,
+            week_start_col,
+            effort_col,
+            formats,
+            effective_weeks,
+        )?;
 
         // Add conditional formatting for week columns: blue fill when numeric value > 0
         // Uses ISNUMBER check to exclude milestones ("◆") and empty cells ("")
@@ -999,7 +1097,10 @@ impl ExcelRenderer {
             // Formula-based conditional format: apply blue fill only when cell is numeric AND > 0
             // This excludes milestones ("◆" text) and empty cells ("") from blue formatting
             let first_week_col_letter = Self::col_to_letter(week_start_col);
-            let formula = format!("=AND(ISNUMBER({}2),{}2>0)", first_week_col_letter, first_week_col_letter);
+            let formula = format!(
+                "=AND(ISNUMBER({}2),{}2>0)",
+                first_week_col_letter, first_week_col_letter
+            );
             let conditional_format = ConditionalFormatFormula::new()
                 .set_rule(formula.as_str())
                 .set_format(gantt_filled_format);
@@ -1057,29 +1158,38 @@ impl ExcelRenderer {
         let wbs_order = Self::collect_wbs_order(&project.tasks, 0);
         let tasks: Vec<(&ScheduledTask, usize)> = wbs_order
             .iter()
-            .filter_map(|(task_id, level)| {
-                schedule.tasks.get(task_id).map(|st| (st, *level))
-            })
+            .filter_map(|(task_id, level)| schedule.tasks.get(task_id).map(|st| (st, *level)))
             .collect();
 
         // Build predecessor resolution maps
-        let all_full_ids: std::collections::HashSet<String> = tasks
-            .iter()
-            .map(|(st, _)| st.task_id.clone())
-            .collect();
+        let all_full_ids: std::collections::HashSet<String> =
+            tasks.iter().map(|(st, _)| st.task_id.clone()).collect();
 
         let simple_to_full_id: HashMap<String, String> = tasks
             .iter()
             .map(|(st, _)| {
-                let simple = st.task_id.rsplit('.').next().unwrap_or(&st.task_id).to_string();
+                let simple = st
+                    .task_id
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&st.task_id)
+                    .to_string();
                 (simple, st.task_id.clone())
             })
             .collect();
 
         // Track last data row (for future formula-driven mode)
-        let _last_data_row: u32 = tasks.iter().map(|(st, _)| {
-            if st.assignments.is_empty() { 1 } else { st.assignments.len() as u32 }
-        }).sum::<u32>() + 1;
+        let _last_data_row: u32 = tasks
+            .iter()
+            .map(|(st, _)| {
+                if st.assignments.is_empty() {
+                    1
+                } else {
+                    st.assignments.len() as u32
+                }
+            })
+            .sum::<u32>()
+            + 1;
 
         // Write task rows
         let mut row = 1u32;
@@ -1093,7 +1203,11 @@ impl ExcelRenderer {
                 prev_task_id = scheduled.task_id.clone();
             }
 
-            let simple_id = scheduled.task_id.rsplit('.').next().unwrap_or(&scheduled.task_id);
+            let simple_id = scheduled
+                .task_id
+                .rsplit('.')
+                .next()
+                .unwrap_or(&scheduled.task_id);
             let task = project.get_task(simple_id);
             let is_container = task.map(|t| !t.children.is_empty()).unwrap_or(false);
             let is_milestone = task.map(|t| t.milestone).unwrap_or(false);
@@ -1134,23 +1248,45 @@ impl ExcelRenderer {
                 })
                 .unwrap_or_default();
 
-            let duration_days = if is_container { 0.0 } else { scheduled.duration.as_days() };
+            let duration_days = if is_container {
+                0.0
+            } else {
+                scheduled.duration.as_days()
+            };
 
             if scheduled.assignments.is_empty() {
                 self.write_daily_schedule_row(
-                    sheet, row, &scheduled.task_id, &task_name, *level, "",
-                    &predecessor, dep_type, lag, duration_days,
-                    scheduled.start, scheduled.finish,
-                    scheduled.is_critical, is_milestone, is_container,
-                    formats, day_start_col, effort_col, start_col, end_col,
-                    project_start, &calendar, is_odd,
+                    sheet,
+                    row,
+                    &scheduled.task_id,
+                    &task_name,
+                    *level,
+                    "",
+                    &predecessor,
+                    dep_type,
+                    lag,
+                    duration_days,
+                    scheduled.start,
+                    scheduled.finish,
+                    scheduled.is_critical,
+                    is_milestone,
+                    is_container,
+                    formats,
+                    day_start_col,
+                    effort_col,
+                    start_col,
+                    end_col,
+                    project_start,
+                    &calendar,
+                    is_odd,
                 )?;
                 row += 1;
             } else {
                 let mut first_assignment = true;
                 for assignment in &scheduled.assignments {
                     let effort = assignment.effort_days.unwrap_or_else(|| {
-                        let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
+                        let assignment_days =
+                            (assignment.finish - assignment.start).num_days() as f64;
                         assignment_days * assignment.units as f64
                     });
 
@@ -1161,12 +1297,29 @@ impl ExcelRenderer {
                     };
 
                     self.write_daily_schedule_row(
-                        sheet, row, &scheduled.task_id, &task_name, *level, &assignment.resource_id,
-                        &pred, dtype, lag_val, effort,
-                        scheduled.start, scheduled.finish,
-                        scheduled.is_critical, is_milestone, is_container,
-                        formats, day_start_col, effort_col, start_col, end_col,
-                        project_start, &calendar, is_odd,
+                        sheet,
+                        row,
+                        &scheduled.task_id,
+                        &task_name,
+                        *level,
+                        &assignment.resource_id,
+                        &pred,
+                        dtype,
+                        lag_val,
+                        effort,
+                        scheduled.start,
+                        scheduled.finish,
+                        scheduled.is_critical,
+                        is_milestone,
+                        is_container,
+                        formats,
+                        day_start_col,
+                        effort_col,
+                        start_col,
+                        end_col,
+                        project_start,
+                        &calendar,
+                        is_odd,
                     )?;
                     first_assignment = false;
                     row += 1;
@@ -1184,13 +1337,22 @@ impl ExcelRenderer {
                 .set_border(FormatBorder::Thin);
 
             let first_day_col_letter = Self::col_to_letter(day_start_col);
-            let formula = format!("=AND(ISNUMBER({}2),{}2>0)", first_day_col_letter, first_day_col_letter);
+            let formula = format!(
+                "=AND(ISNUMBER({}2),{}2>0)",
+                first_day_col_letter, first_day_col_letter
+            );
             let conditional_format = ConditionalFormatFormula::new()
                 .set_rule(formula.as_str())
                 .set_format(gantt_filled_format);
 
             sheet
-                .add_conditional_format(1, day_start_col, last_data_row_for_cf, last_day_col, &conditional_format)
+                .add_conditional_format(
+                    1,
+                    day_start_col,
+                    last_data_row_for_cf,
+                    last_day_col,
+                    &conditional_format,
+                )
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1210,8 +1372,17 @@ impl ExcelRenderer {
     ) -> Result<(), RenderError> {
         // Fixed column headers
         let headers = [
-            "Task ID", "Activity", "Lvl", "M", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
-            "Effort\n(pd)", "Start", "End"
+            "Task ID",
+            "Activity",
+            "Lvl",
+            "M",
+            "Profile",
+            "Depends\nOn",
+            "Type",
+            "Lag\n(d)",
+            "Effort\n(pd)",
+            "Start",
+            "End",
         ];
         for (col, header) in headers.iter().enumerate() {
             sheet
@@ -1220,17 +1391,17 @@ impl ExcelRenderer {
         }
 
         // Column widths for fixed columns
-        sheet.set_column_width(0, 12).ok();  // Task ID
-        sheet.set_column_width(1, 25).ok();  // Activity
-        sheet.set_column_width(2, 3).ok();   // Lvl
-        sheet.set_column_width(3, 3).ok();   // M
-        sheet.set_column_width(4, 12).ok();  // Profile
-        sheet.set_column_width(5, 10).ok();  // Depends On
-        sheet.set_column_width(6, 5).ok();   // Type
-        sheet.set_column_width(7, 5).ok();   // Lag
-        sheet.set_column_width(8, 6).ok();   // Effort
-        sheet.set_column_width(9, 8).ok();   // Start
-        sheet.set_column_width(10, 8).ok();  // End
+        sheet.set_column_width(0, 12).ok(); // Task ID
+        sheet.set_column_width(1, 25).ok(); // Activity
+        sheet.set_column_width(2, 3).ok(); // Lvl
+        sheet.set_column_width(3, 3).ok(); // M
+        sheet.set_column_width(4, 12).ok(); // Profile
+        sheet.set_column_width(5, 10).ok(); // Depends On
+        sheet.set_column_width(6, 5).ok(); // Type
+        sheet.set_column_width(7, 5).ok(); // Lag
+        sheet.set_column_width(8, 6).ok(); // Effort
+        sheet.set_column_width(9, 8).ok(); // Start
+        sheet.set_column_width(10, 8).ok(); // End
 
         // Day column headers with date and weekend/holiday styling
         let day_start_col = 11u16;
@@ -1252,7 +1423,9 @@ impl ExcelRenderer {
 
             // Check if it's a holiday
             let holiday = calendar.holidays.iter().find(|h| h.contains(date));
-            let is_weekend = !calendar.working_days.contains(&(date.weekday().num_days_from_sunday() as u8));
+            let is_weekend = !calendar
+                .working_days
+                .contains(&(date.weekday().num_days_from_sunday() as u8));
 
             // Choose header format based on day type
             let header_fmt = if holiday.is_some() {
@@ -1313,68 +1486,94 @@ impl ExcelRenderer {
         };
 
         let activity_fmt = if is_container {
-            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+            if is_odd {
+                &formats.container_odd_text
+            } else {
+                &formats.container_even_text
+            }
         } else {
             text_fmt
         };
 
         // Col A: Task ID
-        sheet.write_with_format(row, 0, task_id, text_fmt)
+        sheet
+            .write_with_format(row, 0, task_id, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col B: Activity
-        sheet.write_with_format(row, 1, task_name, activity_fmt)
+        sheet
+            .write_with_format(row, 1, task_name, activity_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col C: Lvl
-        sheet.write_with_format(row, 2, level as f64, number_fmt)
+        sheet
+            .write_with_format(row, 2, level as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col D: Milestone marker
         let milestone_marker = if is_milestone { "◆" } else { "" };
-        sheet.write_with_format(row, 3, milestone_marker, text_fmt)
+        sheet
+            .write_with_format(row, 3, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col E: Profile
-        sheet.write_with_format(row, 4, profile, text_fmt)
+        sheet
+            .write_with_format(row, 4, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col F: Depends On
-        sheet.write_with_format(row, 5, predecessor, text_fmt)
+        sheet
+            .write_with_format(row, 5, predecessor, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col G: Type
         let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
-        sheet.write_with_format(row, 6, dep_type_val, text_fmt)
+        sheet
+            .write_with_format(row, 6, dep_type_val, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col H: Lag
         if !predecessor.is_empty() {
-            sheet.write_with_format(row, 7, lag as f64, number_fmt)
+            sheet
+                .write_with_format(row, 7, lag as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, 7, "", text_fmt)
+            sheet
+                .write_with_format(row, 7, "", text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Col I: Effort
-        sheet.write_with_format(row, effort_col, person_days, number_fmt)
+        sheet
+            .write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col J: Start (date format)
         let start_str = task_start.format("%d/%m").to_string();
-        sheet.write_with_format(row, start_col, &start_str, text_fmt)
+        sheet
+            .write_with_format(row, start_col, &start_str, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col K: End (date format)
         let end_str = task_finish.format("%d/%m").to_string();
-        sheet.write_with_format(row, end_col, &end_str, text_fmt)
+        sheet
+            .write_with_format(row, end_col, &end_str, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Day columns
         self.write_daily_columns(
-            sheet, row, task_start, task_finish, is_milestone, is_container, is_odd,
-            formats, day_start_col, project_start, calendar, person_days,
+            sheet,
+            row,
+            task_start,
+            task_finish,
+            is_milestone,
+            is_container,
+            is_odd,
+            formats,
+            day_start_col,
+            project_start,
+            calendar,
+            person_days,
         )?;
 
         Ok(())
@@ -1423,7 +1622,9 @@ impl ExcelRenderer {
 
             // Check day type
             let holiday = calendar.holidays.iter().find(|h| h.contains(date));
-            let is_weekend = !calendar.working_days.contains(&(date.weekday().num_days_from_sunday() as u8));
+            let is_weekend = !calendar
+                .working_days
+                .contains(&(date.weekday().num_days_from_sunday() as u8));
             let in_task_range = date >= task_start && date <= task_finish;
 
             // Select cell format based on day type
@@ -1441,14 +1642,16 @@ impl ExcelRenderer {
 
             // Container tasks: no Gantt bar
             if is_container {
-                sheet.write_with_format(row, col, "", cell_fmt)
+                sheet
+                    .write_with_format(row, col, "", cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
                 continue;
             }
 
             // Non-working days: always empty (no hours distributed)
             if holiday.is_some() || is_weekend {
-                sheet.write_with_format(row, col, "", cell_fmt)
+                sheet
+                    .write_with_format(row, col, "", cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
                 continue;
             }
@@ -1456,7 +1659,8 @@ impl ExcelRenderer {
             // Working day within task range
             if in_task_range {
                 if is_milestone {
-                    sheet.write_with_format(row, col, "◆", cell_fmt)
+                    sheet
+                        .write_with_format(row, col, "◆", cell_fmt)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
                 } else if total_hours > 0 {
                     // Smart distribution: first `remainder` days get base+1, rest get base
@@ -1466,19 +1670,23 @@ impl ExcelRenderer {
                         base_hours
                     };
                     if hours > 0 {
-                        sheet.write_with_format(row, col, hours as f64, cell_fmt)
+                        sheet
+                            .write_with_format(row, col, hours as f64, cell_fmt)
                             .map_err(|e| RenderError::Format(e.to_string()))?;
                     } else {
-                        sheet.write_with_format(row, col, "", cell_fmt)
+                        sheet
+                            .write_with_format(row, col, "", cell_fmt)
                             .map_err(|e| RenderError::Format(e.to_string()))?;
                     }
                     working_day_index += 1;
                 } else {
-                    sheet.write_with_format(row, col, "", cell_fmt)
+                    sheet
+                        .write_with_format(row, col, "", cell_fmt)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
                 }
             } else {
-                sheet.write_with_format(row, col, "", cell_fmt)
+                sheet
+                    .write_with_format(row, col, "", cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             }
         }
@@ -1505,7 +1713,15 @@ impl ExcelRenderer {
         sheet: &mut Worksheet,
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
-        let headers = ["Activity", "Lvl", "M", "Profile", "pd", "Start\nweek", "End\nweek"];
+        let headers = [
+            "Activity",
+            "Lvl",
+            "M",
+            "Profile",
+            "pd",
+            "Start\nweek",
+            "End\nweek",
+        ];
         for (col, header) in headers.iter().enumerate() {
             sheet
                 .write_with_format(0, col as u16, *header, &formats.header)
@@ -1514,12 +1730,12 @@ impl ExcelRenderer {
 
         // Column widths
         sheet.set_column_width(0, 25).ok(); // Activity
-        sheet.set_column_width(1, 3).ok();  // Lvl (nesting level)
-        sheet.set_column_width(2, 3).ok();  // M (milestone marker)
+        sheet.set_column_width(1, 3).ok(); // Lvl (nesting level)
+        sheet.set_column_width(2, 3).ok(); // M (milestone marker)
         sheet.set_column_width(3, 15).ok(); // Profile
-        sheet.set_column_width(4, 6).ok();  // pd
-        sheet.set_column_width(5, 6).ok();  // Start
-        sheet.set_column_width(6, 6).ok();  // End
+        sheet.set_column_width(4, 6).ok(); // pd
+        sheet.set_column_width(5, 6).ok(); // Start
+        sheet.set_column_width(6, 6).ok(); // End
 
         Ok(())
     }
@@ -1531,8 +1747,17 @@ impl ExcelRenderer {
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
         let headers = [
-            "Task ID", "Activity", "Lvl", "M", "Profile", "Depends\nOn", "Type", "Lag\n(d)",
-            "Effort\n(pd)", "Start\nweek", "End\nweek"
+            "Task ID",
+            "Activity",
+            "Lvl",
+            "M",
+            "Profile",
+            "Depends\nOn",
+            "Type",
+            "Lag\n(d)",
+            "Effort\n(pd)",
+            "Start\nweek",
+            "End\nweek",
         ];
         for (col, header) in headers.iter().enumerate() {
             sheet
@@ -1543,14 +1768,14 @@ impl ExcelRenderer {
         // Column widths
         sheet.set_column_width(0, 12).ok(); // Task ID
         sheet.set_column_width(1, 25).ok(); // Activity
-        sheet.set_column_width(2, 3).ok();  // Lvl (nesting level)
-        sheet.set_column_width(3, 3).ok();  // M (milestone marker)
+        sheet.set_column_width(2, 3).ok(); // Lvl (nesting level)
+        sheet.set_column_width(3, 3).ok(); // M (milestone marker)
         sheet.set_column_width(4, 12).ok(); // Profile
         sheet.set_column_width(5, 10).ok(); // Depends On
-        sheet.set_column_width(6, 5).ok();  // Type
-        sheet.set_column_width(7, 5).ok();  // Lag
-        sheet.set_column_width(8, 7).ok();  // Effort
-        sheet.set_column_width(9, 6).ok();  // Start
+        sheet.set_column_width(6, 5).ok(); // Type
+        sheet.set_column_width(7, 5).ok(); // Lag
+        sheet.set_column_width(8, 7).ok(); // Effort
+        sheet.set_column_width(9, 6).ok(); // Start
         sheet.set_column_width(10, 6).ok(); // End
 
         Ok(())
@@ -1590,44 +1815,71 @@ impl ExcelRenderer {
 
         // Container tasks use bold text for Activity to distinguish phases
         let activity_fmt = if is_container {
-            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+            if is_odd {
+                &formats.container_odd_text
+            } else {
+                &formats.container_even_text
+            }
         } else {
             text_fmt
         };
 
         // Col A: Activity (bold for containers)
-        sheet.write_with_format(row, 0, task_name, activity_fmt)
+        sheet
+            .write_with_format(row, 0, task_name, activity_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col B: Lvl (nesting level for hierarchy filtering/grouping)
-        sheet.write_with_format(row, 1, level as f64, number_fmt)
+        sheet
+            .write_with_format(row, 1, level as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col C: Milestone marker (◆ for milestones, empty otherwise)
         let milestone_marker = if is_milestone { "◆" } else { "" };
-        sheet.write_with_format(row, 2, milestone_marker, text_fmt)
+        sheet
+            .write_with_format(row, 2, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col D: Profile
-        sheet.write_with_format(row, 3, profile, text_fmt)
+        sheet
+            .write_with_format(row, 3, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col E: pd (effort)
-        sheet.write_with_format(row, effort_col, person_days, number_fmt)
+        sheet
+            .write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col F: Start
-        sheet.write_with_format(row, start_col, start_week as f64, number_fmt)
+        sheet
+            .write_with_format(row, start_col, start_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col G: End
-        sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
+        sheet
+            .write_with_format(row, end_col, end_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Week columns (M column is at index 2 for simple layout)
         let milestone_col = 2u16;
-        self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days, schedule_weeks)?;
+        self.write_week_columns(
+            sheet,
+            row,
+            start_week,
+            end_week,
+            is_critical,
+            is_milestone,
+            is_container,
+            is_odd,
+            formats,
+            week_start_col,
+            milestone_col,
+            effort_col,
+            start_col,
+            end_col,
+            person_days,
+            schedule_weeks,
+        )?;
 
         Ok(())
     }
@@ -1673,52 +1925,66 @@ impl ExcelRenderer {
 
         // Container tasks use bold text for Activity to distinguish phases
         let activity_fmt = if is_container {
-            if is_odd { &formats.container_odd_text } else { &formats.container_even_text }
+            if is_odd {
+                &formats.container_odd_text
+            } else {
+                &formats.container_even_text
+            }
         } else {
             text_fmt
         };
 
         // Col A: Task ID
-        sheet.write_with_format(row, 0, task_id, text_fmt)
+        sheet
+            .write_with_format(row, 0, task_id, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col B: Activity (bold for containers)
-        sheet.write_with_format(row, 1, task_name, activity_fmt)
+        sheet
+            .write_with_format(row, 1, task_name, activity_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col C: Lvl (nesting level for hierarchy filtering/grouping)
-        sheet.write_with_format(row, 2, level as f64, number_fmt)
+        sheet
+            .write_with_format(row, 2, level as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col D: Milestone marker (◆ for milestones, empty otherwise)
         let milestone_marker = if is_milestone { "◆" } else { "" };
-        sheet.write_with_format(row, 3, milestone_marker, text_fmt)
+        sheet
+            .write_with_format(row, 3, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col E: Profile
-        sheet.write_with_format(row, 4, profile, text_fmt)
+        sheet
+            .write_with_format(row, 4, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col F: Depends On
-        sheet.write_with_format(row, 5, predecessor, text_fmt)
+        sheet
+            .write_with_format(row, 5, predecessor, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col G: Type (FS/SS/FF/SF)
         let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
-        sheet.write_with_format(row, 6, dep_type_val, text_fmt)
+        sheet
+            .write_with_format(row, 6, dep_type_val, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col H: Lag
         if !predecessor.is_empty() {
-            sheet.write_with_format(row, 7, lag as f64, number_fmt)
+            sheet
+                .write_with_format(row, 7, lag as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, 7, "", text_fmt)
+            sheet
+                .write_with_format(row, 7, "", text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Col I: Effort (pd)
-        sheet.write_with_format(row, effort_col, person_days, number_fmt)
+        sheet
+            .write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Col J: Start Week - Formula-driven if has predecessor
@@ -1732,17 +1998,38 @@ impl ExcelRenderer {
                 IF(G{}=\"FF\",VLOOKUP(F{},$A$2:$K${},11,0)-CEILING(I{}*{}/{},1)+1+H{},\
                 IF(G{}=\"SF\",VLOOKUP(F{},$A$2:$K${},10,0)-CEILING(I{}*{}/{},1)+1+H{},\
                 {})))))",
-                excel_row, start_week,
-                excel_row, excel_row, last_data_row, excel_row,
-                excel_row, excel_row, last_data_row, excel_row,
-                excel_row, excel_row, last_data_row, excel_row, self.hours_per_day, self.hours_per_week, excel_row,
-                excel_row, excel_row, last_data_row, excel_row, self.hours_per_day, self.hours_per_week, excel_row,
+                excel_row,
+                start_week,
+                excel_row,
+                excel_row,
+                last_data_row,
+                excel_row,
+                excel_row,
+                excel_row,
+                last_data_row,
+                excel_row,
+                excel_row,
+                excel_row,
+                last_data_row,
+                excel_row,
+                self.hours_per_day,
+                self.hours_per_week,
+                excel_row,
+                excel_row,
+                excel_row,
+                last_data_row,
+                excel_row,
+                self.hours_per_day,
+                self.hours_per_week,
+                excel_row,
                 start_week
             );
-            sheet.write_formula_with_format(row, start_col, formula.as_str(), number_fmt)
+            sheet
+                .write_formula_with_format(row, start_col, formula.as_str(), number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, start_col, start_week as f64, number_fmt)
+            sheet
+                .write_with_format(row, start_col, start_week as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1752,21 +2039,42 @@ impl ExcelRenderer {
             let effort_col_letter = Self::col_to_letter(effort_col);
             let formula = format!(
                 "={}{}+MAX(CEILING({}{}*{}/{},1)-1,0)",
-                start_col_letter, excel_row,
-                effort_col_letter, excel_row,
-                self.hours_per_day, self.hours_per_week
+                start_col_letter,
+                excel_row,
+                effort_col_letter,
+                excel_row,
+                self.hours_per_day,
+                self.hours_per_week
             );
-            sheet.write_formula_with_format(row, end_col, formula.as_str(), number_fmt)
+            sheet
+                .write_formula_with_format(row, end_col, formula.as_str(), number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, end_col, end_week as f64, number_fmt)
+            sheet
+                .write_with_format(row, end_col, end_week as f64, number_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Week columns (M column is at index 3 for deps layout with Lvl)
         let milestone_col = 3u16;
-        self.write_week_columns(sheet, row, start_week, end_week, is_critical, is_milestone,
-            is_container, is_odd, formats, week_start_col, milestone_col, effort_col, start_col, end_col, person_days, schedule_weeks)?;
+        self.write_week_columns(
+            sheet,
+            row,
+            start_week,
+            end_week,
+            is_critical,
+            is_milestone,
+            is_container,
+            is_odd,
+            formats,
+            week_start_col,
+            milestone_col,
+            effort_col,
+            start_col,
+            end_col,
+            person_days,
+            schedule_weeks,
+        )?;
 
         Ok(())
     }
@@ -1823,7 +2131,8 @@ impl ExcelRenderer {
 
             // Container tasks: no Gantt bar (effort is 0, dates are derived from children)
             if is_container {
-                sheet.write_with_format(row, col, "", cell_fmt)
+                sheet
+                    .write_with_format(row, col, "", cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
                 continue;
             }
@@ -1838,37 +2147,52 @@ impl ExcelRenderer {
                 // - Tasks: hours if in range AND > 0, "" otherwise
                 let hours_formula = format!(
                     "({}{}*{})/(${}{}-${}{}+1)",
-                    effort_col_letter, excel_row, self.hours_per_day,
-                    end_col_letter, excel_row, start_col_letter, excel_row
+                    effort_col_letter,
+                    excel_row,
+                    self.hours_per_day,
+                    end_col_letter,
+                    excel_row,
+                    start_col_letter,
+                    excel_row
                 );
                 let in_range_condition = format!(
                     "{}$1>=${}{},{}$1<=${}{}",
-                    col_letter, start_col_letter, excel_row,
-                    col_letter, end_col_letter, excel_row
+                    col_letter, start_col_letter, excel_row, col_letter, end_col_letter, excel_row
                 );
                 let formula = format!(
                     "=IF(${}{}=\"◆\",\
                         IF(AND({}),\"◆\",\"\"),\
                         IF(AND({},{}>0),ROUND({},0),\"\"))",
-                    milestone_col_letter, excel_row,
+                    milestone_col_letter,
+                    excel_row,
                     in_range_condition,
-                    in_range_condition, hours_formula, hours_formula
+                    in_range_condition,
+                    hours_formula,
+                    hours_formula
                 );
-                sheet.write_formula_with_format(row, col, formula.as_str(), cell_fmt)
+                sheet
+                    .write_formula_with_format(row, col, formula.as_str(), cell_fmt)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             } else {
                 // Static mode: compute value directly
                 if is_milestone {
                     let value = if in_range { "◆" } else { "" };
-                    sheet.write_with_format(row, col, value, cell_fmt)
+                    sheet
+                        .write_with_format(row, col, value, cell_fmt)
                         .map_err(|e| RenderError::Format(e.to_string()))?;
                 } else {
-                    let hours = if in_range { hours_per_week_val.round() } else { 0.0 };
+                    let hours = if in_range {
+                        hours_per_week_val.round()
+                    } else {
+                        0.0
+                    };
                     if hours > 0.0 {
-                        sheet.write_with_format(row, col, hours, cell_fmt)
+                        sheet
+                            .write_with_format(row, col, hours, cell_fmt)
                             .map_err(|e| RenderError::Format(e.to_string()))?;
                     } else {
-                        sheet.write_with_format(row, col, "", cell_fmt)
+                        sheet
+                            .write_with_format(row, col, "", cell_fmt)
                             .map_err(|e| RenderError::Format(e.to_string()))?;
                     }
                 }
@@ -1893,12 +2217,14 @@ impl ExcelRenderer {
         }
 
         // Write TOTAL label in first column
-        sheet.write_with_format(row, 0, "TOTAL", &formats.total_row)
+        sheet
+            .write_with_format(row, 0, "TOTAL", &formats.total_row)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Fill empty cells up to effort column
         for col_idx in 1..effort_col {
-            sheet.write_with_format(row, col_idx, "", &formats.total_row)
+            sheet
+                .write_with_format(row, col_idx, "", &formats.total_row)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1906,16 +2232,19 @@ impl ExcelRenderer {
         if self.use_formulas {
             let effort_letter = Self::col_to_letter(effort_col);
             let formula = format!("=SUM({}2:{}{})", effort_letter, effort_letter, row);
-            sheet.write_formula_with_format(row, effort_col, formula.as_str(), &formats.total_row)
+            sheet
+                .write_formula_with_format(row, effort_col, formula.as_str(), &formats.total_row)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         } else {
-            sheet.write_with_format(row, effort_col, 0.0, &formats.total_row)
+            sheet
+                .write_with_format(row, effort_col, 0.0, &formats.total_row)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Fill empty cells from effort+1 to week columns
         for col_idx in (effort_col + 1)..week_start_col {
-            sheet.write_with_format(row, col_idx, "", &formats.total_row)
+            sheet
+                .write_with_format(row, col_idx, "", &formats.total_row)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1925,10 +2254,12 @@ impl ExcelRenderer {
             if self.use_formulas {
                 let col_letter = Self::col_to_letter(week_col);
                 let formula = format!("=SUM({}2:{}{})", col_letter, col_letter, row);
-                sheet.write_formula_with_format(row, week_col, formula.as_str(), &formats.total_row)
+                sheet
+                    .write_formula_with_format(row, week_col, formula.as_str(), &formats.total_row)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             } else {
-                sheet.write_with_format(row, week_col, 0.0, &formats.total_row)
+                sheet
+                    .write_with_format(row, week_col, 0.0, &formats.total_row)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
             }
         }
@@ -1954,7 +2285,9 @@ impl ExcelRenderer {
         sheet
             .write_with_format(0, 0, "PROJECT SUMMARY", &formats.header)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.merge_range(0, 0, 0, 1, "PROJECT SUMMARY", &formats.header).ok();
+        sheet
+            .merge_range(0, 0, 0, 1, "PROJECT SUMMARY", &formats.header)
+            .ok();
 
         sheet
             .write_with_format(2, 0, "Project Name:", &formats.text)
@@ -1967,14 +2300,24 @@ impl ExcelRenderer {
             .write_with_format(3, 0, "Start Date:", &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
         sheet
-            .write_with_format(3, 1, project.start.format("%Y-%m-%d").to_string(), &formats.text)
+            .write_with_format(
+                3,
+                1,
+                project.start.format("%Y-%m-%d").to_string(),
+                &formats.text,
+            )
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         sheet
             .write_with_format(4, 0, "End Date:", &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
         sheet
-            .write_with_format(4, 1, schedule.project_end.format("%Y-%m-%d").to_string(), &formats.text)
+            .write_with_format(
+                4,
+                1,
+                schedule.project_end.format("%Y-%m-%d").to_string(),
+                &formats.text,
+            )
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         sheet
@@ -2002,7 +2345,9 @@ impl ExcelRenderer {
         sheet
             .write_with_format(9, 0, "COST SUMMARY", &formats.header)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.merge_range(9, 0, 9, 1, "COST SUMMARY", &formats.header).ok();
+        sheet
+            .merge_range(9, 0, 9, 1, "COST SUMMARY", &formats.header)
+            .ok();
 
         // Calculate totals
         // Use explicit effort_days if available, otherwise calculate from duration × units
@@ -2015,7 +2360,9 @@ impl ExcelRenderer {
                     let assignment_days = (assignment.finish - assignment.start).num_days() as f64;
                     assignment_days * assignment.units as f64
                 };
-                *resource_effort.entry(assignment.resource_id.clone()).or_default() += effort;
+                *resource_effort
+                    .entry(assignment.resource_id.clone())
+                    .or_default() += effort;
             }
         }
 
@@ -2035,7 +2382,12 @@ impl ExcelRenderer {
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         sheet
-            .write_with_format(12, 0, &format!("Total Cost ({}):", self.currency), &formats.text)
+            .write_with_format(
+                12,
+                0,
+                &format!("Total Cost ({}):", self.currency),
+                &formats.text,
+            )
             .map_err(|e| RenderError::Format(e.to_string()))?;
         sheet
             .write_with_format(12, 1, total_cost, &formats.currency)
@@ -2081,18 +2433,20 @@ impl ExcelRenderer {
         }
 
         // Column widths
-        sheet.set_column_width(0, 15).ok();  // Task ID
-        sheet.set_column_width(1, 25).ok();  // Task Name
-        sheet.set_column_width(2, 12).ok();  // Calendar
-        sheet.set_column_width(3, 12).ok();  // Duration
-        sheet.set_column_width(4, 12).ok();  // Working Days
-        sheet.set_column_width(5, 10).ok();  // Weekends
-        sheet.set_column_width(6, 10).ok();  // Holidays
-        sheet.set_column_width(7, 12).ok();  // Non-Working %
-        sheet.set_column_width(8, 30).ok();  // Diagnostics
+        sheet.set_column_width(0, 15).ok(); // Task ID
+        sheet.set_column_width(1, 25).ok(); // Task Name
+        sheet.set_column_width(2, 12).ok(); // Calendar
+        sheet.set_column_width(3, 12).ok(); // Duration
+        sheet.set_column_width(4, 12).ok(); // Working Days
+        sheet.set_column_width(5, 10).ok(); // Weekends
+        sheet.set_column_width(6, 10).ok(); // Holidays
+        sheet.set_column_width(7, 12).ok(); // Non-Working %
+        sheet.set_column_width(8, 30).ok(); // Diagnostics
 
         // Get project calendar for fallback
-        let project_calendar = project.calendars.iter()
+        let project_calendar = project
+            .calendars
+            .iter()
             .find(|c| c.id == project.calendar)
             .cloned()
             .unwrap_or_else(Calendar::default);
@@ -2120,25 +2474,33 @@ impl ExcelRenderer {
 
                 // Get diagnostics for this task
                 let task_diags = self.filter_task_diagnostics(task_path);
-                let diag_str = task_diags.iter()
+                let diag_str = task_diags
+                    .iter()
                     .map(|d| d.as_str())
                     .collect::<Vec<_>>()
                     .join(", ");
 
                 // Write row
-                sheet.write_with_format(row, 0, task_path, &formats.text)
+                sheet
+                    .write_with_format(row, 0, task_path, &formats.text)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 1, task_name, &formats.text)
+                sheet
+                    .write_with_format(row, 1, task_name, &formats.text)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 2, &calendar.id, &formats.text)
+                sheet
+                    .write_with_format(row, 2, &calendar.id, &formats.text)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 3, scheduled.duration.as_days(), &formats.number)
+                sheet
+                    .write_with_format(row, 3, scheduled.duration.as_days(), &formats.number)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 4, working_days as f64, &formats.integer)
+                sheet
+                    .write_with_format(row, 4, working_days as f64, &formats.integer)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 5, weekend_days as f64, &formats.integer)
+                sheet
+                    .write_with_format(row, 5, weekend_days as f64, &formats.integer)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
-                sheet.write_with_format(row, 6, holiday_days as f64, &formats.integer)
+                sheet
+                    .write_with_format(row, 6, holiday_days as f64, &formats.integer)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
 
                 // Non-working percentage with conditional formatting color
@@ -2158,7 +2520,8 @@ impl ExcelRenderer {
                         .set_background_color(0xCCFFCC)
                         .set_border(FormatBorder::Thin)
                 };
-                sheet.write_with_format(row, 7, non_working_pct / 100.0, &pct_format)
+                sheet
+                    .write_with_format(row, 7, non_working_pct / 100.0, &pct_format)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
 
                 // Diagnostics column
@@ -2169,7 +2532,8 @@ impl ExcelRenderer {
                 } else {
                     formats.text.clone()
                 };
-                sheet.write_with_format(row, 8, &diag_str, &diag_format)
+                sheet
+                    .write_with_format(row, 8, &diag_str, &diag_format)
                     .map_err(|e| RenderError::Format(e.to_string()))?;
 
                 row += 1;
@@ -2197,7 +2561,9 @@ impl ExcelRenderer {
             let weekday = current.weekday().num_days_from_sunday() as u8;
 
             // Check if it's a holiday
-            let is_holiday = calendar.holidays.iter()
+            let is_holiday = calendar
+                .holidays
+                .iter()
                 .any(|h| current >= h.start && current <= h.end);
 
             if is_holiday {
@@ -2263,20 +2629,18 @@ impl ExcelRenderer {
         }
 
         // Column widths
-        sheet.set_column_width(0, 8).ok();   // Code
-        sheet.set_column_width(1, 10).ok();  // Severity
-        sheet.set_column_width(2, 60).ok();  // Message
-        sheet.set_column_width(3, 40).ok();  // Hint
+        sheet.set_column_width(0, 8).ok(); // Code
+        sheet.set_column_width(1, 10).ok(); // Severity
+        sheet.set_column_width(2, 60).ok(); // Message
+        sheet.set_column_width(3, 40).ok(); // Hint
 
         // Sort diagnostics by severity (Error first, then Warning, Hint, Info)
         let mut sorted_diags: Vec<&Diagnostic> = self.diagnostics.iter().collect();
-        sorted_diags.sort_by_key(|d| {
-            match d.severity {
-                Severity::Error => 0,
-                Severity::Warning => 1,
-                Severity::Hint => 2,
-                Severity::Info => 3,
-            }
+        sorted_diags.sort_by_key(|d| match d.severity {
+            Severity::Error => 0,
+            Severity::Warning => 1,
+            Severity::Hint => 2,
+            Severity::Info => 3,
         });
 
         // Write diagnostic rows
@@ -2306,54 +2670,77 @@ impl ExcelRenderer {
                 Severity::Info => "Info",
             };
 
-            sheet.write_with_format(row, 0, diag.code.as_str(), &severity_format)
+            sheet
+                .write_with_format(row, 0, diag.code.as_str(), &severity_format)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
-            sheet.write_with_format(row, 1, severity_str, &severity_format)
+            sheet
+                .write_with_format(row, 1, severity_str, &severity_format)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
-            sheet.write_with_format(row, 2, &diag.message, &formats.text)
+            sheet
+                .write_with_format(row, 2, &diag.message, &formats.text)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
             let hint_str = diag.hints.first().map(|s| s.as_str()).unwrap_or("");
-            sheet.write_with_format(row, 3, hint_str, &formats.text)
+            sheet
+                .write_with_format(row, 3, hint_str, &formats.text)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
         // Add summary section at the bottom
         let summary_row = (sorted_diags.len() + 3) as u32;
-        sheet.write_with_format(summary_row, 0, "SUMMARY", &formats.header)
+        sheet
+            .write_with_format(summary_row, 0, "SUMMARY", &formats.header)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.merge_range(summary_row, 0, summary_row, 1, "SUMMARY", &formats.header).ok();
+        sheet
+            .merge_range(summary_row, 0, summary_row, 1, "SUMMARY", &formats.header)
+            .ok();
 
-        let error_count = self.diagnostics.iter()
+        let error_count = self
+            .diagnostics
+            .iter()
             .filter(|d| matches!(d.severity, Severity::Error))
             .count();
-        let warning_count = self.diagnostics.iter()
+        let warning_count = self
+            .diagnostics
+            .iter()
             .filter(|d| matches!(d.severity, Severity::Warning))
             .count();
-        let hint_count = self.diagnostics.iter()
+        let hint_count = self
+            .diagnostics
+            .iter()
             .filter(|d| matches!(d.severity, Severity::Hint))
             .count();
-        let calendar_count = self.diagnostics.iter()
+        let calendar_count = self
+            .diagnostics
+            .iter()
             .filter(|d| d.code.as_str().starts_with("C"))
             .count();
 
-        sheet.write_with_format(summary_row + 1, 0, "Errors:", &formats.text)
+        sheet
+            .write_with_format(summary_row + 1, 0, "Errors:", &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(summary_row + 1, 1, error_count as f64, &formats.integer)
-            .map_err(|e| RenderError::Format(e.to_string()))?;
-
-        sheet.write_with_format(summary_row + 2, 0, "Warnings:", &formats.text)
-            .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(summary_row + 2, 1, warning_count as f64, &formats.integer)
+        sheet
+            .write_with_format(summary_row + 1, 1, error_count as f64, &formats.integer)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        sheet.write_with_format(summary_row + 3, 0, "Hints:", &formats.text)
+        sheet
+            .write_with_format(summary_row + 2, 0, "Warnings:", &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(summary_row + 3, 1, hint_count as f64, &formats.integer)
+        sheet
+            .write_with_format(summary_row + 2, 1, warning_count as f64, &formats.integer)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        sheet.write_with_format(summary_row + 4, 0, "Calendar Issues:", &formats.text)
+        sheet
+            .write_with_format(summary_row + 3, 0, "Hints:", &formats.text)
             .map_err(|e| RenderError::Format(e.to_string()))?;
-        sheet.write_with_format(summary_row + 4, 1, calendar_count as f64, &formats.integer)
+        sheet
+            .write_with_format(summary_row + 3, 1, hint_count as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        sheet
+            .write_with_format(summary_row + 4, 0, "Calendar Issues:", &formats.text)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(summary_row + 4, 1, calendar_count as f64, &formats.integer)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
         // Freeze header row
@@ -2470,17 +2857,29 @@ impl Renderer for ExcelRenderer {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
-    use utf8proj_core::{Assignment, Duration, Money, Resource, ScheduledTask, Task, TaskStatus};
     use rust_decimal_macros::dec;
+    use utf8proj_core::{Assignment, Duration, Money, Resource, ScheduledTask, Task, TaskStatus};
 
     fn create_test_project() -> Project {
         let mut project = Project::new("Test Project");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
         // Add resources with Money rates
-        project.resources.push(Resource::new("PM").name("Project Manager").rate(Money::new(dec!(500), "EUR")));
-        project.resources.push(Resource::new("DEV").name("Developer").rate(Money::new(dec!(400), "EUR")));
-        project.resources.push(Resource::new("TEST").name("Tester").rate(Money::new(dec!(350), "EUR")));
+        project.resources.push(
+            Resource::new("PM")
+                .name("Project Manager")
+                .rate(Money::new(dec!(500), "EUR")),
+        );
+        project.resources.push(
+            Resource::new("DEV")
+                .name("Developer")
+                .rate(Money::new(dec!(400), "EUR")),
+        );
+        project.resources.push(
+            Resource::new("TEST")
+                .name("Tester")
+                .rate(Money::new(dec!(350), "EUR")),
+        );
 
         // Add tasks
         project.tasks.push(
@@ -2811,9 +3210,7 @@ mod tests {
 
     #[test]
     fn excel_hours_per_week_setting() {
-        let renderer = ExcelRenderer::new()
-            .hours_per_day(8.0)
-            .hours_per_week(35.0); // Part-time work week
+        let renderer = ExcelRenderer::new().hours_per_day(8.0).hours_per_week(35.0); // Part-time work week
 
         assert_eq!(renderer.hours_per_week, 35.0);
 

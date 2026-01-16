@@ -27,16 +27,24 @@ fn schedule_includes_progress_tracking() {
 
     // Schedule the project
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
     // Check design task progress
-    let design = schedule.tasks.get("design").expect("design task should exist");
+    let design = schedule
+        .tasks
+        .get("design")
+        .expect("design task should exist");
     assert_eq!(design.percent_complete, 60);
     assert_eq!(design.status, TaskStatus::InProgress);
     assert_eq!(design.remaining_duration.as_days() as i64, 4); // 40% of 10 days
 
     // Check implement task progress
-    let implement = schedule.tasks.get("implement").expect("implement task should exist");
+    let implement = schedule
+        .tasks
+        .get("implement")
+        .expect("implement task should exist");
     assert_eq!(implement.percent_complete, 0);
     assert_eq!(implement.status, TaskStatus::NotStarted);
     assert_eq!(implement.remaining_duration.as_days() as i64, 20);
@@ -57,13 +65,18 @@ fn completed_task_has_zero_remaining() {
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
     let done = schedule.tasks.get("done").expect("done task should exist");
     assert_eq!(done.percent_complete, 100);
     assert_eq!(done.status, TaskStatus::Complete);
     assert_eq!(done.remaining_duration.as_days() as i64, 0);
-    assert_eq!(done.forecast_finish, NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
+    assert_eq!(
+        done.forecast_finish,
+        NaiveDate::from_ymd_opt(2026, 1, 10).unwrap()
+    );
 }
 
 /// Test that actual_start overrides planned start for forecast
@@ -81,11 +94,19 @@ fn actual_start_used_for_forecast() {
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
-    let started = schedule.tasks.get("started").expect("started task should exist");
+    let started = schedule
+        .tasks
+        .get("started")
+        .expect("started task should exist");
     // Forecast start should use actual_start
-    assert_eq!(started.forecast_start, NaiveDate::from_ymd_opt(2026, 1, 13).unwrap());
+    assert_eq!(
+        started.forecast_start,
+        NaiveDate::from_ymd_opt(2026, 1, 13).unwrap()
+    );
     assert_eq!(started.remaining_duration.as_days() as i64, 5); // 50% of 10 days
 }
 
@@ -104,9 +125,14 @@ fn explicit_status_overrides_derived() {
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
-    let blocked = schedule.tasks.get("blocked").expect("blocked task should exist");
+    let blocked = schedule
+        .tasks
+        .get("blocked")
+        .expect("blocked task should exist");
     assert_eq!(blocked.status, TaskStatus::Blocked);
     assert_eq!(blocked.percent_complete, 50);
 }
@@ -133,30 +159,48 @@ fn container_progress_derived_from_children() {
                 .duration(Duration::days(10))
                 .complete(30.0),
         )
-        .child(
-            Task::new("testing")
-                .duration(Duration::days(10)),
-        );
+        .child(Task::new("testing").duration(Duration::days(10)));
     project.tasks.push(container);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
     // Check container progress is derived from children
-    let dev = schedule.tasks.get("development").expect("development container should exist");
-    assert_eq!(dev.percent_complete, 45, "Container should derive 45% progress from weighted average of children");
-    assert_eq!(dev.status, TaskStatus::InProgress, "Container should be InProgress since children have progress");
+    let dev = schedule
+        .tasks
+        .get("development")
+        .expect("development container should exist");
+    assert_eq!(
+        dev.percent_complete, 45,
+        "Container should derive 45% progress from weighted average of children"
+    );
+    assert_eq!(
+        dev.status,
+        TaskStatus::InProgress,
+        "Container should be InProgress since children have progress"
+    );
 
     // Check individual children have correct progress
-    let backend = schedule.tasks.get("development.backend").expect("backend task should exist");
+    let backend = schedule
+        .tasks
+        .get("development.backend")
+        .expect("backend task should exist");
     assert_eq!(backend.percent_complete, 75);
     assert_eq!(backend.status, TaskStatus::InProgress);
 
-    let frontend = schedule.tasks.get("development.frontend").expect("frontend task should exist");
+    let frontend = schedule
+        .tasks
+        .get("development.frontend")
+        .expect("frontend task should exist");
     assert_eq!(frontend.percent_complete, 30);
     assert_eq!(frontend.status, TaskStatus::InProgress);
 
-    let testing = schedule.tasks.get("development.testing").expect("testing task should exist");
+    let testing = schedule
+        .tasks
+        .get("development.testing")
+        .expect("testing task should exist");
     assert_eq!(testing.percent_complete, 0);
     assert_eq!(testing.status, TaskStatus::NotStarted);
 }
@@ -180,30 +224,52 @@ fn nested_container_progress() {
     let root = Task::new("project")
         .child(
             Task::new("phase1")
-                .child(Task::new("task_a").duration(Duration::days(10)).complete(100.0))
-                .child(Task::new("task_b").duration(Duration::days(10)).complete(50.0)),
+                .child(
+                    Task::new("task_a")
+                        .duration(Duration::days(10))
+                        .complete(100.0),
+                )
+                .child(
+                    Task::new("task_b")
+                        .duration(Duration::days(10))
+                        .complete(50.0),
+                ),
         )
-        .child(
-            Task::new("phase2")
-                .child(Task::new("task_c").duration(Duration::days(20))),
-        );
+        .child(Task::new("phase2").child(Task::new("task_c").duration(Duration::days(20))));
     project.tasks.push(root);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
     // Check nested container progress
-    let phase1 = schedule.tasks.get("project.phase1").expect("phase1 should exist");
-    assert_eq!(phase1.percent_complete, 75, "Phase1 should be 75% (weighted avg of task_a and task_b)");
+    let phase1 = schedule
+        .tasks
+        .get("project.phase1")
+        .expect("phase1 should exist");
+    assert_eq!(
+        phase1.percent_complete, 75,
+        "Phase1 should be 75% (weighted avg of task_a and task_b)"
+    );
     assert_eq!(phase1.status, TaskStatus::InProgress);
 
-    let phase2 = schedule.tasks.get("project.phase2").expect("phase2 should exist");
-    assert_eq!(phase2.percent_complete, 0, "Phase2 should be 0% (only task_c at 0%)");
+    let phase2 = schedule
+        .tasks
+        .get("project.phase2")
+        .expect("phase2 should exist");
+    assert_eq!(
+        phase2.percent_complete, 0,
+        "Phase2 should be 0% (only task_c at 0%)"
+    );
     assert_eq!(phase2.status, TaskStatus::NotStarted);
 
     // Top-level container gets flattened weighted average from all leaves
     let proj = schedule.tasks.get("project").expect("project should exist");
-    assert_eq!(proj.percent_complete, 38, "Project should be 38% (weighted avg of all leaves)");
+    assert_eq!(
+        proj.percent_complete, 38,
+        "Project should be 38% (weighted avg of all leaves)"
+    );
     assert_eq!(proj.status, TaskStatus::InProgress);
 }
 
@@ -219,9 +285,14 @@ fn container_complete_when_all_children_complete() {
     project.tasks.push(container);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Scheduling should succeed");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Scheduling should succeed");
 
-    let done = schedule.tasks.get("done").expect("done container should exist");
+    let done = schedule
+        .tasks
+        .get("done")
+        .expect("done container should exist");
     assert_eq!(done.percent_complete, 100);
     assert_eq!(done.status, TaskStatus::Complete);
 }

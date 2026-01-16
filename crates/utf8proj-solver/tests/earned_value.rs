@@ -33,9 +33,7 @@ fn project_before_start_pv_zero() {
     // Project starts in the future
     project.start = today() + chrono::Duration::days(30);
 
-    let task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let task = Task::new("work").name("Work").duration(Duration::days(10));
     project.tasks.push(task);
 
     let solver = CpmSolver::new();
@@ -55,9 +53,7 @@ fn completed_project_full_ev() {
     // Project started 20 days ago
     project.start = today() - chrono::Duration::days(20);
 
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(100.0);
     project.tasks.push(task);
 
@@ -78,9 +74,7 @@ fn on_schedule_spi_one() {
     project.start = today() - chrono::Duration::days(5);
 
     // 10-day task, 50% complete after 5 days = on schedule
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     project.tasks.push(task);
 
@@ -93,7 +87,10 @@ fn on_schedule_spi_one() {
     eprintln!("Project start: {}", project.start);
     eprintln!("Baseline start: {}", work.baseline_start);
     eprintln!("Baseline finish: {}", work.baseline_finish);
-    eprintln!("PV: {}, EV: {}, SPI: {:.2}", schedule.planned_value, schedule.earned_value, schedule.spi);
+    eprintln!(
+        "PV: {}, EV: {}, SPI: {:.2}",
+        schedule.planned_value, schedule.earned_value, schedule.spi
+    );
 
     // EV=50% (actual progress)
     assert_eq!(schedule.earned_value, 50);
@@ -101,9 +98,16 @@ fn on_schedule_spi_one() {
     // The baseline span is in working days, but PV calculation uses calendar days
     // So this can vary depending on weekends
     // Just verify PV is computed (not 0) and SPI is reasonable
-    assert!(schedule.planned_value > 0, "PV should be positive for in-progress task");
+    assert!(
+        schedule.planned_value > 0,
+        "PV should be positive for in-progress task"
+    );
     // SPI should reflect being on schedule (within reasonable bounds)
-    assert!(schedule.spi >= 0.5 && schedule.spi <= 1.5, "SPI {} should be near 1.0", schedule.spi);
+    assert!(
+        schedule.spi >= 0.5 && schedule.spi <= 1.5,
+        "SPI {} should be near 1.0",
+        schedule.spi
+    );
 }
 
 /// Test: Project behind schedule has SPI < 1.0
@@ -114,9 +118,7 @@ fn behind_schedule_spi_below_one() {
     project.start = today() - chrono::Duration::days(8);
 
     // 10-day task, only 20% complete after 8 days = behind schedule
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(20.0);
     project.tasks.push(task);
 
@@ -139,9 +141,7 @@ fn ahead_of_schedule_spi_above_one() {
     project.start = today() - chrono::Duration::days(2);
 
     // 10-day task, 50% complete after 2 days = ahead of schedule
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     project.tasks.push(task);
 
@@ -202,9 +202,7 @@ fn spi_capped_at_two() {
     project.start = today();
 
     // 20-day task, but already 80% complete
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(20));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(20));
     task.complete = Some(80.0);
     project.tasks.push(task);
 
@@ -257,9 +255,7 @@ fn i005_diagnostic_emitted() {
     let mut project = Project::new("Diagnostic Test");
     project.start = today() - chrono::Duration::days(5);
 
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     project.tasks.push(task);
 
@@ -272,7 +268,10 @@ fn i005_diagnostic_emitted() {
 
     // Should have I005 diagnostic
     assert!(
-        emitter.diagnostics.iter().any(|d| d.code == DiagnosticCode::I005EarnedValueSummary),
+        emitter
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::I005EarnedValueSummary),
         "Should emit I005EarnedValueSummary diagnostic"
     );
 

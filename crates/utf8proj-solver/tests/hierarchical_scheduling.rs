@@ -47,10 +47,12 @@ fn container_start_derived_from_earliest_child() {
     //     task act2 { start 2025-02-03 length 5d }  // earlier
     // }
     let mut act1 = Task::new("act1").effort(Duration::days(5));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
 
     let mut act2 = Task::new("act2").effort(Duration::days(5));
-    act2.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    act2.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     project.tasks = vec![Task::new("phase1").child(act1).child(act2)];
 
@@ -59,7 +61,11 @@ fn container_start_derived_from_earliest_child() {
 
     // Container start should be the earliest child start (2025-02-03)
     let phase1 = &schedule.tasks["phase1"];
-    assert_eq!(phase1.start, date(2025, 2, 3), "Container start should be min of children");
+    assert_eq!(
+        phase1.start,
+        date(2025, 2, 3),
+        "Container start should be min of children"
+    );
 }
 
 #[test]
@@ -151,7 +157,8 @@ fn ss_dependency_aligns_starts() {
 
     // act1 with constrained start, act2 depends SS on act1
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     let mut act2 = Task::new("act2").effort(Duration::days(10));
     act2.depends.push(utf8proj_core::Dependency {
@@ -167,8 +174,7 @@ fn ss_dependency_aligns_starts() {
 
     // act2.start should equal act1.start
     assert_eq!(
-        schedule.tasks["act2"].start,
-        schedule.tasks["act1"].start,
+        schedule.tasks["act2"].start, schedule.tasks["act1"].start,
         "SS: act2 should start when act1 starts"
     );
 }
@@ -183,7 +189,8 @@ fn ss_dependency_with_positive_lag() {
     project.start = date(2025, 2, 3); // Monday
 
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     let mut act2 = Task::new("act2").effort(Duration::days(10));
     act2.depends.push(utf8proj_core::Dependency {
@@ -216,7 +223,8 @@ fn ff_dependency_aligns_finishes() {
     project.start = date(2025, 2, 3); // Monday
 
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     let mut act2 = Task::new("act2").effort(Duration::days(10));
     act2.depends.push(utf8proj_core::Dependency {
@@ -233,8 +241,7 @@ fn ff_dependency_aligns_finishes() {
     // act1 finishes after 20 days = Feb 28
     // act2 with FF should finish on same day as act1
     assert_eq!(
-        schedule.tasks["act2"].finish,
-        schedule.tasks["act1"].finish,
+        schedule.tasks["act2"].finish, schedule.tasks["act1"].finish,
         "FF: act2 should finish when act1 finishes"
     );
 }
@@ -250,7 +257,8 @@ fn sf_dependency_finish_after_start() {
 
     // act1 starts Feb 10
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
 
     // act2 with SF depends on act1 - act2.finish >= act1.start
     let mut act2 = Task::new("act2").effort(Duration::days(10));
@@ -292,7 +300,8 @@ fn negative_lag_allows_overlap() {
 
     // act1: 20 days starting Feb 03, finishes Feb 28
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     // act2 depends on act1 with -5d lag (5 day lead)
     // B.start >= A.finish - 5d = Feb 28 - 5d = Feb 21
@@ -335,7 +344,8 @@ fn ss_negative_lag_acts_as_lead() {
 
     // act1 starts Feb 10
     let mut act1 = Task::new("act1").effort(Duration::days(20));
-    act1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
+    act1.constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 10)));
 
     // act2 depends on act1 with SS-3d
     // B.start >= A.start - 3d = Feb 10 - 3d = Feb 05
@@ -387,7 +397,9 @@ fn critical_path_with_ss_dependencies() {
     // cutover: FS from all, 15 days
 
     let mut validation = Task::new("validation").effort(Duration::days(20));
-    validation.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    validation
+        .constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     let mut development = Task::new("development").effort(Duration::days(65));
     development.depends.push(utf8proj_core::Dependency {
@@ -489,7 +501,9 @@ fn critical_path_with_parallel_ss_chains() {
     // Chain B should be critical
 
     let mut start_task = Task::new("start").effort(Duration::days(5));
-    start_task.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    start_task
+        .constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     // Chain A (shorter)
     let mut task_a1 = Task::new("taskA1").effort(Duration::days(10));
@@ -498,7 +512,9 @@ fn critical_path_with_parallel_ss_chains() {
         dep_type: utf8proj_core::DependencyType::StartToStart,
         lag: None,
     });
-    let task_a2 = Task::new("taskA2").effort(Duration::days(5)).depends_on("taskA1");
+    let task_a2 = Task::new("taskA2")
+        .effort(Duration::days(5))
+        .depends_on("taskA1");
 
     // Chain B (longer - critical)
     let mut task_b1 = Task::new("taskB1").effort(Duration::days(20));
@@ -507,7 +523,9 @@ fn critical_path_with_parallel_ss_chains() {
         dep_type: utf8proj_core::DependencyType::StartToStart,
         lag: None,
     });
-    let task_b2 = Task::new("taskB2").effort(Duration::days(5)).depends_on("taskB1");
+    let task_b2 = Task::new("taskB2")
+        .effort(Duration::days(5))
+        .depends_on("taskB1");
 
     // Final task depends on both chains
     let finish = Task::new("finish")
@@ -567,7 +585,9 @@ fn critical_path_with_ff_dependencies() {
     // task3: depends on both (FS)
 
     let mut task1 = Task::new("task1").effort(Duration::days(20));
-    task1.constraints.push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
+    task1
+        .constraints
+        .push(TaskConstraint::MustStartOn(date(2025, 2, 3)));
 
     let mut task2 = Task::new("task2").effort(Duration::days(10));
     task2.depends.push(utf8proj_core::Dependency {
@@ -588,8 +608,7 @@ fn critical_path_with_ff_dependencies() {
 
     // task2 should finish at the same time as task1
     assert_eq!(
-        schedule.tasks["task2"].finish,
-        schedule.tasks["task1"].finish,
+        schedule.tasks["task2"].finish, schedule.tasks["task1"].finish,
         "FF dependency: task2 should finish when task1 finishes"
     );
 
@@ -651,7 +670,9 @@ fn schedule_matches_tj3_output() {
 
     // Schedule the project
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Should schedule successfully");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Should schedule successfully");
 
     // Expected dates based on the TJP file structure:
     // act1_1: starts 2025-02-03, 20 working days -> ends Feb 28
@@ -722,17 +743,20 @@ fn schedule_matches_tj3_output() {
     assert!(
         act4_1.start > act2_1.finish,
         "act4_1 should start after act2_1: {} > {}",
-        act4_1.start, act2_1.finish
+        act4_1.start,
+        act2_1.finish
     );
     assert!(
         act4_1.start > act3_1.finish,
         "act4_1 should start after act3_1: {} > {}",
-        act4_1.start, act3_1.finish
+        act4_1.start,
+        act3_1.finish
     );
     assert!(
         act4_1.start > act3_3.finish,
         "act4_1 should start after act3_3: {} > {}",
-        act4_1.start, act3_3.finish
+        act4_1.start,
+        act3_3.finish
     );
 
     // Print schedule for debugging (visible with --nocapture)
@@ -770,13 +794,12 @@ fn schedule_ttg_hierarchy() {
     let project = utf8proj_parser::tjp::parse(&content).expect("Should parse ttg_03_hierarchy.tjp");
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Should schedule successfully");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Should schedule successfully");
 
     // Verify we got all tasks scheduled
-    assert!(
-        !schedule.tasks.is_empty(),
-        "Should have scheduled tasks"
-    );
+    assert!(!schedule.tasks.is_empty(), "Should have scheduled tasks");
 
     println!("\nSchedule from ttg_03_hierarchy.tjp:");
     let mut task_ids: Vec<_> = schedule.tasks.keys().collect();
@@ -833,13 +856,24 @@ fn circular_dependency_in_nested_tasks() {
 
     // Circular within a container: phase1.act1 -> phase1.act2 -> phase1.act1
     project.tasks = vec![Task::new("phase1")
-        .child(Task::new("act1").effort(Duration::days(5)).depends_on("act2"))
-        .child(Task::new("act2").effort(Duration::days(5)).depends_on("act1"))];
+        .child(
+            Task::new("act1")
+                .effort(Duration::days(5))
+                .depends_on("act2"),
+        )
+        .child(
+            Task::new("act2")
+                .effort(Duration::days(5))
+                .depends_on("act1"),
+        )];
 
     let solver = CpmSolver::new();
     let result = solver.schedule(&project);
 
-    assert!(result.is_err(), "Should detect circular dependency in nested tasks");
+    assert!(
+        result.is_err(),
+        "Should detect circular dependency in nested tasks"
+    );
 }
 
 #[test]
@@ -868,7 +902,10 @@ fn circular_dependency_across_containers() {
     let solver = CpmSolver::new();
     let result = solver.schedule(&project);
 
-    assert!(result.is_err(), "Should detect circular dependency across containers");
+    assert!(
+        result.is_err(),
+        "Should detect circular dependency across containers"
+    );
 }
 
 #[test]
@@ -910,13 +947,24 @@ fn empty_container_treated_as_milestone() {
     let phase1 = &schedule.tasks["phase1"];
 
     // Empty container should be zero duration
-    assert_eq!(phase1.duration, Duration::zero(), "Empty container should have zero duration");
+    assert_eq!(
+        phase1.duration,
+        Duration::zero(),
+        "Empty container should have zero duration"
+    );
 
     // Should start at project start
-    assert_eq!(phase1.start, date(2025, 2, 3), "Empty container should start at project start");
+    assert_eq!(
+        phase1.start,
+        date(2025, 2, 3),
+        "Empty container should start at project start"
+    );
 
     // Start and finish should be the same (like a milestone)
-    assert_eq!(phase1.start, phase1.finish, "Empty container start/finish should match");
+    assert_eq!(
+        phase1.start, phase1.finish,
+        "Empty container start/finish should match"
+    );
 }
 
 #[test]
@@ -959,7 +1007,9 @@ fn task_depends_on_empty_container() {
 
     project.tasks = vec![
         Task::new("phase1"), // Empty container
-        Task::new("work").effort(Duration::days(5)).depends_on("phase1"),
+        Task::new("work")
+            .effort(Duration::days(5))
+            .depends_on("phase1"),
     ];
 
     let solver = CpmSolver::new();
@@ -1063,7 +1113,11 @@ fn deep_nesting_performance() {
         tasks.iter().map(|t| 1 + count_tasks(&t.children)).sum()
     }
     let total_tasks = count_tasks(&project.tasks);
-    assert!(total_tasks >= 100, "Should have 100+ tasks, got {}", total_tasks);
+    assert!(
+        total_tasks >= 100,
+        "Should have 100+ tasks, got {}",
+        total_tasks
+    );
 
     // Measure scheduling time
     let start_time = Instant::now();

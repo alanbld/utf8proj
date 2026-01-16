@@ -8,9 +8,8 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 use utf8proj_core::{
-    Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, RateRange,
-    Resource, ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus,
-    TimeRange, Trait,
+    Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, RateRange, Resource,
+    ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus, TimeRange, Trait,
 };
 
 use crate::ParseError;
@@ -135,11 +134,16 @@ fn parse_duration(pair: Pair<Rule>) -> Result<Duration, ParseError> {
         .map_err(|_| ParseError::InvalidValue(format!("Invalid duration number: {}", s)))?;
 
     let minutes = match unit {
-        "m" => (value * 60.0) as i64,           // months -> assume 20 working days
+        "m" => (value * 60.0) as i64, // months -> assume 20 working days
         "w" => (value * 5.0 * 8.0 * 60.0) as i64, // weeks
-        "d" => (value * 8.0 * 60.0) as i64,       // days (8-hour workday)
-        "h" => (value * 60.0) as i64,             // hours
-        _ => return Err(ParseError::InvalidValue(format!("Unknown duration unit: {}", unit))),
+        "d" => (value * 8.0 * 60.0) as i64, // days (8-hour workday)
+        "h" => (value * 60.0) as i64, // hours
+        _ => {
+            return Err(ParseError::InvalidValue(format!(
+                "Unknown duration unit: {}",
+                unit
+            )))
+        }
     };
 
     Ok(Duration { minutes })
@@ -259,7 +263,9 @@ fn parse_project_attr(pair: Pair<Rule>, project: &mut Project) -> Result<(), Par
         Rule::project_timezone => {
             // Timezone stored in attributes for now
             let tz_pair = inner.into_inner().next().unwrap();
-            project.attributes.insert("timezone".to_string(), tz_pair.as_str().to_string());
+            project
+                .attributes
+                .insert("timezone".to_string(), tz_pair.as_str().to_string());
         }
         _ => {}
     }
@@ -305,8 +311,14 @@ fn parse_calendar_decl(pair: Pair<Rule>) -> Result<Calendar, ParseError> {
     // Default working hours if none specified
     if calendar.working_hours.is_empty() {
         calendar.working_hours = vec![
-            TimeRange { start: 9 * 60, end: 12 * 60 },
-            TimeRange { start: 13 * 60, end: 17 * 60 },
+            TimeRange {
+                start: 9 * 60,
+                end: 12 * 60,
+            },
+            TimeRange {
+                start: 13 * 60,
+                end: 17 * 60,
+            },
         ];
     }
 
@@ -445,10 +457,16 @@ fn parse_resource_attr(pair: Pair<Rule>, resource: &mut Resource) -> Result<(), 
             // RFC-0001: Resources can also have rate ranges
             let rate_range = parse_rate_range(inner)?;
             // Store as attribute for now, since Resource.rate is Money not ResourceRate
-            resource.attributes.insert("rate_min".to_string(), rate_range.min.to_string());
-            resource.attributes.insert("rate_max".to_string(), rate_range.max.to_string());
+            resource
+                .attributes
+                .insert("rate_min".to_string(), rate_range.min.to_string());
+            resource
+                .attributes
+                .insert("rate_max".to_string(), rate_range.max.to_string());
             if let Some(curr) = rate_range.currency {
-                resource.attributes.insert("rate_currency".to_string(), curr);
+                resource
+                    .attributes
+                    .insert("rate_currency".to_string(), curr);
             }
         }
         Rule::resource_capacity => {
@@ -475,18 +493,24 @@ fn parse_resource_attr(pair: Pair<Rule>, resource: &mut Resource) -> Result<(), 
         }
         Rule::resource_email => {
             let str_pair = inner.into_inner().next().unwrap();
-            resource.attributes.insert("email".to_string(), parse_string(str_pair));
+            resource
+                .attributes
+                .insert("email".to_string(), parse_string(str_pair));
         }
         Rule::resource_role => {
             let str_pair = inner.into_inner().next().unwrap();
-            resource.attributes.insert("role".to_string(), parse_string(str_pair));
+            resource
+                .attributes
+                .insert("role".to_string(), parse_string(str_pair));
         }
         Rule::resource_leave => {
             let date_range = inner.into_inner().next().unwrap();
             let mut dates = date_range.into_inner();
             let start = parse_date(dates.next().unwrap())?;
             let end = parse_date(dates.next().unwrap())?;
-            resource.attributes.insert("leave".to_string(), format!("{}..{}", start, end));
+            resource
+                .attributes
+                .insert("leave".to_string(), format!("{}..{}", start, end));
         }
         _ => {}
     }
@@ -587,7 +611,10 @@ fn parse_resource_profile_decl(pair: Pair<Rule>) -> Result<ResourceProfile, Pars
     Ok(profile)
 }
 
-fn parse_resource_profile_attr(pair: Pair<Rule>, profile: &mut ResourceProfile) -> Result<(), ParseError> {
+fn parse_resource_profile_attr(
+    pair: Pair<Rule>,
+    profile: &mut ResourceProfile,
+) -> Result<(), ParseError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::profile_description => {
@@ -646,14 +673,22 @@ fn parse_rate_range(pair: Pair<Rule>) -> Result<RateRange, ParseError> {
                     match attr_inner.as_rule() {
                         Rule::rate_min => {
                             let num_pair = attr_inner.into_inner().next().unwrap();
-                            let value = Decimal::from_str(num_pair.as_str())
-                                .map_err(|_| ParseError::InvalidValue(format!("Invalid rate min: {}", num_pair.as_str())))?;
+                            let value = Decimal::from_str(num_pair.as_str()).map_err(|_| {
+                                ParseError::InvalidValue(format!(
+                                    "Invalid rate min: {}",
+                                    num_pair.as_str()
+                                ))
+                            })?;
                             min = Some(value);
                         }
                         Rule::rate_max => {
                             let num_pair = attr_inner.into_inner().next().unwrap();
-                            let value = Decimal::from_str(num_pair.as_str())
-                                .map_err(|_| ParseError::InvalidValue(format!("Invalid rate max: {}", num_pair.as_str())))?;
+                            let value = Decimal::from_str(num_pair.as_str()).map_err(|_| {
+                                ParseError::InvalidValue(format!(
+                                    "Invalid rate max: {}",
+                                    num_pair.as_str()
+                                ))
+                            })?;
                             max = Some(value);
                         }
                         Rule::rate_currency => {
@@ -755,11 +790,13 @@ fn parse_milestone_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseEr
         }
         Rule::task_note => {
             let str_pair = inner.into_inner().next().unwrap();
-            task.attributes.insert("note".to_string(), parse_string(str_pair));
+            task.attributes
+                .insert("note".to_string(), parse_string(str_pair));
         }
         Rule::task_payment => {
             let num_pair = inner.into_inner().next().unwrap();
-            task.attributes.insert("payment".to_string(), num_pair.as_str().to_string());
+            task.attributes
+                .insert("payment".to_string(), num_pair.as_str().to_string());
         }
         _ => {}
     }
@@ -826,7 +863,8 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
         }
         Rule::task_note => {
             let str_pair = inner.into_inner().next().unwrap();
-            task.attributes.insert("note".to_string(), parse_string(str_pair));
+            task.attributes
+                .insert("note".to_string(), parse_string(str_pair));
         }
         Rule::task_tag => {
             let mut tags = Vec::new();
@@ -841,11 +879,13 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
         }
         Rule::task_cost => {
             let num_pair = inner.into_inner().next().unwrap();
-            task.attributes.insert("cost".to_string(), num_pair.as_str().to_string());
+            task.attributes
+                .insert("cost".to_string(), num_pair.as_str().to_string());
         }
         Rule::task_payment => {
             let num_pair = inner.into_inner().next().unwrap();
-            task.attributes.insert("payment".to_string(), num_pair.as_str().to_string());
+            task.attributes
+                .insert("payment".to_string(), num_pair.as_str().to_string());
         }
         Rule::task_actual_start => {
             let date_pair = inner.into_inner().next().unwrap();
@@ -904,7 +944,9 @@ fn parse_dependency(pair: Pair<Rule>) -> Result<Dependency, ParseError> {
                 let dur_part = &lag_str[1..]; // Skip +/-
                 let minutes = parse_duration_str(dur_part)?;
                 let lag = if is_negative {
-                    Duration { minutes: -minutes.minutes }
+                    Duration {
+                        minutes: -minutes.minutes,
+                    }
                 } else {
                     minutes
                 };
@@ -926,10 +968,15 @@ fn parse_duration_str(s: &str) -> Result<Duration, ParseError> {
 
     let minutes = match unit {
         "m" => (value * 20.0 * 8.0 * 60.0) as i64, // months
-        "w" => (value * 5.0 * 8.0 * 60.0) as i64,   // weeks
-        "d" => (value * 8.0 * 60.0) as i64,         // days
-        "h" => (value * 60.0) as i64,               // hours
-        _ => return Err(ParseError::InvalidValue(format!("Unknown duration unit: {}", unit))),
+        "w" => (value * 5.0 * 8.0 * 60.0) as i64,  // weeks
+        "d" => (value * 8.0 * 60.0) as i64,        // days
+        "h" => (value * 60.0) as i64,              // hours
+        _ => {
+            return Err(ParseError::InvalidValue(format!(
+                "Unknown duration unit: {}",
+                unit
+            )))
+        }
     };
 
     Ok(Duration { minutes })
@@ -980,7 +1027,10 @@ fn parse_task_constraint(pair: Pair<Rule>) -> Result<TaskConstraint, ParseError>
         "start_no_later_than" => Ok(TaskConstraint::StartNoLaterThan(date)),
         "finish_no_earlier_than" => Ok(TaskConstraint::FinishNoEarlierThan(date)),
         "finish_no_later_than" => Ok(TaskConstraint::FinishNoLaterThan(date)),
-        _ => Err(ParseError::InvalidValue(format!("Unknown constraint type: {}", type_str))),
+        _ => Err(ParseError::InvalidValue(format!(
+            "Unknown constraint type: {}",
+            type_str
+        ))),
     }
 }
 
@@ -1132,7 +1182,10 @@ project "Test" {
 }
 "#;
         let project = parse(input).expect("Failed to parse project");
-        assert_eq!(project.end, Some(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()));
+        assert_eq!(
+            project.end,
+            Some(NaiveDate::from_ymd_opt(2025, 12, 31).unwrap())
+        );
         assert_eq!(project.calendar, "work_week");
     }
 
@@ -1146,7 +1199,10 @@ project "Test" {
 "#;
         let project = parse(input).expect("Failed to parse project with status_date");
         assert_eq!(project.start, NaiveDate::from_ymd_opt(2025, 1, 1).unwrap());
-        assert_eq!(project.status_date, Some(NaiveDate::from_ymd_opt(2025, 6, 15).unwrap()));
+        assert_eq!(
+            project.status_date,
+            Some(NaiveDate::from_ymd_opt(2025, 6, 15).unwrap())
+        );
     }
 
     #[test]
@@ -1242,8 +1298,14 @@ task c "Task C" {
 }
 "#;
         let project = parse(input).expect("Failed to parse dependency types");
-        assert_eq!(project.tasks[1].depends[0].dep_type, DependencyType::StartToStart);
-        assert_eq!(project.tasks[2].depends[0].dep_type, DependencyType::FinishToFinish);
+        assert_eq!(
+            project.tasks[1].depends[0].dep_type,
+            DependencyType::StartToStart
+        );
+        assert_eq!(
+            project.tasks[2].depends[0].dep_type,
+            DependencyType::FinishToFinish
+        );
     }
 
     #[test]
@@ -1457,10 +1519,14 @@ milestone payment_due "Payment Due" {
         let milestone = &project.tasks[0];
 
         assert!(milestone.milestone);
-        assert_eq!(milestone.attributes.get("note").map(|s| s.as_str()),
-                   Some("Invoice to be sent upon completion"));
-        assert_eq!(milestone.attributes.get("payment").map(|s| s.as_str()),
-                   Some("50000"));
+        assert_eq!(
+            milestone.attributes.get("note").map(|s| s.as_str()),
+            Some("Invoice to be sent upon completion")
+        );
+        assert_eq!(
+            milestone.attributes.get("payment").map(|s| s.as_str()),
+            Some("50000")
+        );
     }
 
     #[test]
@@ -1532,8 +1598,10 @@ task documented "Documented Task" {
         let project = parse(input).expect("Failed to parse task with note");
         let task = &project.tasks[0];
 
-        assert_eq!(task.attributes.get("note").map(|s| s.as_str()),
-                   Some("This is an important task"));
+        assert_eq!(
+            task.attributes.get("note").map(|s| s.as_str()),
+            Some("This is an important task")
+        );
     }
 
     #[test]
@@ -1549,8 +1617,10 @@ task expensive "Expensive Task" {
         let project = parse(input).expect("Failed to parse task with cost");
         let task = &project.tasks[0];
 
-        assert_eq!(task.attributes.get("cost").map(|s| s.as_str()),
-                   Some("10000"));
+        assert_eq!(
+            task.attributes.get("cost").map(|s| s.as_str()),
+            Some("10000")
+        );
     }
 
     #[test]
@@ -1565,7 +1635,10 @@ task b "Task B" {
 }
 "#;
         let project = parse(input).expect("Failed to parse SF dependency");
-        assert_eq!(project.tasks[1].depends[0].dep_type, DependencyType::StartToFinish);
+        assert_eq!(
+            project.tasks[1].depends[0].dep_type,
+            DependencyType::StartToFinish
+        );
     }
 
     #[test]
@@ -1594,8 +1667,10 @@ project "Test" {
 }
 "#;
         let project = parse(input).expect("Failed to parse timezone");
-        assert_eq!(project.attributes.get("timezone").map(|s| s.as_str()),
-                   Some("Europe/Rome"));
+        assert_eq!(
+            project.attributes.get("timezone").map(|s| s.as_str()),
+            Some("Europe/Rome")
+        );
     }
 
     #[test]
@@ -1610,8 +1685,10 @@ resource pm "Project Manager" {
 "#;
         let project = parse(input).expect("Failed to parse resource email");
         let res = &project.resources[0];
-        assert_eq!(res.attributes.get("email").map(|s| s.as_str()),
-                   Some("pm@example.com"));
+        assert_eq!(
+            res.attributes.get("email").map(|s| s.as_str()),
+            Some("pm@example.com")
+        );
     }
 
     #[test]
@@ -1640,8 +1717,10 @@ resource dev "Developer" {
 "#;
         let project = parse(input).expect("Failed to parse resource role");
         let res = &project.resources[0];
-        assert_eq!(res.attributes.get("role").map(|s| s.as_str()),
-                   Some("Senior Engineer"));
+        assert_eq!(
+            res.attributes.get("role").map(|s| s.as_str()),
+            Some("Senior Engineer")
+        );
     }
 
     #[test]
@@ -1739,7 +1818,10 @@ task a "Task A" {
 "#;
         let project = parse(input).expect("Failed to parse task payment");
         let task = &project.tasks[0];
-        assert_eq!(task.attributes.get("payment").map(|s| s.as_str()), Some("5000"));
+        assert_eq!(
+            task.attributes.get("payment").map(|s| s.as_str()),
+            Some("5000")
+        );
     }
 
     #[test]
@@ -1767,15 +1849,24 @@ task done "Completed Task" {
         // Check first task
         let task1 = &project.tasks[0];
         assert!((task1.complete.unwrap() - 60.0).abs() < 0.01);
-        assert_eq!(task1.actual_start, Some(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap()));
+        assert_eq!(
+            task1.actual_start,
+            Some(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap())
+        );
         assert!(task1.actual_finish.is_none());
         assert_eq!(task1.status, Some(TaskStatus::InProgress));
 
         // Check second task
         let task2 = &project.tasks[1];
         assert!((task2.complete.unwrap() - 100.0).abs() < 0.01);
-        assert_eq!(task2.actual_start, Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap()));
-        assert_eq!(task2.actual_finish, Some(NaiveDate::from_ymd_opt(2026, 1, 8).unwrap()));
+        assert_eq!(
+            task2.actual_start,
+            Some(NaiveDate::from_ymd_opt(2026, 1, 1).unwrap())
+        );
+        assert_eq!(
+            task2.actual_finish,
+            Some(NaiveDate::from_ymd_opt(2026, 1, 8).unwrap())
+        );
         assert_eq!(task2.status, Some(TaskStatus::Complete));
     }
 
@@ -1899,7 +1990,10 @@ resource_profile developer "Developer" {
         let profile = &project.profiles[0];
         assert_eq!(profile.id, "developer");
         assert_eq!(profile.name, "Developer");
-        assert_eq!(profile.description, Some("Generic software developer".into()));
+        assert_eq!(
+            profile.description,
+            Some("Generic software developer".into())
+        );
 
         // Check rate range
         assert!(profile.rate.is_some());
@@ -2070,7 +2164,10 @@ task backend_work "Backend Work" {
 
         // Check resources
         assert_eq!(project.resources.len(), 2);
-        assert_eq!(project.resources[0].specializes, Some("senior_backend".into()));
+        assert_eq!(
+            project.resources[0].specializes,
+            Some("senior_backend".into())
+        );
         assert_eq!(project.resources[0].availability, Some(0.8));
         assert_eq!(project.resources[1].specializes, Some("backend_dev".into()));
 

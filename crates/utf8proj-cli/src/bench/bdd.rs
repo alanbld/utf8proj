@@ -253,13 +253,25 @@ pub fn print_bdd_report(results: &[BddBenchmarkResult]) {
     println!("╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣");
     println!(
         "║ {:^10} │ {:^6} │ {:^5} │ {:^8} │ {:^10} │ {:^10} │ {:^8} │ {:^8} │ {:^8} │ {:^6} ║",
-        "Scenario", "Tasks", "Res", "Conflicts", "BDD Time", "Heur Time", "BDD Res", "Heur Rem", "BDD Nodes", "Status"
+        "Scenario",
+        "Tasks",
+        "Res",
+        "Conflicts",
+        "BDD Time",
+        "Heur Time",
+        "BDD Res",
+        "Heur Rem",
+        "BDD Nodes",
+        "Status"
     );
     println!("╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣");
 
     for result in results {
         let bdd_ms = format!("{:.2}ms", result.bdd_analysis_time.as_secs_f64() * 1000.0);
-        let heur_ms = format!("{:.2}ms", result.heuristic_level_time.as_secs_f64() * 1000.0);
+        let heur_ms = format!(
+            "{:.2}ms",
+            result.heuristic_level_time.as_secs_f64() * 1000.0
+        );
         let bdd_res = if result.bdd_resolution_found {
             "Yes"
         } else {
@@ -292,13 +304,12 @@ pub fn print_bdd_report(results: &[BddBenchmarkResult]) {
 
     if !successful.is_empty() {
         let total_conflicts: usize = successful.iter().map(|r| r.bdd_conflicts_found).sum();
-        let bdd_resolved: usize = successful
+        let bdd_resolved: usize = successful.iter().filter(|r| r.bdd_resolution_found).count();
+        let avg_bdd_time: f64 = successful
             .iter()
-            .filter(|r| r.bdd_resolution_found)
-            .count();
-        let avg_bdd_time: f64 =
-            successful.iter().map(|r| r.bdd_analysis_time.as_secs_f64()).sum::<f64>()
-                / successful.len() as f64;
+            .map(|r| r.bdd_analysis_time.as_secs_f64())
+            .sum::<f64>()
+            / successful.len() as f64;
         let avg_heur_time: f64 = successful
             .iter()
             .map(|r| r.heuristic_level_time.as_secs_f64())
@@ -357,7 +368,11 @@ mod tests {
         assert_eq!(project.resources.len(), 4);
 
         // Some tasks should have dependencies
-        let with_deps = project.tasks.iter().filter(|t| !t.depends.is_empty()).count();
+        let with_deps = project
+            .tasks
+            .iter()
+            .filter(|t| !t.depends.is_empty())
+            .count();
         assert!(with_deps > 0);
     }
 

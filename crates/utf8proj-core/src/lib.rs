@@ -73,11 +73,15 @@ impl Duration {
     }
 
     pub const fn days(d: i64) -> Self {
-        Self { minutes: d * 8 * 60 } // 8-hour workday
+        Self {
+            minutes: d * 8 * 60,
+        } // 8-hour workday
     }
 
     pub const fn weeks(w: i64) -> Self {
-        Self { minutes: w * 5 * 8 * 60 } // 5-day workweek
+        Self {
+            minutes: w * 5 * 8 * 60,
+        } // 5-day workweek
     }
 
     pub fn as_days(&self) -> f64 {
@@ -92,14 +96,18 @@ impl Duration {
 impl std::ops::Add for Duration {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        Self { minutes: self.minutes + rhs.minutes }
+        Self {
+            minutes: self.minutes + rhs.minutes,
+        }
     }
 }
 
 impl std::ops::Sub for Duration {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
-        Self { minutes: self.minutes - rhs.minutes }
+        Self {
+            minutes: self.minutes - rhs.minutes,
+        }
     }
 }
 
@@ -1195,8 +1203,14 @@ impl Default for Calendar {
             id: "default".into(),
             name: "Standard".into(),
             working_hours: vec![
-                TimeRange { start: 9 * 60, end: 12 * 60 },
-                TimeRange { start: 13 * 60, end: 17 * 60 },
+                TimeRange {
+                    start: 9 * 60,
+                    end: 12 * 60,
+                },
+                TimeRange {
+                    start: 13 * 60,
+                    end: 17 * 60,
+                },
             ],
             working_days: vec![1, 2, 3, 4, 5], // Mon-Fri
             holidays: Vec::new(),
@@ -1274,9 +1288,18 @@ pub struct Scenario {
 /// Override for a scenario
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ScenarioOverride {
-    TaskEffort { task_id: TaskId, effort: Duration },
-    TaskDuration { task_id: TaskId, duration: Duration },
-    ResourceCapacity { resource_id: ResourceId, capacity: f32 },
+    TaskEffort {
+        task_id: TaskId,
+        effort: Duration,
+    },
+    TaskDuration {
+        task_id: TaskId,
+        duration: Duration,
+    },
+    ResourceCapacity {
+        resource_id: ResourceId,
+        capacity: f32,
+    },
 }
 
 // ============================================================================
@@ -1347,7 +1370,6 @@ pub struct ScheduledTask {
     // ========================================================================
     // Progress Tracking Fields
     // ========================================================================
-
     /// Forecast start (actual_start if available, otherwise planned start)
     pub forecast_start: NaiveDate,
     /// Forecast finish date (calculated based on progress)
@@ -1362,7 +1384,6 @@ pub struct ScheduledTask {
     // ========================================================================
     // Variance Fields (Baseline vs Forecast)
     // ========================================================================
-
     /// Baseline start (planned start ignoring progress)
     pub baseline_start: NaiveDate,
     /// Baseline finish (planned finish ignoring progress)
@@ -1375,7 +1396,6 @@ pub struct ScheduledTask {
     // ========================================================================
     // RFC-0001: Cost Range Fields
     // ========================================================================
-
     /// Task cost range (aggregated from all assignments)
     pub cost_range: Option<CostRange>,
     /// Whether this task has any abstract (profile) assignments
@@ -1571,10 +1591,21 @@ pub struct Explanation {
 /// Constraint for what-if analysis
 #[derive(Clone, Debug)]
 pub enum Constraint {
-    TaskEffort { task_id: TaskId, effort: Duration },
-    TaskDuration { task_id: TaskId, duration: Duration },
-    ResourceCapacity { resource_id: ResourceId, capacity: f32 },
-    Deadline { date: NaiveDate },
+    TaskEffort {
+        task_id: TaskId,
+        effort: Duration,
+    },
+    TaskDuration {
+        task_id: TaskId,
+        duration: Duration,
+    },
+    ResourceCapacity {
+        resource_id: ResourceId,
+        capacity: f32,
+    },
+    Deadline {
+        date: NaiveDate,
+    },
 }
 
 /// Result of what-if analysis
@@ -2205,11 +2236,11 @@ mod tests {
     #[test]
     fn calendar_working_day() {
         let cal = Calendar::default();
-        
+
         // Monday
         let monday = NaiveDate::from_ymd_opt(2025, 2, 3).unwrap();
         assert!(cal.is_working_day(monday));
-        
+
         // Saturday
         let saturday = NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
         assert!(!cal.is_working_day(saturday));
@@ -2279,9 +2310,11 @@ mod tests {
                 Task::new("parent")
                     .name("Parent Task")
                     .child(Task::new("child1").name("Child 1"))
-                    .child(Task::new("child2")
-                        .name("Child 2")
-                        .child(Task::new("grandchild").name("Grandchild"))),
+                    .child(
+                        Task::new("child2")
+                            .name("Child 2")
+                            .child(Task::new("grandchild").name("Grandchild")),
+                    ),
                 Task::new("standalone").name("Standalone"),
             ],
             resources: Vec::new(),
@@ -2375,9 +2408,7 @@ mod tests {
 
     #[test]
     fn resource_efficiency() {
-        let resource = Resource::new("dev")
-            .name("Developer")
-            .efficiency(0.8);
+        let resource = Resource::new("dev").name("Developer").efficiency(0.8);
 
         assert_eq!(resource.efficiency, 0.8);
     }
@@ -2392,8 +2423,8 @@ mod tests {
     #[test]
     fn time_range_duration() {
         let range = TimeRange {
-            start: 9 * 60,  // 9:00 AM
-            end: 17 * 60,   // 5:00 PM
+            start: 9 * 60, // 9:00 AM
+            end: 17 * 60,  // 5:00 PM
         };
         assert_eq!(range.duration_hours(), 8.0);
 
@@ -2430,9 +2461,7 @@ mod tests {
 
     #[test]
     fn task_milestone() {
-        let milestone = Task::new("ms1")
-            .name("Phase Complete")
-            .milestone();
+        let milestone = Task::new("ms1").name("Phase Complete").milestone();
 
         assert!(milestone.milestone);
         assert_eq!(milestone.duration, Some(Duration::zero()));
@@ -2500,8 +2529,7 @@ mod tests {
 
     #[test]
     fn remaining_duration_zero_complete() {
-        let task = Task::new("task")
-            .duration(Duration::days(10));
+        let task = Task::new("task").duration(Duration::days(10));
 
         let remaining = task.remaining_duration();
         assert_eq!(remaining.as_days(), 10.0);
@@ -2519,9 +2547,7 @@ mod tests {
 
     #[test]
     fn remaining_duration_uses_effort_if_no_duration() {
-        let task = Task::new("task")
-            .effort(Duration::days(20))
-            .complete(50.0);
+        let task = Task::new("task").effort(Duration::days(20)).complete(50.0);
 
         let remaining = task.remaining_duration();
         assert_eq!(remaining.as_days(), 10.0);
@@ -2558,8 +2584,7 @@ mod tests {
 
     #[test]
     fn derived_status_in_progress_from_actual_start() {
-        let task = Task::new("task")
-            .actual_start(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap());
+        let task = Task::new("task").actual_start(NaiveDate::from_ymd_opt(2026, 1, 15).unwrap());
         assert_eq!(task.derived_status(), TaskStatus::InProgress);
     }
 
@@ -2571,8 +2596,7 @@ mod tests {
 
     #[test]
     fn derived_status_complete_from_actual_finish() {
-        let task = Task::new("task")
-            .actual_finish(NaiveDate::from_ymd_opt(2026, 1, 20).unwrap());
+        let task = Task::new("task").actual_finish(NaiveDate::from_ymd_opt(2026, 1, 20).unwrap());
         assert_eq!(task.derived_status(), TaskStatus::Complete);
     }
 
@@ -2623,8 +2647,16 @@ mod tests {
         // Backend: 20d @ 60%, Frontend: 15d @ 30%, Testing: 10d @ 0%
         // Expected: (20*60 + 15*30 + 10*0) / (20+15+10) = 1650/45 = 36.67 ≈ 37%
         let container = Task::new("development")
-            .child(Task::new("backend").duration(Duration::days(20)).complete(60.0))
-            .child(Task::new("frontend").duration(Duration::days(15)).complete(30.0))
+            .child(
+                Task::new("backend")
+                    .duration(Duration::days(20))
+                    .complete(60.0),
+            )
+            .child(
+                Task::new("frontend")
+                    .duration(Duration::days(15))
+                    .complete(30.0),
+            )
             .child(Task::new("testing").duration(Duration::days(10)));
 
         assert!(container.is_container());
@@ -2671,12 +2703,23 @@ mod tests {
         let project = Task::new("project")
             .child(
                 Task::new("phase1")
-                    .child(Task::new("task_a").duration(Duration::days(10)).complete(100.0))
-                    .child(Task::new("task_b").duration(Duration::days(10)).complete(50.0)),
+                    .child(
+                        Task::new("task_a")
+                            .duration(Duration::days(10))
+                            .complete(100.0),
+                    )
+                    .child(
+                        Task::new("task_b")
+                            .duration(Duration::days(10))
+                            .complete(50.0),
+                    ),
             )
             .child(
-                Task::new("phase2")
-                    .child(Task::new("task_c").duration(Duration::days(20)).complete(25.0)),
+                Task::new("phase2").child(
+                    Task::new("task_c")
+                        .duration(Duration::days(20))
+                        .complete(25.0),
+                ),
             );
 
         // Check nested container progress
@@ -2732,7 +2775,7 @@ mod tests {
     fn container_progress_zero_duration_children() {
         // Container with children that have no duration/effort returns None
         let container = Task::new("dev")
-            .child(Task::new("a").complete(50.0))  // No duration
+            .child(Task::new("a").complete(50.0)) // No duration
             .child(Task::new("b").complete(100.0)); // No duration
 
         assert_eq!(container.container_progress(), None);
@@ -2781,7 +2824,10 @@ mod tests {
             .rate(Money::new(Decimal::from_str("500").unwrap(), "USD"));
 
         assert!(resource.rate.is_some());
-        assert_eq!(resource.rate.unwrap().amount, Decimal::from_str("500").unwrap());
+        assert_eq!(
+            resource.rate.unwrap().amount,
+            Decimal::from_str("500").unwrap()
+        );
     }
 
     #[test]
@@ -2806,7 +2852,14 @@ mod tests {
     fn scheduled_task_test_new() {
         let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         let finish = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
-        let st = ScheduledTask::test_new("task1", start, finish, Duration::days(5), Duration::zero(), true);
+        let st = ScheduledTask::test_new(
+            "task1",
+            start,
+            finish,
+            Duration::days(5),
+            Duration::zero(),
+            true,
+        );
 
         assert_eq!(st.task_id, "task1");
         assert_eq!(st.start, start);
@@ -2883,8 +2936,7 @@ mod tests {
     #[test]
     fn rate_range_with_currency() {
         use rust_decimal::Decimal;
-        let range = RateRange::new(Decimal::from(500), Decimal::from(700))
-            .currency("EUR");
+        let range = RateRange::new(Decimal::from(500), Decimal::from(700)).currency("EUR");
 
         assert_eq!(range.currency, Some("EUR".into()));
     }
@@ -2953,15 +3005,13 @@ mod tests {
         assert!(with_range.is_abstract());
 
         // Profile with fixed rate is concrete
-        let with_fixed = ResourceProfile::new("dev")
-            .rate(Money::new(Decimal::from(600), "USD"));
+        let with_fixed = ResourceProfile::new("dev").rate(Money::new(Decimal::from(600), "USD"));
         assert!(!with_fixed.is_abstract());
     }
 
     #[test]
     fn resource_profile_skills_batch() {
-        let profile = ResourceProfile::new("dev")
-            .skills(["rust", "python", "go"]);
+        let profile = ResourceProfile::new("dev").skills(["rust", "python", "go"]);
 
         assert_eq!(profile.skills.len(), 3);
         assert!(profile.skills.contains(&"rust".into()));
@@ -3072,11 +3122,11 @@ mod tests {
         let mut project = Project::new("Test");
         project.profiles.push(
             ResourceProfile::new("developer")
-                .rate_range(RateRange::new(Decimal::from(500), Decimal::from(700)))
+                .rate_range(RateRange::new(Decimal::from(500), Decimal::from(700))),
         );
         project.profiles.push(
             ResourceProfile::new("designer")
-                .rate_range(RateRange::new(Decimal::from(400), Decimal::from(600)))
+                .rate_range(RateRange::new(Decimal::from(400), Decimal::from(600))),
         );
 
         let dev = project.get_profile("developer");
@@ -3090,8 +3140,12 @@ mod tests {
     #[test]
     fn project_get_trait() {
         let mut project = Project::new("Test");
-        project.traits.push(Trait::new("senior").rate_multiplier(1.3));
-        project.traits.push(Trait::new("junior").rate_multiplier(0.8));
+        project
+            .traits
+            .push(Trait::new("senior").rate_multiplier(1.3));
+        project
+            .traits
+            .push(Trait::new("junior").rate_multiplier(0.8));
 
         let senior = project.get_trait("senior");
         assert!(senior.is_some());
@@ -3178,10 +3232,7 @@ mod tests {
 
     #[test]
     fn diagnostic_new_derives_severity() {
-        let d = Diagnostic::new(
-            DiagnosticCode::W001AbstractAssignment,
-            "test message",
-        );
+        let d = Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "test message");
         assert_eq!(d.severity, Severity::Warning);
         assert_eq!(d.code, DiagnosticCode::W001AbstractAssignment);
         assert_eq!(d.message, "test message");
@@ -3226,9 +3277,18 @@ mod tests {
     fn collecting_emitter_basic() {
         let mut emitter = CollectingEmitter::new();
 
-        emitter.emit(Diagnostic::error(DiagnosticCode::E001CircularSpecialization, "error1"));
-        emitter.emit(Diagnostic::warning(DiagnosticCode::W001AbstractAssignment, "warn1"));
-        emitter.emit(Diagnostic::warning(DiagnosticCode::W002WideCostRange, "warn2"));
+        emitter.emit(Diagnostic::error(
+            DiagnosticCode::E001CircularSpecialization,
+            "error1",
+        ));
+        emitter.emit(Diagnostic::warning(
+            DiagnosticCode::W001AbstractAssignment,
+            "warn1",
+        ));
+        emitter.emit(Diagnostic::warning(
+            DiagnosticCode::W002WideCostRange,
+            "warn2",
+        ));
 
         assert_eq!(emitter.diagnostics.len(), 3);
         assert!(emitter.has_errors());
@@ -3241,10 +3301,22 @@ mod tests {
         let mut emitter = CollectingEmitter::new();
 
         // Emit in wrong order
-        emitter.emit(Diagnostic::new(DiagnosticCode::I001ProjectCostSummary, "info"));
-        emitter.emit(Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "warn"));
-        emitter.emit(Diagnostic::new(DiagnosticCode::E001CircularSpecialization, "error"));
-        emitter.emit(Diagnostic::new(DiagnosticCode::H001MixedAbstraction, "hint"));
+        emitter.emit(Diagnostic::new(
+            DiagnosticCode::I001ProjectCostSummary,
+            "info",
+        ));
+        emitter.emit(Diagnostic::new(
+            DiagnosticCode::W001AbstractAssignment,
+            "warn",
+        ));
+        emitter.emit(Diagnostic::new(
+            DiagnosticCode::E001CircularSpecialization,
+            "error",
+        ));
+        emitter.emit(Diagnostic::new(
+            DiagnosticCode::H001MixedAbstraction,
+            "hint",
+        ));
 
         let sorted = emitter.sorted();
 
@@ -3263,12 +3335,12 @@ mod tests {
         emitter.emit(
             Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "second")
                 .with_file("a.proj")
-                .with_span(SourceSpan::new(20, 1, 5))
+                .with_span(SourceSpan::new(20, 1, 5)),
         );
         emitter.emit(
             Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "first")
                 .with_file("a.proj")
-                .with_span(SourceSpan::new(10, 1, 5))
+                .with_span(SourceSpan::new(10, 1, 5)),
         );
 
         let sorted = emitter.sorted();
@@ -3300,21 +3372,57 @@ mod tests {
     #[test]
     fn diagnostic_code_default_severity_all() {
         // Errors
-        assert_eq!(DiagnosticCode::E003InfeasibleConstraint.default_severity(), Severity::Error);
+        assert_eq!(
+            DiagnosticCode::E003InfeasibleConstraint.default_severity(),
+            Severity::Error
+        );
         // Warnings (W002 onwards - E002 is warning by default, error in strict)
-        assert_eq!(DiagnosticCode::E002ProfileWithoutRate.default_severity(), Severity::Warning);
-        assert_eq!(DiagnosticCode::W004ApproximateLeveling.default_severity(), Severity::Warning);
-        assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.default_severity(), Severity::Warning);
-        assert_eq!(DiagnosticCode::W006ScheduleVariance.default_severity(), Severity::Warning);
+        assert_eq!(
+            DiagnosticCode::E002ProfileWithoutRate.default_severity(),
+            Severity::Warning
+        );
+        assert_eq!(
+            DiagnosticCode::W004ApproximateLeveling.default_severity(),
+            Severity::Warning
+        );
+        assert_eq!(
+            DiagnosticCode::W005ConstraintZeroSlack.default_severity(),
+            Severity::Warning
+        );
+        assert_eq!(
+            DiagnosticCode::W006ScheduleVariance.default_severity(),
+            Severity::Warning
+        );
         // Hints
-        assert_eq!(DiagnosticCode::H002UnusedProfile.default_severity(), Severity::Hint);
-        assert_eq!(DiagnosticCode::H003UnusedTrait.default_severity(), Severity::Hint);
-        assert_eq!(DiagnosticCode::H004TaskUnconstrained.default_severity(), Severity::Hint);
+        assert_eq!(
+            DiagnosticCode::H002UnusedProfile.default_severity(),
+            Severity::Hint
+        );
+        assert_eq!(
+            DiagnosticCode::H003UnusedTrait.default_severity(),
+            Severity::Hint
+        );
+        assert_eq!(
+            DiagnosticCode::H004TaskUnconstrained.default_severity(),
+            Severity::Hint
+        );
         // Info
-        assert_eq!(DiagnosticCode::I002RefinementProgress.default_severity(), Severity::Info);
-        assert_eq!(DiagnosticCode::I003ResourceUtilization.default_severity(), Severity::Info);
-        assert_eq!(DiagnosticCode::I004ProjectStatus.default_severity(), Severity::Info);
-        assert_eq!(DiagnosticCode::I005EarnedValueSummary.default_severity(), Severity::Info);
+        assert_eq!(
+            DiagnosticCode::I002RefinementProgress.default_severity(),
+            Severity::Info
+        );
+        assert_eq!(
+            DiagnosticCode::I003ResourceUtilization.default_severity(),
+            Severity::Info
+        );
+        assert_eq!(
+            DiagnosticCode::I004ProjectStatus.default_severity(),
+            Severity::Info
+        );
+        assert_eq!(
+            DiagnosticCode::I005EarnedValueSummary.default_severity(),
+            Severity::Info
+        );
     }
 
     #[test]
@@ -3326,30 +3434,63 @@ mod tests {
         assert!(DiagnosticCode::R104UnknownProfile.ordering_priority() < 10);
         // Cost warnings
         assert_eq!(DiagnosticCode::W002WideCostRange.ordering_priority(), 10);
-        assert_eq!(DiagnosticCode::R012TraitMultiplierStack.ordering_priority(), 11);
-        assert_eq!(DiagnosticCode::W004ApproximateLeveling.ordering_priority(), 12);
-        assert_eq!(DiagnosticCode::W005ConstraintZeroSlack.ordering_priority(), 12);
+        assert_eq!(
+            DiagnosticCode::R012TraitMultiplierStack.ordering_priority(),
+            11
+        );
+        assert_eq!(
+            DiagnosticCode::W004ApproximateLeveling.ordering_priority(),
+            12
+        );
+        assert_eq!(
+            DiagnosticCode::W005ConstraintZeroSlack.ordering_priority(),
+            12
+        );
         assert_eq!(DiagnosticCode::W006ScheduleVariance.ordering_priority(), 13);
-        assert_eq!(DiagnosticCode::W007UnresolvedDependency.ordering_priority(), 14);
-        assert_eq!(DiagnosticCode::W014ContainerDependency.ordering_priority(), 15);
+        assert_eq!(
+            DiagnosticCode::W007UnresolvedDependency.ordering_priority(),
+            14
+        );
+        assert_eq!(
+            DiagnosticCode::W014ContainerDependency.ordering_priority(),
+            15
+        );
         // Assignment warnings
         assert_eq!(DiagnosticCode::W003UnknownTrait.ordering_priority(), 21);
         // Hints
         assert_eq!(DiagnosticCode::H002UnusedProfile.ordering_priority(), 31);
         assert_eq!(DiagnosticCode::H003UnusedTrait.ordering_priority(), 32);
-        assert_eq!(DiagnosticCode::H004TaskUnconstrained.ordering_priority(), 33);
+        assert_eq!(
+            DiagnosticCode::H004TaskUnconstrained.ordering_priority(),
+            33
+        );
         // Info (highest priority = emitted last)
-        assert_eq!(DiagnosticCode::I002RefinementProgress.ordering_priority(), 41);
-        assert_eq!(DiagnosticCode::I003ResourceUtilization.ordering_priority(), 42);
+        assert_eq!(
+            DiagnosticCode::I002RefinementProgress.ordering_priority(),
+            41
+        );
+        assert_eq!(
+            DiagnosticCode::I003ResourceUtilization.ordering_priority(),
+            42
+        );
         assert_eq!(DiagnosticCode::I004ProjectStatus.ordering_priority(), 43);
-        assert_eq!(DiagnosticCode::I005EarnedValueSummary.ordering_priority(), 44);
+        assert_eq!(
+            DiagnosticCode::I005EarnedValueSummary.ordering_priority(),
+            44
+        );
     }
 
     #[test]
     fn diagnostic_code_display() {
         // Test Display trait implementation
-        assert_eq!(format!("{}", DiagnosticCode::E001CircularSpecialization), "E001");
-        assert_eq!(format!("{}", DiagnosticCode::W014ContainerDependency), "W014");
+        assert_eq!(
+            format!("{}", DiagnosticCode::E001CircularSpecialization),
+            "E001"
+        );
+        assert_eq!(
+            format!("{}", DiagnosticCode::W014ContainerDependency),
+            "W014"
+        );
         assert_eq!(format!("{}", DiagnosticCode::H004TaskUnconstrained), "H004");
     }
 
@@ -3371,15 +3512,13 @@ mod tests {
 
     #[test]
     fn resource_profile_builder_calendar() {
-        let profile = ResourceProfile::new("dev")
-            .calendar("work_calendar");
+        let profile = ResourceProfile::new("dev").calendar("work_calendar");
         assert_eq!(profile.calendar, Some("work_calendar".to_string()));
     }
 
     #[test]
     fn resource_profile_builder_efficiency() {
-        let profile = ResourceProfile::new("dev")
-            .efficiency(0.8);
+        let profile = ResourceProfile::new("dev").efficiency(0.8);
         assert_eq!(profile.efficiency, Some(0.8));
     }
 

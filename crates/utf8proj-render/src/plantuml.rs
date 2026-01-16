@@ -20,9 +20,9 @@
 //! @endgantt
 //! ```
 
+use crate::DisplayMode;
 use std::collections::HashMap;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
-use crate::DisplayMode;
 
 /// PlantUML Gantt chart renderer
 #[derive(Clone, Debug)]
@@ -153,7 +153,13 @@ impl PlantUmlRenderer {
     fn make_alias(task_id: &str) -> String {
         task_id
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect()
     }
 
@@ -184,7 +190,10 @@ impl Renderer for PlantUmlRenderer {
         output.push_str("@startgantt\n");
 
         // Project start
-        output.push_str(&format!("Project starts {}\n", project.start.format("%Y-%m-%d")));
+        output.push_str(&format!(
+            "Project starts {}\n",
+            project.start.format("%Y-%m-%d")
+        ));
 
         // Scale if specified
         if let Some(ref scale) = self.scale {
@@ -215,7 +224,8 @@ impl Renderer for PlantUmlRenderer {
         }
 
         // Track which tasks have been rendered (for dependency references)
-        let mut rendered_tasks: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut rendered_tasks: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         // Render each task
         for (task_id, scheduled) in &tasks {
@@ -226,7 +236,9 @@ impl Renderer for PlantUmlRenderer {
             let complete = task.and_then(|t| t.complete);
 
             // Format label according to display mode
-            let label = self.display_mode.format_label(task_id, &name, self.label_width);
+            let label = self
+                .display_mode
+                .format_label(task_id, &name, self.label_width);
             let sanitized_name = Self::sanitize_name(&label);
             let alias = Self::make_alias(task_id);
             let is_milestone = scheduled.duration.minutes == 0;
@@ -353,11 +365,7 @@ impl Renderer for PlantUmlRenderer {
 
 impl PlantUmlRenderer {
     /// Collect first predecessor for each task
-    fn collect_predecessors(
-        &self,
-        task: &utf8proj_core::Task,
-        map: &mut HashMap<String, String>,
-    ) {
+    fn collect_predecessors(&self, task: &utf8proj_core::Task, map: &mut HashMap<String, String>) {
         if let Some(first_dep) = task.depends.first() {
             map.insert(task.id.clone(), first_dep.predecessor.clone());
         }
@@ -376,7 +384,11 @@ mod tests {
     fn create_test_project() -> Project {
         let mut project = Project::new("Test Project");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("design").name("Design Phase").effort(Duration::days(5)));
+        project.tasks.push(
+            Task::new("design")
+                .name("Design Phase")
+                .effort(Duration::days(5)),
+        );
         project.tasks.push(
             Task::new("implement")
                 .name("Implementation")
@@ -643,16 +655,29 @@ mod tests {
     #[test]
     fn plantuml_makes_valid_aliases() {
         assert_eq!(PlantUmlRenderer::make_alias("task1"), "task1");
-        assert_eq!(PlantUmlRenderer::make_alias("phase1.design"), "phase1_design");
-        assert_eq!(PlantUmlRenderer::make_alias("task-with-dashes"), "task_with_dashes");
+        assert_eq!(
+            PlantUmlRenderer::make_alias("phase1.design"),
+            "phase1_design"
+        );
+        assert_eq!(
+            PlantUmlRenderer::make_alias("task-with-dashes"),
+            "task_with_dashes"
+        );
     }
 
     #[test]
     fn plantuml_milestone_detection() {
         let mut project = Project::new("Milestone Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("work").name("Work").effort(Duration::days(5)));
-        project.tasks.push(Task::new("done").name("Project Complete").milestone().depends_on("work"));
+        project
+            .tasks
+            .push(Task::new("work").name("Work").effort(Duration::days(5)));
+        project.tasks.push(
+            Task::new("done")
+                .name("Project Complete")
+                .milestone()
+                .depends_on("work"),
+        );
 
         let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
@@ -778,16 +803,14 @@ mod tests {
 
     #[test]
     fn plantuml_normal_color_option() {
-        let renderer = PlantUmlRenderer::new()
-            .normal_color("GreenYellow");
+        let renderer = PlantUmlRenderer::new().normal_color("GreenYellow");
 
         assert_eq!(renderer.normal_color, "GreenYellow");
     }
 
     #[test]
     fn plantuml_no_completion_option() {
-        let renderer = PlantUmlRenderer::new()
-            .no_completion();
+        let renderer = PlantUmlRenderer::new().no_completion();
 
         assert!(!renderer.show_completion);
     }
@@ -982,7 +1005,9 @@ mod tests {
         let mut project = Project::new("Milestone No Dep");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         // A milestone with no dependency
-        project.tasks.push(Task::new("kickoff").name("Project Kickoff").milestone());
+        project
+            .tasks
+            .push(Task::new("kickoff").name("Project Kickoff").milestone());
 
         let ms_date = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         let mut tasks = HashMap::new();
@@ -1041,8 +1066,15 @@ mod tests {
         // Test milestone in absolute dates mode (lines 239-242)
         let mut project = Project::new("Milestone Absolute");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("work").name("Work").effort(Duration::days(5)));
-        project.tasks.push(Task::new("done").name("Complete").milestone().depends_on("work"));
+        project
+            .tasks
+            .push(Task::new("work").name("Work").effort(Duration::days(5)));
+        project.tasks.push(
+            Task::new("done")
+                .name("Complete")
+                .milestone()
+                .depends_on("work"),
+        );
 
         let start1 = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
         let finish1 = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
@@ -1133,7 +1165,9 @@ mod tests {
         let mut project = Project::new("No Alias Completion");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
 
-        let mut task = Task::new("work").name("Work Task").effort(Duration::days(5));
+        let mut task = Task::new("work")
+            .name("Work Task")
+            .effort(Duration::days(5));
         task.complete = Some(60.0);
         project.tasks.push(task);
 

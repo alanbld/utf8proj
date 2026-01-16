@@ -14,8 +14,8 @@
 //! 4. Slack calculation: Slack = LS - ES (must be >= 0)
 //! 5. Critical path: Tasks where Slack == 0
 
+use crate::dag::{DependencyEdge, SchedulingGraph};
 use std::collections::HashMap;
-use crate::dag::{SchedulingGraph, DependencyEdge};
 use utf8proj_core::{DependencyType, TaskId};
 
 /// Errors during CPM scheduling
@@ -31,7 +31,11 @@ impl std::fmt::Display for CpmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CpmError::NegativeSlack { task, slack } => {
-                write!(f, "CPM invariant violated: task '{}' has negative slack ({})", task, slack)
+                write!(
+                    f,
+                    "CPM invariant violated: task '{}' has negative slack ({})",
+                    task, slack
+                )
             }
             CpmError::EmptyGraph => write!(f, "Cannot schedule empty graph"),
         }
@@ -97,7 +101,9 @@ impl CpmScheduler {
         let mut lf: HashMap<TaskId, i64> = HashMap::new();
 
         // Get durations
-        let duration: HashMap<TaskId, i64> = graph.tasks.iter()
+        let duration: HashMap<TaskId, i64> = graph
+            .tasks
+            .iter()
             .map(|t| (t.id.clone(), t.duration_days))
             .collect();
 
@@ -116,8 +122,16 @@ impl CpmScheduler {
                 if edges.is_empty() {
                     0 // Project start
                 } else {
-                    edges.iter()
-                        .map(|edge| compute_successor_es(edge, ef[&edge.from], es[&edge.from], task_duration))
+                    edges
+                        .iter()
+                        .map(|edge| {
+                            compute_successor_es(
+                                edge,
+                                ef[&edge.from],
+                                es[&edge.from],
+                                task_duration,
+                            )
+                        })
                         .max()
                         .unwrap_or(0)
                 }
@@ -149,8 +163,11 @@ impl CpmScheduler {
                 if edges.is_empty() {
                     project_end
                 } else {
-                    edges.iter()
-                        .map(|edge| compute_predecessor_lf(edge, ls[&edge.to], lf[&edge.to], task_duration))
+                    edges
+                        .iter()
+                        .map(|edge| {
+                            compute_predecessor_lf(edge, ls[&edge.to], lf[&edge.to], task_duration)
+                        })
                         .min()
                         .unwrap_or(project_end)
                 }
@@ -197,7 +214,8 @@ impl CpmScheduler {
                 if edges.is_empty() {
                     total_slack
                 } else {
-                    edges.iter()
+                    edges
+                        .iter()
                         .map(|edge| es[&edge.to])
                         .min()
                         .map(|min_succ_es| min_succ_es - task_ef)
@@ -213,17 +231,20 @@ impl CpmScheduler {
                 critical_path.push(task_id.clone());
             }
 
-            results.insert(task_id.clone(), CpmResult {
-                task_id: task_id.clone(),
-                es: task_es,
-                ef: task_ef,
-                ls: task_ls,
-                lf: task_lf,
-                total_slack,
-                free_slack,
-                is_critical,
-                duration: task_duration,
-            });
+            results.insert(
+                task_id.clone(),
+                CpmResult {
+                    task_id: task_id.clone(),
+                    es: task_es,
+                    ef: task_ef,
+                    ls: task_ls,
+                    lf: task_lf,
+                    total_slack,
+                    free_slack,
+                    is_critical,
+                    duration: task_duration,
+                },
+            );
         }
 
         Ok(CpmSchedule {
@@ -245,7 +266,12 @@ impl Default for CpmScheduler {
 ///
 /// For FS and SS, the constraint is directly on ES.
 /// For FF and SF, the constraint is on EF, so we convert to ES by subtracting duration.
-fn compute_successor_es(edge: &DependencyEdge, pred_ef: i64, pred_es: i64, succ_duration: i64) -> i64 {
+fn compute_successor_es(
+    edge: &DependencyEdge,
+    pred_ef: i64,
+    pred_es: i64,
+    succ_duration: i64,
+) -> i64 {
     let lag = edge.lag_days;
 
     match edge.dep_type {
@@ -280,7 +306,12 @@ fn compute_successor_es(edge: &DependencyEdge, pred_ef: i64, pred_es: i64, succ_
 ///
 /// For FS and FF, the constraint is directly on LF.
 /// For SS and SF, the constraint is on LS, so we convert to LF by adding duration.
-fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, pred_duration: i64) -> i64 {
+fn compute_predecessor_lf(
+    edge: &DependencyEdge,
+    succ_ls: i64,
+    succ_lf: i64,
+    pred_duration: i64,
+) -> i64 {
     let lag = edge.lag_days;
 
     match edge.dep_type {
@@ -315,16 +346,19 @@ fn compute_predecessor_lf(edge: &DependencyEdge, succ_ls: i64, succ_lf: i64, pre
 mod tests {
     use super::*;
     use crate::dag::SchedulingGraph;
-    use utf8proj_core::{Task, Duration};
+    use utf8proj_core::{Duration, Task};
 
     fn make_tasks_with_deps(tasks: &[(&str, i64, &[&str])]) -> Vec<Task> {
-        tasks.iter().map(|(id, dur, deps)| {
-            let mut task = Task::new(*id).duration(Duration::days(*dur));
-            for dep in *deps {
-                task = task.depends_on(*dep);
-            }
-            task
-        }).collect()
+        tasks
+            .iter()
+            .map(|(id, dur, deps)| {
+                let mut task = Task::new(*id).duration(Duration::days(*dur));
+                for dep in *deps {
+                    task = task.depends_on(*dep);
+                }
+                task
+            })
+            .collect()
     }
 
     #[test]
@@ -346,11 +380,7 @@ mod tests {
     #[test]
     fn test_sequential_chain() {
         // A(5) -> B(3) -> C(2) = 10 days total
-        let tasks = make_tasks_with_deps(&[
-            ("a", 5, &[]),
-            ("b", 3, &["a"]),
-            ("c", 2, &["b"]),
-        ]);
+        let tasks = make_tasks_with_deps(&[("a", 5, &[]), ("b", 3, &["a"]), ("c", 2, &["b"])]);
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
         let schedule = CpmScheduler::new().schedule(&graph).unwrap();
@@ -407,11 +437,7 @@ mod tests {
         // Critical: A -> C (7 days)
         // B has slack
 
-        let tasks = make_tasks_with_deps(&[
-            ("a", 5, &[]),
-            ("b", 3, &[]),
-            ("c", 2, &["a", "b"]),
-        ]);
+        let tasks = make_tasks_with_deps(&[("a", 5, &[]), ("b", 3, &[]), ("c", 2, &["a", "b"])]);
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
         let schedule = CpmScheduler::new().schedule(&graph).unwrap();
@@ -433,11 +459,7 @@ mod tests {
 
     #[test]
     fn test_critical_path_has_zero_slack() {
-        let tasks = make_tasks_with_deps(&[
-            ("a", 5, &[]),
-            ("b", 3, &[]),
-            ("c", 2, &["a", "b"]),
-        ]);
+        let tasks = make_tasks_with_deps(&[("a", 5, &[]), ("b", 3, &[]), ("c", 2, &["a", "b"])]);
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
         let schedule = CpmScheduler::new().schedule(&graph).unwrap();
@@ -468,7 +490,10 @@ mod tests {
 
     #[test]
     fn test_cpm_error_display() {
-        let err = CpmError::NegativeSlack { task: "test_task".to_string(), slack: -5 };
+        let err = CpmError::NegativeSlack {
+            task: "test_task".to_string(),
+            slack: -5,
+        };
         let msg = format!("{}", err);
         assert!(msg.contains("test_task"));
         assert!(msg.contains("-5"));
@@ -499,7 +524,8 @@ mod tests {
         let tasks_ss = vec![
             Task::new("a").duration(Duration::days(5)),
             Task::new("b").duration(Duration::days(3)),
-            Task::new("c").duration(Duration::days(2))
+            Task::new("c")
+                .duration(Duration::days(2))
                 .depends_on("a") // FS to a
                 .with_dependency(Dependency {
                     predecessor: "b".to_string(),
@@ -515,7 +541,8 @@ mod tests {
         let tasks_ff = vec![
             Task::new("a").duration(Duration::days(5)),
             Task::new("b").duration(Duration::days(3)),
-            Task::new("c").duration(Duration::days(2))
+            Task::new("c")
+                .duration(Duration::days(2))
                 .depends_on("a") // FS to a
                 .with_dependency(Dependency {
                     predecessor: "b".to_string(),
@@ -531,7 +558,8 @@ mod tests {
         let tasks_sf = vec![
             Task::new("a").duration(Duration::days(5)),
             Task::new("b").duration(Duration::days(3)),
-            Task::new("c").duration(Duration::days(2))
+            Task::new("c")
+                .duration(Duration::days(2))
                 .depends_on("a") // FS to a
                 .with_dependency(Dependency {
                     predecessor: "b".to_string(),
@@ -552,7 +580,8 @@ mod tests {
         let tasks = vec![
             Task::new("a").duration(Duration::days(5)),
             Task::new("b").duration(Duration::days(3)),
-            Task::new("c").duration(Duration::days(2))
+            Task::new("c")
+                .duration(Duration::days(2))
                 .depends_on("a")
                 .with_dependency(Dependency {
                     predecessor: "b".to_string(),
@@ -574,11 +603,7 @@ mod tests {
         // A(5) -> C(2)
         // B(3) -> C(2)
         // A is critical (longer), B has slack
-        let tasks = make_tasks_with_deps(&[
-            ("a", 5, &[]),
-            ("b", 3, &[]),
-            ("c", 2, &["a", "b"]),
-        ]);
+        let tasks = make_tasks_with_deps(&[("a", 5, &[]), ("b", 3, &[]), ("c", 2, &["a", "b"])]);
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
         let schedule = CpmScheduler::new().schedule(&graph).unwrap();

@@ -17,7 +17,9 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use utf8proj_core::{CollectingEmitter, Diagnostic as CoreDiagnostic, Project, Schedule, Scheduler};
+use utf8proj_core::{
+    CollectingEmitter, Diagnostic as CoreDiagnostic, Project, Schedule, Scheduler,
+};
 use utf8proj_parser::parse_project;
 use utf8proj_solver::{analyze_project, AnalysisConfig, CpmSolver};
 
@@ -155,7 +157,9 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         // Clear diagnostics and remove document state
-        self.client.publish_diagnostics(uri.clone(), vec![], None).await;
+        self.client
+            .publish_diagnostics(uri.clone(), vec![], None)
+            .await;
         let mut docs = self.documents.write().await;
         docs.remove(&uri);
     }
@@ -280,7 +284,11 @@ fn build_document_symbols(project: &Project) -> Vec<SymbolInformation> {
     }
 
     // Add tasks (flattened)
-    fn add_tasks(tasks: &[utf8proj_core::Task], prefix: &str, symbols: &mut Vec<SymbolInformation>) {
+    fn add_tasks(
+        tasks: &[utf8proj_core::Task],
+        prefix: &str,
+        symbols: &mut Vec<SymbolInformation>,
+    ) {
         for task in tasks {
             let name = if prefix.is_empty() {
                 task.id.clone()

@@ -122,7 +122,8 @@ fn w014_triggers_for_each_missing_child() {
     let child2 = task_with_deps("child2", &["predecessor"]);
     let child3 = Task::new("child3").effort(Duration::days(2));
 
-    let container = container_with_children("container", &["predecessor"], vec![child1, child2, child3]);
+    let container =
+        container_with_children("container", &["predecessor"], vec![child1, child2, child3]);
     project.tasks.push(container);
 
     let config = AnalysisConfig::default();
@@ -310,8 +311,12 @@ fn fix_handles_multiple_container_deps() {
     let mut project = Project::new("test");
 
     // Add two predecessor tasks
-    project.tasks.push(Task::new("pred1").effort(Duration::days(5)));
-    project.tasks.push(Task::new("pred2").effort(Duration::days(3)));
+    project
+        .tasks
+        .push(Task::new("pred1").effort(Duration::days(5)));
+    project
+        .tasks
+        .push(Task::new("pred2").effort(Duration::days(3)));
 
     // Container with two dependencies
     let child = Task::new("child").effort(Duration::days(3));
@@ -327,7 +332,11 @@ fn fix_handles_multiple_container_deps() {
     let child = &container.children[0];
     assert_eq!(child.depends.len(), 2);
 
-    let dep_ids: Vec<_> = child.depends.iter().map(|d| d.predecessor.as_str()).collect();
+    let dep_ids: Vec<_> = child
+        .depends
+        .iter()
+        .map(|d| d.predecessor.as_str())
+        .collect();
     assert!(dep_ids.contains(&"pred1"));
     assert!(dep_ids.contains(&"pred2"));
 }
@@ -337,8 +346,12 @@ fn fix_preserves_existing_child_deps() {
     let mut project = Project::new("test");
 
     // Add predecessor tasks
-    project.tasks.push(Task::new("pred1").effort(Duration::days(5)));
-    project.tasks.push(Task::new("pred2").effort(Duration::days(3)));
+    project
+        .tasks
+        .push(Task::new("pred1").effort(Duration::days(5)));
+    project
+        .tasks
+        .push(Task::new("pred2").effort(Duration::days(3)));
 
     // Child already has pred2 dependency
     let child = task_with_deps("child", &["pred2"]);
@@ -354,7 +367,11 @@ fn fix_preserves_existing_child_deps() {
     let child = &container.children[0];
     assert_eq!(child.depends.len(), 2);
 
-    let dep_ids: Vec<_> = child.depends.iter().map(|d| d.predecessor.as_str()).collect();
+    let dep_ids: Vec<_> = child
+        .depends
+        .iter()
+        .map(|d| d.predecessor.as_str())
+        .collect();
     assert!(dep_ids.contains(&"pred1"));
     assert!(dep_ids.contains(&"pred2"));
 }
@@ -364,8 +381,12 @@ fn fix_handles_nested_containers() {
     let mut project = Project::new("test");
 
     // Add predecessor tasks
-    project.tasks.push(Task::new("dep_outer").effort(Duration::days(5)));
-    project.tasks.push(Task::new("dep_inner").effort(Duration::days(3)));
+    project
+        .tasks
+        .push(Task::new("dep_outer").effort(Duration::days(5)));
+    project
+        .tasks
+        .push(Task::new("dep_inner").effort(Duration::days(3)));
 
     // Nested structure:
     // outer (depends: dep_outer)
@@ -399,13 +420,16 @@ fn fix_w014_count_goes_to_zero() {
     let mut project = Project::new("test");
 
     // Add predecessor
-    project.tasks.push(Task::new("predecessor").effort(Duration::days(5)));
+    project
+        .tasks
+        .push(Task::new("predecessor").effort(Duration::days(5)));
 
     // Container with 3 children, none with the dependency
     let child1 = Task::new("child1").effort(Duration::days(3));
     let child2 = Task::new("child2").effort(Duration::days(2));
     let child3 = Task::new("child3").effort(Duration::days(4));
-    let container = container_with_children("container", &["predecessor"], vec![child1, child2, child3]);
+    let container =
+        container_with_children("container", &["predecessor"], vec![child1, child2, child3]);
     project.tasks.push(container);
 
     // Count W014 before fix

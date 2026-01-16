@@ -96,21 +96,30 @@ fn exit_1_profile_without_rate_error() {
 fn exit_1_strict_mode_escalates_warnings() {
     // w001_abstract_assignment.proj has warnings that become errors in strict
     let code = run_schedule("w001_abstract_assignment.proj", &["--strict"]);
-    assert_eq!(code, 1, "Warnings should become errors and exit 1 in strict mode");
+    assert_eq!(
+        code, 1,
+        "Warnings should become errors and exit 1 in strict mode"
+    );
 }
 
 #[test]
 fn exit_0_strict_mode_hints_become_warnings() {
     // h002_unused_profile.proj has hints that become warnings (not errors)
     let code = run_schedule("h002_unused_profile.proj", &["--strict"]);
-    assert_eq!(code, 0, "Hints become warnings (not errors), should exit 0 in strict");
+    assert_eq!(
+        code, 0,
+        "Hints become warnings (not errors), should exit 0 in strict"
+    );
 }
 
 #[test]
 fn exit_0_strict_mode_info_unchanged() {
     // i001_success.proj has only info, stays info
     let code = run_schedule("i001_success.proj", &["--strict"]);
-    assert_eq!(code, 0, "Info stays info, should exit 0 even in strict mode");
+    assert_eq!(
+        code, 0,
+        "Info stays info, should exit 0 even in strict mode"
+    );
 }
 
 #[test]
@@ -127,7 +136,10 @@ fn exit_1_strict_mode_native_error_still_error() {
 #[test]
 fn exit_0_quiet_mode_doesnt_change_success() {
     let code = run_schedule("w001_abstract_assignment.proj", &["--quiet"]);
-    assert_eq!(code, 0, "Quiet mode should not affect exit code for warnings");
+    assert_eq!(
+        code, 0,
+        "Quiet mode should not affect exit code for warnings"
+    );
 }
 
 #[test]
@@ -167,7 +179,10 @@ fn exit_1_json_format_errors() {
 
 #[test]
 fn exit_1_json_strict_escalation() {
-    let code = run_schedule("w001_abstract_assignment.proj", &["--format=json", "--strict"]);
+    let code = run_schedule(
+        "w001_abstract_assignment.proj",
+        &["--format=json", "--strict"],
+    );
     assert_eq!(code, 1, "JSON+strict should exit 1 for escalated warnings");
 }
 

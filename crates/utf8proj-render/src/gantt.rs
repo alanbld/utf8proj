@@ -113,7 +113,9 @@ impl FocusConfig {
             }
         }
         // If pattern ends with *, any suffix is OK; otherwise must match to end
-        parts.last().map_or(true, |p| p.is_empty() || pos == text.len())
+        parts
+            .last()
+            .map_or(true, |p| p.is_empty() || pos == text.len())
     }
 
     /// Determine visibility of a task based on focus configuration
@@ -207,7 +209,7 @@ impl Default for HtmlGanttRenderer {
         Self {
             chart_width: 900,
             row_height: 32,
-            label_width: 450,  // Wider to fit WBS codes + task names
+            label_width: 450, // Wider to fit WBS codes + task names
             header_height: 60,
             padding: 20,
             theme: GanttTheme::default(),
@@ -331,7 +333,8 @@ impl HtmlGanttRenderer {
             .filter(|t| {
                 // Check if any focused task starts with this task's ID + "."
                 focused_ids.iter().any(|fid| {
-                    fid.starts_with(&t.qualified_id) && fid.len() > t.qualified_id.len()
+                    fid.starts_with(&t.qualified_id)
+                        && fid.len() > t.qualified_id.len()
                         && fid.chars().nth(t.qualified_id.len()) == Some('.')
                 })
             })
@@ -434,7 +437,8 @@ impl HtmlGanttRenderer {
         let px_per_day = self.pixels_per_day(project_start, project_end);
 
         let total_width = self.padding * 2 + self.label_width + self.chart_width;
-        let total_height = self.padding * 2 + self.header_height + (tasks.len() as u32 * self.row_height) + 50;
+        let total_height =
+            self.padding * 2 + self.header_height + (tasks.len() as u32 * self.row_height) + 50;
 
         let svg_content = self.generate_svg(project, schedule, tasks, px_per_day);
         let css = self.generate_css();
@@ -524,14 +528,25 @@ impl HtmlGanttRenderer {
 
         // Dependency arrows
         if self.show_dependencies {
-            svg.push_str(&self.render_dependencies(project, schedule, tasks, project_start, px_per_day));
+            svg.push_str(&self.render_dependencies(
+                project,
+                schedule,
+                tasks,
+                project_start,
+                px_per_day,
+            ));
         }
 
         svg
     }
 
     /// Render the timeline header
-    fn render_header(&self, project_start: NaiveDate, project_end: NaiveDate, px_per_day: f64) -> String {
+    fn render_header(
+        &self,
+        project_start: NaiveDate,
+        project_end: NaiveDate,
+        px_per_day: f64,
+    ) -> String {
         let mut svg = String::new();
 
         // Header background
@@ -606,7 +621,13 @@ impl HtmlGanttRenderer {
     }
 
     /// Render grid lines
-    fn render_grid(&self, task_count: usize, project_start: NaiveDate, project_end: NaiveDate, px_per_day: f64) -> String {
+    fn render_grid(
+        &self,
+        task_count: usize,
+        project_start: NaiveDate,
+        project_end: NaiveDate,
+        px_per_day: f64,
+    ) -> String {
         let mut svg = String::new();
         let chart_top = self.padding + self.header_height;
         let chart_bottom = chart_top + (task_count as u32 * self.row_height);
@@ -646,7 +667,13 @@ impl HtmlGanttRenderer {
     }
 
     /// Render a single task row
-    fn render_task_row(&self, task_display: &TaskDisplay, row: usize, project_start: NaiveDate, px_per_day: f64) -> String {
+    fn render_task_row(
+        &self,
+        task_display: &TaskDisplay,
+        row: usize,
+        project_start: NaiveDate,
+        px_per_day: f64,
+    ) -> String {
         let mut svg = String::new();
 
         let y = self.padding + self.header_height + (row as u32 * self.row_height);
@@ -817,10 +844,19 @@ impl HtmlGanttRenderer {
             if let Some(to_scheduled) = task_display.scheduled {
                 for dep in &task_display.task.depends {
                     // Try to find the predecessor
-                    let pred_id = self.resolve_dependency(&dep.predecessor, &task_display.qualified_id, &task_positions);
+                    let pred_id = self.resolve_dependency(
+                        &dep.predecessor,
+                        &task_display.qualified_id,
+                        &task_positions,
+                    );
 
-                    if let Some((from_row, from_scheduled)) = pred_id.and_then(|id| task_positions.get(id.as_str())) {
-                        let to_row = task_positions.get(task_display.qualified_id.as_str()).map(|(r, _)| *r).unwrap_or(0);
+                    if let Some((from_row, from_scheduled)) =
+                        pred_id.and_then(|id| task_positions.get(id.as_str()))
+                    {
+                        let to_row = task_positions
+                            .get(task_display.qualified_id.as_str())
+                            .map(|(r, _)| *r)
+                            .unwrap_or(0);
 
                         let arrow = self.render_arrow(
                             *from_row,
@@ -842,7 +878,12 @@ impl HtmlGanttRenderer {
     }
 
     /// Resolve dependency path
-    fn resolve_dependency(&self, dep_path: &str, from_id: &str, positions: &HashMap<&str, (usize, &ScheduledTask)>) -> Option<String> {
+    fn resolve_dependency(
+        &self,
+        dep_path: &str,
+        from_id: &str,
+        positions: &HashMap<&str, (usize, &ScheduledTask)>,
+    ) -> Option<String> {
         // Try absolute path first
         if positions.contains_key(dep_path) {
             return Some(dep_path.to_string());
@@ -874,8 +915,16 @@ impl HtmlGanttRenderer {
         let bar_height = (self.row_height as f64 * 0.6) as f64;
         let bar_y_offset = (self.row_height as f64 - bar_height) / 2.0;
 
-        let from_y = self.padding as f64 + self.header_height as f64 + (from_row as f64 * self.row_height as f64) + bar_y_offset + bar_height / 2.0;
-        let to_y = self.padding as f64 + self.header_height as f64 + (to_row as f64 * self.row_height as f64) + bar_y_offset + bar_height / 2.0;
+        let from_y = self.padding as f64
+            + self.header_height as f64
+            + (from_row as f64 * self.row_height as f64)
+            + bar_y_offset
+            + bar_height / 2.0;
+        let to_y = self.padding as f64
+            + self.header_height as f64
+            + (to_row as f64 * self.row_height as f64)
+            + bar_y_offset
+            + bar_height / 2.0;
 
         let (from_x, to_x) = match dep_type {
             utf8proj_core::DependencyType::FinishToStart => {
@@ -906,20 +955,21 @@ impl HtmlGanttRenderer {
             // Simple curve for adjacent rows
             format!(
                 "M{},{} C{},{} {},{} {},{}",
-                from_x, from_y,
-                mid_x, from_y,
-                mid_x, to_y,
-                to_x, to_y
+                from_x, from_y, mid_x, from_y, mid_x, to_y, to_x, to_y
             )
         } else {
             // More complex path for distant rows
             let offset = 15.0;
             format!(
                 "M{},{} L{},{} L{},{} L{},{}",
-                from_x, from_y,
-                from_x + offset, from_y,
-                from_x + offset, to_y,
-                to_x, to_y
+                from_x,
+                from_y,
+                from_x + offset,
+                from_y,
+                from_x + offset,
+                to_y,
+                to_x,
+                to_y
             )
         };
 
@@ -1220,7 +1270,10 @@ fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>())
+        format!(
+            "{}…",
+            s.chars().take(max.saturating_sub(1)).collect::<String>()
+        )
     }
 }
 
@@ -1350,7 +1403,11 @@ mod tests {
         let project_end = NaiveDate::from_ymd_opt(2025, 1, 29).unwrap();
         Schedule {
             tasks,
-            critical_path: vec!["design".to_string(), "implement".to_string(), "test".to_string()],
+            critical_path: vec![
+                "design".to_string(),
+                "implement".to_string(),
+                "test".to_string(),
+            ],
             project_duration: Duration::days(18),
             project_end,
             total_cost: None,
@@ -1478,7 +1535,9 @@ mod tests {
         // Test Start-to-Start dependency rendering (lines 623-625)
         let mut project = Project::new("SS Deps");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        project
+            .tasks
+            .push(Task::new("a").name("Task A").effort(Duration::days(5)));
         let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
         task_b.depends.push(utf8proj_core::Dependency {
             predecessor: "a".to_string(),
@@ -1575,7 +1634,9 @@ mod tests {
         // Test Finish-to-Finish dependency rendering (lines 628-630)
         let mut project = Project::new("FF Deps");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        project
+            .tasks
+            .push(Task::new("a").name("Task A").effort(Duration::days(5)));
         let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
         task_b.depends.push(utf8proj_core::Dependency {
             predecessor: "a".to_string(),
@@ -1669,7 +1730,9 @@ mod tests {
         // Test Start-to-Finish dependency rendering (lines 633-635)
         let mut project = Project::new("SF Deps");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("a").name("Task A").effort(Duration::days(5)));
+        project
+            .tasks
+            .push(Task::new("a").name("Task A").effort(Duration::days(5)));
         let mut task_b = Task::new("b").name("Task B").effort(Duration::days(3));
         task_b.depends.push(utf8proj_core::Dependency {
             predecessor: "a".to_string(),
@@ -1808,10 +1871,7 @@ mod tests {
 
     #[test]
     fn focus_config_multiple_patterns() {
-        let config = FocusConfig::new(
-            vec!["6.3.2".to_string(), "8.6".to_string()],
-            1,
-        );
+        let config = FocusConfig::new(vec!["6.3.2".to_string(), "8.6".to_string()], 1);
 
         assert!(config.matches_focus("6.3.2.1", "Task"));
         assert!(config.matches_focus("8.6.2", "Task"));

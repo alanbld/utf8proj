@@ -24,7 +24,10 @@ fn to_lsp_diagnostic(diag: &Diagnostic) -> LspDiagnostic {
     // Build range from span if available
     let range = if let Some(ref span) = diag.span {
         Range::new(
-            Position::new((span.line.saturating_sub(1)) as u32, (span.column.saturating_sub(1)) as u32),
+            Position::new(
+                (span.line.saturating_sub(1)) as u32,
+                (span.column.saturating_sub(1)) as u32,
+            ),
             Position::new(
                 (span.line.saturating_sub(1)) as u32,
                 (span.column.saturating_sub(1) + span.length) as u32,
@@ -89,7 +92,10 @@ mod tests {
         let lsp_diag = to_lsp_diagnostic(&diag);
 
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(lsp_diag.code, Some(NumberOrString::String("W001".to_string())));
+        assert_eq!(
+            lsp_diag.code,
+            Some(NumberOrString::String("W001".to_string()))
+        );
         assert!(lsp_diag.message.contains("task 'api_dev'"));
         assert!(lsp_diag.message.contains("cost range"));
         assert!(lsp_diag.message.contains("hint:"));
@@ -107,7 +113,10 @@ mod tests {
         let lsp_diag = to_lsp_diagnostic(&diag);
 
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
-        assert_eq!(lsp_diag.code, Some(NumberOrString::String("E001".to_string())));
+        assert_eq!(
+            lsp_diag.code,
+            Some(NumberOrString::String("E001".to_string()))
+        );
     }
 
     #[test]
@@ -136,10 +145,7 @@ mod tests {
 
     #[test]
     fn diagnostic_without_span_defaults_to_start() {
-        let diag = Diagnostic::new(
-            DiagnosticCode::W001AbstractAssignment,
-            "test message",
-        );
+        let diag = Diagnostic::new(DiagnosticCode::W001AbstractAssignment, "test message");
 
         let lsp_diag = to_lsp_diagnostic(&diag);
 

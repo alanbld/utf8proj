@@ -52,9 +52,7 @@ pub fn generate_diamond(parallel_count: usize) -> Project {
     project.calendars = vec![Calendar::default()];
 
     // Start task
-    let start_task = Task::new("start")
-        .name("Start")
-        .duration(Duration::days(1));
+    let start_task = Task::new("start").name("Start").duration(Duration::days(1));
     project.tasks.push(start_task);
 
     // Parallel middle tasks
@@ -68,9 +66,7 @@ pub fn generate_diamond(parallel_count: usize) -> Project {
     }
 
     // End task depends on all middle tasks
-    let mut end_task = Task::new("end")
-        .name("End")
-        .duration(Duration::days(1));
+    let mut end_task = Task::new("end").name("End").duration(Duration::days(1));
 
     for i in 0..parallel_count {
         let middle_id = format!("middle_{:06}", i);

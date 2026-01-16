@@ -542,7 +542,8 @@ impl Renderer for SvgRenderer {
         document = document.add(title);
 
         // Grid
-        document = document.add(self.render_grid(task_count, project_start, project_end, px_per_day));
+        document =
+            document.add(self.render_grid(task_count, project_start, project_end, px_per_day));
 
         // Header
         document = document.add(self.render_header(project_start, project_end, px_per_day));
@@ -559,11 +560,9 @@ impl Renderer for SvgRenderer {
                 .unwrap_or(&scheduled_task.task_id);
 
             // Format label according to display mode
-            let label = self.display_mode.format_label(
-                &scheduled_task.task_id,
-                task_name,
-                max_chars,
-            );
+            let label =
+                self.display_mode
+                    .format_label(&scheduled_task.task_id, task_name, max_chars);
 
             document = document.add(self.render_task(
                 scheduled_task,
@@ -575,7 +574,8 @@ impl Renderer for SvgRenderer {
         }
 
         // Legend
-        let legend_y = self.padding + self.header_height + (task_count as u32 * self.row_height) + 10;
+        let legend_y =
+            self.padding + self.header_height + (task_count as u32 * self.row_height) + 10;
         document = document.add(self.render_legend(legend_y));
 
         // Convert to string
@@ -586,7 +586,6 @@ impl Renderer for SvgRenderer {
         String::from_utf8(output).map_err(|e| RenderError::Format(format!("Invalid UTF-8: {}", e)))
     }
 }
-
 
 /// Plain text renderer for console output
 #[derive(Default)]

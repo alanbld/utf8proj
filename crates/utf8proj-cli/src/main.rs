@@ -14,8 +14,8 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{
-    AnalysisConfig, CpmSolver, LevelingOptions, analyze_project, calculate_utilization,
-    level_resources_with_options,
+    analyze_project, calculate_utilization, level_resources_with_options, AnalysisConfig,
+    CpmSolver, LevelingOptions,
 };
 
 use crate::diagnostics::{DiagnosticConfig, JsonEmitter, TerminalEmitter};
@@ -262,15 +262,73 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Check { file, format, strict, quiet, calendars }) => {
-            cmd_check(&file, &format, strict, quiet, calendars)
-        }
-        Some(Commands::Schedule { file, format, output, leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars, as_of }) => {
-            cmd_schedule(&file, &format, output.as_deref(), leveling, max_delay_factor, show_progress, strict, quiet, task_ids, verbose, width, calendars, as_of.as_deref())
-        }
-        Some(Commands::Gantt { file, output, format, task_ids, verbose, width, currency, weeks, include_calendar, include_diagnostics, focus, context_depth, daily, days }) => {
-            cmd_gantt(&file, &output, &format, task_ids, verbose, width, &currency, weeks, include_calendar, include_diagnostics, focus.as_deref(), context_depth, daily, days)
-        }
+        Some(Commands::Check {
+            file,
+            format,
+            strict,
+            quiet,
+            calendars,
+        }) => cmd_check(&file, &format, strict, quiet, calendars),
+        Some(Commands::Schedule {
+            file,
+            format,
+            output,
+            leveling,
+            max_delay_factor,
+            show_progress,
+            strict,
+            quiet,
+            task_ids,
+            verbose,
+            width,
+            calendars,
+            as_of,
+        }) => cmd_schedule(
+            &file,
+            &format,
+            output.as_deref(),
+            leveling,
+            max_delay_factor,
+            show_progress,
+            strict,
+            quiet,
+            task_ids,
+            verbose,
+            width,
+            calendars,
+            as_of.as_deref(),
+        ),
+        Some(Commands::Gantt {
+            file,
+            output,
+            format,
+            task_ids,
+            verbose,
+            width,
+            currency,
+            weeks,
+            include_calendar,
+            include_diagnostics,
+            focus,
+            context_depth,
+            daily,
+            days,
+        }) => cmd_gantt(
+            &file,
+            &output,
+            &format,
+            task_ids,
+            verbose,
+            width,
+            &currency,
+            weeks,
+            include_calendar,
+            include_diagnostics,
+            focus.as_deref(),
+            context_depth,
+            daily,
+            days,
+        ),
         Some(Commands::Benchmark {
             topology,
             count,
@@ -286,9 +344,11 @@ fn main() -> Result<()> {
         }) => cmd_bdd_benchmark(scenario, tasks, resources, series),
         Some(Commands::Classify { file, by }) => cmd_classify(&file, &by),
         Some(Commands::Fix { fix_command }) => match fix_command {
-            FixCommands::ContainerDeps { file, output, in_place } => {
-                cmd_fix_container_deps(&file, output.as_deref(), in_place)
-            }
+            FixCommands::ContainerDeps {
+                file,
+                output,
+                in_place,
+            } => cmd_fix_container_deps(&file, output.as_deref(), in_place),
         },
         None => {
             println!("utf8proj - Project Scheduling Engine");
@@ -313,10 +373,16 @@ fn main() -> Result<()> {
 /// This is the fast validation entry point - it parses the file, schedules
 /// (to enable cost analysis), and runs semantic analysis, but produces no
 /// schedule output. Designed for CI pipelines, pre-commit hooks, and editors.
-fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool, calendars: bool) -> Result<()> {
+fn cmd_check(
+    file: &std::path::Path,
+    format: &str,
+    strict: bool,
+    quiet: bool,
+    calendars: bool,
+) -> Result<()> {
     // Parse the file
-    let project = parse_file(file)
-        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Schedule the project (needed for cost analysis in diagnostics)
     let solver = CpmSolver::new();
@@ -343,7 +409,12 @@ fn cmd_check(file: &std::path::Path, format: &str, strict: bool, quiet: bool, ca
     }
 
     let schedule = schedule_result.ok();
-    analyze_project(&project, schedule.as_ref(), &analysis_config, &mut collector);
+    analyze_project(
+        &project,
+        schedule.as_ref(),
+        &analysis_config,
+        &mut collector,
+    );
 
     // Configure diagnostic output
     let diag_config = DiagnosticConfig {
@@ -435,13 +506,19 @@ fn cmd_schedule(
     as_of: Option<&str>,
 ) -> Result<()> {
     // Parse the file
-    let project = parse_file(file)
-        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Parse --as-of date if provided (RFC-0004)
     let status_date_override = if let Some(date_str) = as_of {
-        Some(chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-            .with_context(|| format!("Invalid date format for --as-of: '{}'. Expected YYYY-MM-DD.", date_str))?)
+        Some(
+            chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").with_context(|| {
+                format!(
+                    "Invalid date format for --as-of: '{}'. Expected YYYY-MM-DD.",
+                    date_str
+                )
+            })?,
+        )
     } else {
         None
     };
@@ -487,14 +564,12 @@ fn cmd_schedule(
                     .with_file(file.to_path_buf())
                     .with_note(conflict.description.clone())
                 }
-                _ => {
-                    Diagnostic::new(
-                        DiagnosticCode::E003InfeasibleConstraint,
-                        format!("{:?}", conflict.conflict_type),
-                    )
-                    .with_file(file.to_path_buf())
-                    .with_note(conflict.description.clone())
-                }
+                _ => Diagnostic::new(
+                    DiagnosticCode::E003InfeasibleConstraint,
+                    format!("{:?}", conflict.conflict_type),
+                )
+                .with_file(file.to_path_buf())
+                .with_note(conflict.description.clone()),
             };
             term_emitter.emit(diag);
         }
@@ -506,8 +581,7 @@ fn cmd_schedule(
     let schedule_result = solver.schedule(&project);
 
     // Run diagnostic analysis
-    let analysis_config = AnalysisConfig::new()
-        .with_file(file);
+    let analysis_config = AnalysisConfig::new().with_file(file);
 
     // Collect diagnostics first, then emit in correct order
     let mut collector = CollectingEmitter::new();
@@ -559,7 +633,11 @@ fn cmd_schedule(
             eprintln!(
                 "Leveling: {} task(s) delayed, project duration {} by {} day(s)",
                 result.metrics.tasks_delayed,
-                if result.project_extended { "increased" } else { "unchanged" },
+                if result.project_extended {
+                    "increased"
+                } else {
+                    "unchanged"
+                },
                 result.metrics.project_duration_increase
             );
         }
@@ -652,14 +730,22 @@ fn cmd_schedule(
             }
 
             // Format output with diagnostics
-            let result = format_json_with_diagnostics(&project, &schedule, show_progress, task_ids, &json_emitter)?;
+            let result = format_json_with_diagnostics(
+                &project,
+                &schedule,
+                show_progress,
+                task_ids,
+                &json_emitter,
+            )?;
 
             // Write output
             match output {
                 Some(path) => {
-                    let mut out_file = fs::File::create(path)
-                        .with_context(|| format!("Failed to create output file '{}'", path.display()))?;
-                    out_file.write_all(result.as_bytes())
+                    let mut out_file = fs::File::create(path).with_context(|| {
+                        format!("Failed to create output file '{}'", path.display())
+                    })?;
+                    out_file
+                        .write_all(result.as_bytes())
                         .with_context(|| "Failed to write output")?;
                     if !quiet {
                         eprintln!("Schedule written to: {}", path.display());
@@ -681,14 +767,17 @@ fn cmd_schedule(
 
             // Format schedule output (skip if only showing calendar diagnostics)
             if !quiet && !calendars {
-                let result = format_text(&project, &schedule, show_progress, task_ids, verbose, width);
+                let result =
+                    format_text(&project, &schedule, show_progress, task_ids, verbose, width);
 
                 // Write output
                 match output {
                     Some(path) => {
-                        let mut out_file = fs::File::create(path)
-                            .with_context(|| format!("Failed to create output file '{}'", path.display()))?;
-                        out_file.write_all(result.as_bytes())
+                        let mut out_file = fs::File::create(path).with_context(|| {
+                            format!("Failed to create output file '{}'", path.display())
+                        })?;
+                        out_file
+                            .write_all(result.as_bytes())
                             .with_context(|| "Failed to write output")?;
                         eprintln!("Schedule written to: {}", path.display());
                     }
@@ -702,7 +791,12 @@ fn cmd_schedule(
         }
         other => {
             // Reject unsupported formats with helpful message
-            if other == "xlsx" || other == "svg" || other == "html" || other == "mermaid" || other == "plantuml" {
+            if other == "xlsx"
+                || other == "svg"
+                || other == "html"
+                || other == "mermaid"
+                || other == "plantuml"
+            {
                 anyhow::bail!(
                     "Format '{}' is not supported by 'schedule' command. Use 'gantt' command instead:\n  \
                     utf8proj gantt {} -f {} -o <output>",
@@ -728,15 +822,31 @@ fn cmd_schedule(
 
 /// Gantt command: generate Gantt chart in various formats
 #[allow(clippy::too_many_arguments)]
-fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, task_ids: bool, verbose: bool, width: usize, currency: &str, weeks: u32, include_calendar: bool, include_diagnostics: bool, focus: Option<&str>, context_depth: usize, daily: bool, days: u32) -> Result<()> {
+fn cmd_gantt(
+    file: &std::path::Path,
+    output: &std::path::Path,
+    format: &str,
+    task_ids: bool,
+    verbose: bool,
+    width: usize,
+    currency: &str,
+    weeks: u32,
+    include_calendar: bool,
+    include_diagnostics: bool,
+    focus: Option<&str>,
+    context_depth: usize,
+    daily: bool,
+    days: u32,
+) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
-    let project = parse_file(file)
-        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Schedule the project
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project)
+    let schedule = solver
+        .schedule(&project)
         .with_context(|| "Failed to generate schedule")?;
 
     // Determine display mode
@@ -771,11 +881,14 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
             if required_days > days as i64 {
                 // Count tasks that will be omitted (start beyond the window)
                 let window_end = project.start + chrono::Duration::days(days as i64 - 1);
-                let omitted_tasks: Vec<_> = schedule.tasks.values()
+                let omitted_tasks: Vec<_> = schedule
+                    .tasks
+                    .values()
                     .filter(|t| t.start > window_end)
                     .collect();
                 let omitted_count = omitted_tasks.len();
-                let omitted_hours: f64 = omitted_tasks.iter()
+                let omitted_hours: f64 = omitted_tasks
+                    .iter()
                     .filter_map(|t| {
                         // Get task effort from project
                         find_task_effort(&project.tasks, &t.task_id)
@@ -783,12 +896,22 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
                     .sum();
 
                 eprintln!();
-                eprintln!("⚠️  Warning: Schedule extends beyond {} days (requires {} days)", days, required_days);
+                eprintln!(
+                    "⚠️  Warning: Schedule extends beyond {} days (requires {} days)",
+                    days, required_days
+                );
                 if omitted_count > 0 {
-                    eprintln!("   {} task(s) starting after {} will show 0 hours (~{:.0}h omitted)",
-                        omitted_count, window_end.format("%Y-%m-%d"), omitted_hours * 8.0);
+                    eprintln!(
+                        "   {} task(s) starting after {} will show 0 hours (~{:.0}h omitted)",
+                        omitted_count,
+                        window_end.format("%Y-%m-%d"),
+                        omitted_hours * 8.0
+                    );
                 }
-                eprintln!("   Use `--days {}` to see full project timeline", required_days);
+                eprintln!(
+                    "   Use `--days {}` to see full project timeline",
+                    required_days
+                );
                 eprintln!();
             }
         }
@@ -812,20 +935,29 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
             renderer = renderer.with_diagnostics(diagnostics);
         }
 
-        let bytes = renderer.render(&project, &schedule)
+        let bytes = renderer
+            .render(&project, &schedule)
             .with_context(|| "Failed to render Excel workbook")?;
         fs::write(output, &bytes)
             .with_context(|| format!("Failed to write XLSX to '{}'", output.display()))?;
 
         let mut features = Vec::new();
-        if include_calendar { features.push("Calendar Analysis"); }
-        if include_diagnostics { features.push("Diagnostics"); }
+        if include_calendar {
+            features.push("Calendar Analysis");
+        }
+        if include_diagnostics {
+            features.push("Diagnostics");
+        }
         let feature_str = if features.is_empty() {
             String::new()
         } else {
             format!(" with {}", features.join(", "))
         };
-        println!("Excel workbook{} written to: {}", feature_str, output.display());
+        println!(
+            "Excel workbook{} written to: {}",
+            feature_str,
+            output.display()
+        );
         return Ok(());
     }
 
@@ -835,12 +967,13 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
             let renderer = utf8proj_render::SvgRenderer::new()
                 .display_mode(display_mode)
                 .label_width(width as u32);
-            renderer.render(&project, &schedule)
+            renderer
+                .render(&project, &schedule)
                 .with_context(|| "Failed to render SVG Gantt chart")?
         }
         "html" => {
             // HTML format with focus view support
-            use utf8proj_render::gantt::{HtmlGanttRenderer, FocusConfig};
+            use utf8proj_render::gantt::{FocusConfig, HtmlGanttRenderer};
 
             let mut renderer = HtmlGanttRenderer::new();
             renderer.label_width = width as u32;
@@ -854,37 +987,50 @@ fn cmd_gantt(file: &std::path::Path, output: &std::path::Path, format: &str, tas
                     .collect();
                 if !patterns.is_empty() {
                     renderer.focus = Some(FocusConfig::new(patterns, context_depth));
-                    eprintln!("Focus view: showing {} pattern(s), context depth {}",
-                             renderer.focus.as_ref().unwrap().focus_patterns.len(),
-                             context_depth);
+                    eprintln!(
+                        "Focus view: showing {} pattern(s), context depth {}",
+                        renderer.focus.as_ref().unwrap().focus_patterns.len(),
+                        context_depth
+                    );
                 }
             }
 
-            renderer.render(&project, &schedule)
+            renderer
+                .render(&project, &schedule)
                 .with_context(|| "Failed to render HTML Gantt chart")?
         }
         "mermaid" => {
             let renderer = utf8proj_render::MermaidRenderer::new()
                 .display_mode(display_mode)
                 .label_width(width);
-            renderer.render(&project, &schedule)
+            renderer
+                .render(&project, &schedule)
                 .with_context(|| "Failed to render Mermaid Gantt chart")?
         }
         "plantuml" => {
             let renderer = utf8proj_render::PlantUmlRenderer::new()
                 .display_mode(display_mode)
                 .label_width(width);
-            renderer.render(&project, &schedule)
+            renderer
+                .render(&project, &schedule)
                 .with_context(|| "Failed to render PlantUML Gantt chart")?
         }
         _ => {
-            anyhow::bail!("Unknown format '{}'. Supported formats: svg, html, mermaid, plantuml, xlsx", format);
+            anyhow::bail!(
+                "Unknown format '{}'. Supported formats: svg, html, mermaid, plantuml, xlsx",
+                format
+            );
         }
     };
 
     // Write to file
-    fs::write(output, &content)
-        .with_context(|| format!("Failed to write {} to '{}'", format.to_uppercase(), output.display()))?;
+    fs::write(output, &content).with_context(|| {
+        format!(
+            "Failed to write {} to '{}'",
+            format.to_uppercase(),
+            output.display()
+        )
+    })?;
 
     println!("Gantt chart ({}) written to: {}", format, output.display());
     Ok(())
@@ -896,14 +1042,24 @@ fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
 }
 
 /// Format schedule as text table
-fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Schedule, show_progress: bool, task_ids: bool, verbose: bool, width: usize) -> String {
+fn format_text(
+    project: &utf8proj_core::Project,
+    schedule: &utf8proj_core::Schedule,
+    show_progress: bool,
+    task_ids: bool,
+    verbose: bool,
+    width: usize,
+) -> String {
     let mut output = String::new();
 
     // Header
     output.push_str(&format!("Project: {}\n", project.name));
     output.push_str(&format!("Start: {}\n", project.start));
     output.push_str(&format!("End: {}\n", schedule.project_end));
-    output.push_str(&format!("Duration: {} days\n", schedule.project_duration.as_days()));
+    output.push_str(&format!(
+        "Duration: {} days\n",
+        schedule.project_duration.as_days()
+    ));
 
     // Project status (I004)
     let status_icon = if schedule.project_variance_days > 5 {
@@ -942,8 +1098,7 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
     };
     output.push_str(&format!(
         "Earned Value: SPI {:.2} ({}) {} | EV {}% / PV {}%\n",
-        schedule.spi, spi_status, spi_icon,
-        schedule.earned_value, schedule.planned_value
+        schedule.spi, spi_status, spi_icon, schedule.earned_value, schedule.planned_value
     ));
 
     // Cost range (RFC-0004: Progressive Resource Refinement)
@@ -987,7 +1142,14 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         let sep_width = width + 74;
         output.push_str(&format!(
             "{:<width$} {:>6} {:<14} {:<12} {:<12} {:>8} {:>8} {}\n",
-            "Task", "%Done", "Status", "Start", "Finish", "Remain", "Variance", "Critical",
+            "Task",
+            "%Done",
+            "Status",
+            "Start",
+            "Finish",
+            "Remain",
+            "Variance",
+            "Critical",
             width = width
         ));
         output.push_str(&format!("{}\n", "-".repeat(sep_width)));
@@ -1033,7 +1195,12 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
         let sep_width = width + 52;
         output.push_str(&format!(
             "{:<width$} {:<12} {:<12} {:>8} {:>8} {}\n",
-            "Task", "Start", "Finish", "Duration", "Slack", "Critical",
+            "Task",
+            "Start",
+            "Finish",
+            "Duration",
+            "Slack",
+            "Critical",
             width = width
         ));
         output.push_str(&format!("{}\n", "-".repeat(sep_width)));
@@ -1068,7 +1235,6 @@ fn format_text(project: &utf8proj_core::Project, schedule: &utf8proj_core::Sched
 
     output
 }
-
 
 /// Format schedule as JSON with diagnostics included
 fn format_json_with_diagnostics(
@@ -1132,8 +1298,7 @@ fn format_json_with_diagnostics(
         },
     });
 
-    serde_json::to_string_pretty(&summary)
-        .with_context(|| "Failed to serialize schedule to JSON")
+    serde_json::to_string_pretty(&summary).with_context(|| "Failed to serialize schedule to JSON")
 }
 
 /// Truncate a string to max length with ellipsis
@@ -1210,12 +1375,12 @@ fn cmd_fix_container_deps(
     }
 
     // Read the original file content
-    let original_content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read '{}'", file.display()))?;
+    let original_content =
+        fs::read_to_string(file).with_context(|| format!("Failed to read '{}'", file.display()))?;
 
     // Parse the file to analyze what needs fixing
-    let project = parse_file(file)
-        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
 
     // Count W014 diagnostics before fix
     let mut collector = utf8proj_core::CollectingEmitter::new();
@@ -1237,11 +1402,19 @@ fn cmd_fix_container_deps(
     if in_place {
         fs::write(file, &output_content)
             .with_context(|| format!("Failed to write '{}'", file.display()))?;
-        eprintln!("Fixed {} container dependencies in '{}'", fixed_count, file.display());
+        eprintln!(
+            "Fixed {} container dependencies in '{}'",
+            fixed_count,
+            file.display()
+        );
     } else if let Some(out_path) = output {
         fs::write(out_path, &output_content)
             .with_context(|| format!("Failed to write '{}'", out_path.display()))?;
-        eprintln!("Fixed {} container dependencies, written to '{}'", fixed_count, out_path.display());
+        eprintln!(
+            "Fixed {} container dependencies, written to '{}'",
+            fixed_count,
+            out_path.display()
+        );
     } else {
         // Write to stdout
         println!("{}", output_content);
@@ -1276,7 +1449,7 @@ impl DepToAdd {
             utf8proj_core::DependencyType::StartToStart => s.push_str(" SS"),
             utf8proj_core::DependencyType::StartToFinish => s.push_str(" SF"),
             utf8proj_core::DependencyType::FinishToFinish => s.push_str(" FF"),
-            utf8proj_core::DependencyType::FinishToStart => {}, // Default
+            utf8proj_core::DependencyType::FinishToStart => {} // Default
         }
         if let Some(ref lag) = self.lag {
             let days = lag.as_days();
@@ -1318,12 +1491,14 @@ fn collect_container_dep_fixes(
                     .collect();
 
                 // Check if child needs any of the container's dependencies
-                let has_container_dep = deps_for_children.iter()
+                let has_container_dep = deps_for_children
+                    .iter()
                     .any(|d| child_deps.contains(&d.predecessor));
 
                 if !has_container_dep && !deps_for_children.is_empty() {
                     // Child needs container dependencies
-                    let deps_to_add: Vec<_> = deps_for_children.iter()
+                    let deps_to_add: Vec<_> = deps_for_children
+                        .iter()
                         .filter(|d| !child_deps.contains(&d.predecessor))
                         .cloned()
                         .collect();
@@ -1404,7 +1579,12 @@ fn apply_dependency_patches(
                 let new_line = if existing_deps.trim().is_empty() {
                     format!("{}depends: {}", dep_indent, new_deps.join(", "))
                 } else {
-                    format!("{}depends: {}, {}", dep_indent, existing_deps.trim(), new_deps.join(", "))
+                    format!(
+                        "{}depends: {}, {}",
+                        dep_indent,
+                        existing_deps.trim(),
+                        new_deps.join(", ")
+                    )
                 };
 
                 result = format!("{}{}{}", &result[..abs_pos], new_line, &result[abs_end..]);
@@ -1414,7 +1594,12 @@ fn apply_dependency_patches(
                 let inner_indent = format!("{}    ", indent);
                 let new_line = format!("\n{}depends: {}", inner_indent, new_deps.join(", "));
 
-                result = format!("{}{}{}", &result[..task_start], new_line, &result[task_start..]);
+                result = format!(
+                    "{}{}{}",
+                    &result[..task_start],
+                    new_line,
+                    &result[task_start..]
+                );
             }
 
             total_fixed += deps_to_add.len();
@@ -1456,8 +1641,10 @@ fn serialize_project(project: &utf8proj_core::Project) -> String {
             if is_standard {
                 output.push_str("    working_days: mon-fri\n");
             } else {
-                let days: Vec<_> = calendar.working_days.iter().map(|d| {
-                    match d {
+                let days: Vec<_> = calendar
+                    .working_days
+                    .iter()
+                    .map(|d| match d {
                         0 => "sun",
                         1 => "mon",
                         2 => "tue",
@@ -1466,27 +1653,37 @@ fn serialize_project(project: &utf8proj_core::Project) -> String {
                         5 => "fri",
                         6 => "sat",
                         _ => "?",
-                    }
-                }).collect();
+                    })
+                    .collect();
                 output.push_str(&format!("    working_days: {}\n", days.join(", ")));
             }
         }
         // Working hours
         if !calendar.working_hours.is_empty() {
-            let hours: Vec<_> = calendar.working_hours.iter().map(|tr| {
-                let start_h = tr.start / 60;
-                let start_m = tr.start % 60;
-                let end_h = tr.end / 60;
-                let end_m = tr.end % 60;
-                format!("{:02}:{:02}-{:02}:{:02}", start_h, start_m, end_h, end_m)
-            }).collect();
+            let hours: Vec<_> = calendar
+                .working_hours
+                .iter()
+                .map(|tr| {
+                    let start_h = tr.start / 60;
+                    let start_m = tr.start % 60;
+                    let end_h = tr.end / 60;
+                    let end_m = tr.end % 60;
+                    format!("{:02}:{:02}-{:02}:{:02}", start_h, start_m, end_h, end_m)
+                })
+                .collect();
             output.push_str(&format!("    working_hours: {}\n", hours.join(", ")));
         }
         for holiday in &calendar.holidays {
             if holiday.start == holiday.end {
-                output.push_str(&format!("    holiday \"{}\" {}\n", holiday.name, holiday.start));
+                output.push_str(&format!(
+                    "    holiday \"{}\" {}\n",
+                    holiday.name, holiday.start
+                ));
             } else {
-                output.push_str(&format!("    holiday \"{}\" {}..{}\n", holiday.name, holiday.start, holiday.end));
+                output.push_str(&format!(
+                    "    holiday \"{}\" {}..{}\n",
+                    holiday.name, holiday.start, holiday.end
+                ));
             }
         }
         output.push_str("}\n\n");
@@ -1494,12 +1691,18 @@ fn serialize_project(project: &utf8proj_core::Project) -> String {
 
     // Resources
     for resource in &project.resources {
-        output.push_str(&format!("resource {} \"{}\" {{\n", resource.id, resource.name));
+        output.push_str(&format!(
+            "resource {} \"{}\" {{\n",
+            resource.id, resource.name
+        ));
         if let Some(ref cal) = resource.calendar {
             output.push_str(&format!("    calendar: {}\n", cal));
         }
         if resource.capacity != 1.0 {
-            output.push_str(&format!("    capacity: {}%\n", (resource.capacity * 100.0) as i32));
+            output.push_str(&format!(
+                "    capacity: {}%\n",
+                (resource.capacity * 100.0) as i32
+            ));
         }
         output.push_str("}\n\n");
     }
@@ -1518,7 +1721,10 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
 
     // Task declaration
     if task.name != task.id {
-        output.push_str(&format!("{}task {} \"{}\" {{\n", indent_str, task.id, task.name));
+        output.push_str(&format!(
+            "{}task {} \"{}\" {{\n",
+            indent_str, task.id, task.name
+        ));
     } else {
         output.push_str(&format!("{}task {} {{\n", indent_str, task.id));
     }
@@ -1541,39 +1747,47 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
 
     // Dependencies
     if !task.depends.is_empty() {
-        let deps: Vec<_> = task.depends.iter().map(|d| {
-            let mut dep_str = d.predecessor.clone();
-            // Add dependency type suffix (FS is default, no suffix needed)
-            match d.dep_type {
-                utf8proj_core::DependencyType::StartToStart => dep_str.push_str(" SS"),
-                utf8proj_core::DependencyType::StartToFinish => dep_str.push_str(" SF"),
-                utf8proj_core::DependencyType::FinishToFinish => dep_str.push_str(" FF"),
-                utf8proj_core::DependencyType::FinishToStart => {}, // Default, no suffix
-            }
-            // Add lag
-            if let Some(ref lag) = d.lag {
-                let days = lag.as_days();
-                if days >= 0.0 {
-                    dep_str.push_str(&format!(" +{}d", days as i64));
-                } else {
-                    dep_str.push_str(&format!(" {}d", days as i64));
+        let deps: Vec<_> = task
+            .depends
+            .iter()
+            .map(|d| {
+                let mut dep_str = d.predecessor.clone();
+                // Add dependency type suffix (FS is default, no suffix needed)
+                match d.dep_type {
+                    utf8proj_core::DependencyType::StartToStart => dep_str.push_str(" SS"),
+                    utf8proj_core::DependencyType::StartToFinish => dep_str.push_str(" SF"),
+                    utf8proj_core::DependencyType::FinishToFinish => dep_str.push_str(" FF"),
+                    utf8proj_core::DependencyType::FinishToStart => {} // Default, no suffix
                 }
-            }
-            dep_str
-        }).collect();
+                // Add lag
+                if let Some(ref lag) = d.lag {
+                    let days = lag.as_days();
+                    if days >= 0.0 {
+                        dep_str.push_str(&format!(" +{}d", days as i64));
+                    } else {
+                        dep_str.push_str(&format!(" {}d", days as i64));
+                    }
+                }
+                dep_str
+            })
+            .collect();
         output.push_str(&format!("{}depends: {}\n", inner_indent, deps.join(", ")));
     }
 
     // Assignments
     if !task.assigned.is_empty() {
-        let assigns: Vec<_> = task.assigned.iter().map(|a| {
-            let percentage = (a.units * 100.0) as i32;
-            if percentage != 100 {
-                format!("{}@{}%", a.resource_id, percentage)
-            } else {
-                a.resource_id.clone()
-            }
-        }).collect();
+        let assigns: Vec<_> = task
+            .assigned
+            .iter()
+            .map(|a| {
+                let percentage = (a.units * 100.0) as i32;
+                if percentage != 100 {
+                    format!("{}@{}%", a.resource_id, percentage)
+                } else {
+                    a.resource_id.clone()
+                }
+            })
+            .collect();
         output.push_str(&format!("{}assign: {}\n", inner_indent, assigns.join(", ")));
     }
 
@@ -1587,13 +1801,19 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
                 output.push_str(&format!("{}must_finish_on: {}\n", inner_indent, date));
             }
             utf8proj_core::TaskConstraint::StartNoEarlierThan(date) => {
-                output.push_str(&format!("{}start_no_earlier_than: {}\n", inner_indent, date));
+                output.push_str(&format!(
+                    "{}start_no_earlier_than: {}\n",
+                    inner_indent, date
+                ));
             }
             utf8proj_core::TaskConstraint::StartNoLaterThan(date) => {
                 output.push_str(&format!("{}start_no_later_than: {}\n", inner_indent, date));
             }
             utf8proj_core::TaskConstraint::FinishNoEarlierThan(date) => {
-                output.push_str(&format!("{}finish_no_earlier_than: {}\n", inner_indent, date));
+                output.push_str(&format!(
+                    "{}finish_no_earlier_than: {}\n",
+                    inner_indent, date
+                ));
             }
             utf8proj_core::TaskConstraint::FinishNoLaterThan(date) => {
                 output.push_str(&format!("{}finish_no_later_than: {}\n", inner_indent, date));
@@ -1613,7 +1833,11 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
 
     // Remaining duration (explicit override)
     if let Some(ref remaining) = task.explicit_remaining {
-        output.push_str(&format!("{}remaining: {}d\n", inner_indent, remaining.as_days()));
+        output.push_str(&format!(
+            "{}remaining: {}d\n",
+            inner_indent,
+            remaining.as_days()
+        ));
     }
 
     // Priority (only if non-default)
@@ -1662,7 +1886,10 @@ fn cmd_benchmark(
     println!();
     println!("Configuration:");
     println!("  Topology: {}", topology);
-    println!("  Resource Leveling: {}", if leveling { "enabled" } else { "disabled" });
+    println!(
+        "  Resource Leveling: {}",
+        if leveling { "enabled" } else { "disabled" }
+    );
     println!();
 
     let results = if series {
@@ -1732,7 +1959,10 @@ fn cmd_bdd_benchmark(
         bench::bdd::run_bdd_benchmark_series(scenario, &sizes)
     } else {
         // Single run
-        println!("Running single benchmark with {} tasks, {} resources...", tasks, resources);
+        println!(
+            "Running single benchmark with {} tasks, {} resources...",
+            tasks, resources
+        );
         println!();
         vec![bench::bdd::run_bdd_benchmark(scenario, tasks, resources)]
     };

@@ -19,8 +19,8 @@
 //!     Deployment       :milestone, m1, after t3, 0d
 //! ```
 
-use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
 use crate::DisplayMode;
+use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
 
 /// MermaidJS Gantt chart renderer
 #[derive(Clone, Debug)]
@@ -126,7 +126,13 @@ impl MermaidRenderer {
         // Mermaid IDs must be alphanumeric with underscores
         task_id
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect()
     }
 
@@ -181,7 +187,10 @@ impl Renderer for MermaidRenderer {
 
         // Header
         output.push_str("gantt\n");
-        output.push_str(&format!("    title {}\n", Self::sanitize_name(&project.name)));
+        output.push_str(&format!(
+            "    title {}\n",
+            Self::sanitize_name(&project.name)
+        ));
         output.push_str(&format!("    dateFormat {}\n", self.date_format));
 
         // Exclude weekends if enabled
@@ -234,15 +243,14 @@ impl Renderer for MermaidRenderer {
                         .map(|t| t.name.clone())
                         .unwrap_or_else(|| section_name.clone());
 
-                    output.push_str(&format!("    section {}\n", Self::sanitize_name(&display_name)));
+                    output.push_str(&format!(
+                        "    section {}\n",
+                        Self::sanitize_name(&display_name)
+                    ));
 
                     for (task_id, scheduled) in section_tasks {
-                        let line = self.format_task_line(
-                            task_id,
-                            scheduled,
-                            project,
-                            &first_predecessor,
-                        );
+                        let line =
+                            self.format_task_line(task_id, scheduled, project, &first_predecessor);
                         output.push_str(&format!("    {}\n", line));
                     }
                     output.push('\n');
@@ -293,7 +301,9 @@ impl MermaidRenderer {
         let complete = task.and_then(|t| t.complete);
 
         // Format label according to display mode
-        let label = self.display_mode.format_label(task_id, &name, self.label_width);
+        let label = self
+            .display_mode
+            .format_label(task_id, &name, self.label_width);
         let sanitized_name = Self::sanitize_name(&label);
         let mermaid_id = Self::make_id(task_id);
         let duration = Self::format_duration(scheduled);
@@ -338,7 +348,11 @@ mod tests {
     fn create_test_project() -> Project {
         let mut project = Project::new("Test Project");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("design").name("Design Phase").effort(Duration::days(5)));
+        project.tasks.push(
+            Task::new("design")
+                .name("Design Phase")
+                .effort(Duration::days(5)),
+        );
         project.tasks.push(
             Task::new("implement")
                 .name("Implementation")
@@ -566,7 +580,10 @@ mod tests {
 
     #[test]
     fn mermaid_sanitizes_special_chars() {
-        assert_eq!(MermaidRenderer::sanitize_name("Task: Phase 1"), "Task- Phase 1");
+        assert_eq!(
+            MermaidRenderer::sanitize_name("Task: Phase 1"),
+            "Task- Phase 1"
+        );
         assert_eq!(MermaidRenderer::sanitize_name("Test;Task"), "Test-Task");
         assert_eq!(MermaidRenderer::sanitize_name("Task #1"), "Task 1");
     }
@@ -575,7 +592,10 @@ mod tests {
     fn mermaid_makes_valid_ids() {
         assert_eq!(MermaidRenderer::make_id("task1"), "task1");
         assert_eq!(MermaidRenderer::make_id("phase1.design"), "phase1_design");
-        assert_eq!(MermaidRenderer::make_id("task-with-dashes"), "task_with_dashes");
+        assert_eq!(
+            MermaidRenderer::make_id("task-with-dashes"),
+            "task_with_dashes"
+        );
     }
 
     #[test]
@@ -592,7 +612,9 @@ mod tests {
     fn mermaid_milestone_detection() {
         let mut project = Project::new("Milestone Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks.push(Task::new("done").name("Project Complete").milestone());
+        project
+            .tasks
+            .push(Task::new("done").name("Project Complete").milestone());
 
         let ms_date = NaiveDate::from_ymd_opt(2025, 1, 10).unwrap();
         let mut tasks = HashMap::new();

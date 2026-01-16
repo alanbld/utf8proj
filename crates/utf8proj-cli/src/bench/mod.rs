@@ -128,8 +128,10 @@ pub fn print_report(results: &[BenchmarkResult]) {
     println!("╔══════════════════════════════════════════════════════════════════════════════════════════════════╗");
     println!("║                               utf8proj Benchmark Report                                          ║");
     println!("╠══════════════════════════════════════════════════════════════════════════════════════════════════╣");
-    println!("║ {:^10} │ {:^8} │ {:^12} │ {:^12} │ {:^12} │ {:^10} │ {:^12} ║",
-        "Topology", "Tasks", "Generate", "Schedule", "Total", "Crit.Path", "Status");
+    println!(
+        "║ {:^10} │ {:^8} │ {:^12} │ {:^12} │ {:^12} │ {:^10} │ {:^12} ║",
+        "Topology", "Tasks", "Generate", "Schedule", "Total", "Crit.Path", "Status"
+    );
     println!("╠══════════════════════════════════════════════════════════════════════════════════════════════════╣");
 
     for result in results {
@@ -141,24 +143,32 @@ pub fn print_report(results: &[BenchmarkResult]) {
             .map(|c| c.to_string())
             .unwrap_or_else(|| "-".to_string());
 
-        println!("║ {:^10} │ {:>8} │ {:>12} │ {:>12} │ {:>12} │ {:>10} │ {:^12} ║",
+        println!(
+            "║ {:^10} │ {:>8} │ {:>12} │ {:>12} │ {:>12} │ {:>10} │ {:^12} ║",
             result.topology,
             result.task_count,
             gen_ms,
             sched_ms,
             total_ms,
             crit_path,
-            result.status);
+            result.status
+        );
     }
 
     println!("╚══════════════════════════════════════════════════════════════════════════════════════════════════╝");
     println!();
 
     // Print summary statistics
-    let successful: Vec<_> = results.iter().filter(|r| matches!(r.status, BenchmarkStatus::Success)).collect();
+    let successful: Vec<_> = results
+        .iter()
+        .filter(|r| matches!(r.status, BenchmarkStatus::Success))
+        .collect();
     if !successful.is_empty() {
         let total_tasks: usize = successful.iter().map(|r| r.task_count).sum();
-        let total_schedule_time: f64 = successful.iter().map(|r| r.schedule_time.as_secs_f64()).sum();
+        let total_schedule_time: f64 = successful
+            .iter()
+            .map(|r| r.schedule_time.as_secs_f64())
+            .sum();
         let avg_tasks_per_sec = total_tasks as f64 / total_schedule_time;
 
         println!("Summary:");

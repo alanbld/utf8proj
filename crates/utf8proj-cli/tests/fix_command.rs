@@ -258,7 +258,9 @@ task parent "Parent Task" {
 
     // Tags might be in different order, so check for both
     assert!(
-        output_content.contains("tag:") && output_content.contains("critical") && output_content.contains("backend"),
+        output_content.contains("tag:")
+            && output_content.contains("critical")
+            && output_content.contains("backend"),
         "tags should be preserved. Output:\n{}",
         output_content
     );

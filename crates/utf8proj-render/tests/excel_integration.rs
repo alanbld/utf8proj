@@ -2,7 +2,7 @@
 
 use chrono::NaiveDate;
 use rust_decimal_macros::dec;
-use utf8proj_core::{Duration, Money, Project, Resource, Renderer, Scheduler, Task};
+use utf8proj_core::{Duration, Money, Project, Renderer, Resource, Scheduler, Task};
 use utf8proj_render::ExcelRenderer;
 use utf8proj_solver::CpmSolver;
 
@@ -17,10 +17,18 @@ fn create_crm_project() -> Project {
     project.currency = "EUR".to_string();
 
     project.resources = vec![
-        Resource::new("pm").name("Maria Rossi").rate(Money::new(dec!(850), "EUR")),
-        Resource::new("sa1").name("Luca Bianchi").rate(Money::new(dec!(800), "EUR")),
-        Resource::new("dev1").name("Marco Neri").rate(Money::new(dec!(600), "EUR")),
-        Resource::new("trainer").name("Paolo Gialli").rate(Money::new(dec!(500), "EUR")),
+        Resource::new("pm")
+            .name("Maria Rossi")
+            .rate(Money::new(dec!(850), "EUR")),
+        Resource::new("sa1")
+            .name("Luca Bianchi")
+            .rate(Money::new(dec!(800), "EUR")),
+        Resource::new("dev1")
+            .name("Marco Neri")
+            .rate(Money::new(dec!(600), "EUR")),
+        Resource::new("trainer")
+            .name("Paolo Gialli")
+            .rate(Money::new(dec!(500), "EUR")),
     ];
 
     // Simple linear chain to avoid cross-container dependency overflow
@@ -95,9 +103,7 @@ fn render_excel_with_dependencies() {
     let solver = CpmSolver::new();
     let schedule = solver.schedule(&project).unwrap();
 
-    let renderer = ExcelRenderer::new()
-        .currency("EUR")
-        .weeks(20);
+    let renderer = ExcelRenderer::new().currency("EUR").weeks(20);
 
     let xlsx = renderer.render(&project, &schedule).unwrap();
     assert!(xlsx.len() > 100);

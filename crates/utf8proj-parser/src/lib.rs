@@ -77,7 +77,8 @@ pub fn parse_tjp(input: &str) -> Result<utf8proj_core::Project, ParseError> {
 
 /// Parse a project file from a path (auto-detects format)
 pub fn parse_file(path: &std::path::Path) -> Result<utf8proj_core::Project, ParseError> {
-    let content = std::fs::read_to_string(path).map_err(|e| ParseError::InvalidValue(e.to_string()))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| ParseError::InvalidValue(e.to_string()))?;
 
     match detect_format(path) {
         FileFormat::TaskJuggler => parse_tjp(&content),
@@ -138,7 +139,11 @@ mod tests {
     fn test_parse_file_tjp() {
         use std::io::Write;
         let mut temp_file = tempfile::NamedTempFile::with_suffix(".tjp").unwrap();
-        writeln!(temp_file, r#"project test "Test" 2025-01-01 - 2025-12-31 {{}}"#).unwrap();
+        writeln!(
+            temp_file,
+            r#"project test "Test" 2025-01-01 - 2025-12-31 {{}}"#
+        )
+        .unwrap();
         writeln!(temp_file, r#"task hello "Hello" {{ duration 1d }}"#).unwrap();
 
         let result = parse_file(temp_file.path());

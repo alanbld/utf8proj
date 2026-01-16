@@ -47,7 +47,10 @@ fn slack_is_never_negative_parallel() {
     project.tasks = vec![
         Task::new("a").duration(Duration::days(5)),
         Task::new("b").duration(Duration::days(3)),
-        Task::new("c").duration(Duration::days(2)).depends_on("a").depends_on("b"),
+        Task::new("c")
+            .duration(Duration::days(2))
+            .depends_on("a")
+            .depends_on("b"),
     ];
 
     let solver = CpmSolver::new();
@@ -68,13 +71,23 @@ fn slack_is_never_negative_complex() {
     let mut project = Project::new("Test");
     project.tasks = vec![
         Task::new("start").duration(Duration::days(0)),
-        Task::new("a").duration(Duration::days(5)).depends_on("start"),
-        Task::new("b").duration(Duration::days(8)).depends_on("start"),
+        Task::new("a")
+            .duration(Duration::days(5))
+            .depends_on("start"),
+        Task::new("b")
+            .duration(Duration::days(8))
+            .depends_on("start"),
         Task::new("c").duration(Duration::days(3)).depends_on("a"),
         Task::new("d").duration(Duration::days(4)).depends_on("b"),
-        Task::new("e").duration(Duration::days(6)).depends_on("c").depends_on("d"),
+        Task::new("e")
+            .duration(Duration::days(6))
+            .depends_on("c")
+            .depends_on("d"),
         Task::new("f").duration(Duration::days(2)).depends_on("a"),
-        Task::new("end").duration(Duration::days(0)).depends_on("e").depends_on("f"),
+        Task::new("end")
+            .duration(Duration::days(0))
+            .depends_on("e")
+            .depends_on("f"),
     ];
 
     let solver = CpmSolver::new();
@@ -101,7 +114,10 @@ fn early_start_respects_predecessors() {
         Task::new("a").duration(Duration::days(5)),
         Task::new("b").duration(Duration::days(3)).depends_on("a"),
         Task::new("c").duration(Duration::days(4)).depends_on("a"),
-        Task::new("d").duration(Duration::days(2)).depends_on("b").depends_on("c"),
+        Task::new("d")
+            .duration(Duration::days(2))
+            .depends_on("b")
+            .depends_on("c"),
     ];
 
     let solver = CpmSolver::new();
@@ -148,7 +164,10 @@ fn critical_path_has_zero_slack() {
     project.tasks = vec![
         Task::new("a").duration(Duration::days(5)),
         Task::new("b").duration(Duration::days(3)),
-        Task::new("c").duration(Duration::days(2)).depends_on("a").depends_on("b"),
+        Task::new("c")
+            .duration(Duration::days(2))
+            .depends_on("a")
+            .depends_on("b"),
     ];
 
     let solver = CpmSolver::new();
@@ -176,7 +195,9 @@ fn cross_container_dependencies_flat() {
     let mut project = Project::new("Test");
     project.tasks = vec![
         Task::new("phase1_a").duration(Duration::days(5)),
-        Task::new("phase2_b").duration(Duration::days(3)).depends_on("phase1_a"),
+        Task::new("phase2_b")
+            .duration(Duration::days(3))
+            .depends_on("phase1_a"),
     ];
 
     let solver = CpmSolver::new();
@@ -194,12 +215,10 @@ fn cross_container_dependencies_flat() {
 fn hierarchical_tasks_derive_dates() {
     // Nested structure
     let mut project = Project::new("Test");
-    project.tasks = vec![
-        Task::new("phase1")
-            .name("Phase 1")
-            .child(Task::new("a").duration(Duration::days(5)))
-            .child(Task::new("b").duration(Duration::days(3)).depends_on("a")),
-    ];
+    project.tasks = vec![Task::new("phase1")
+        .name("Phase 1")
+        .child(Task::new("a").duration(Duration::days(5)))
+        .child(Task::new("b").duration(Duration::days(3)).depends_on("a"))];
 
     let solver = CpmSolver::new();
     let schedule = solver.schedule(&project).expect("Should schedule");
@@ -220,28 +239,47 @@ fn crm_migration_simplified() {
     project.tasks = vec![
         // Phase 1: Discovery
         Task::new("kickoff").duration(Duration::days(1)),
-        Task::new("requirements").duration(Duration::days(8)).depends_on("kickoff"),
-        Task::new("gap_analysis").duration(Duration::days(4)).depends_on("requirements"),
-        Task::new("architecture").duration(Duration::days(5)).depends_on("gap_analysis"),
-
+        Task::new("requirements")
+            .duration(Duration::days(8))
+            .depends_on("kickoff"),
+        Task::new("gap_analysis")
+            .duration(Duration::days(4))
+            .depends_on("requirements"),
+        Task::new("architecture")
+            .duration(Duration::days(5))
+            .depends_on("gap_analysis"),
         // Phase 2: Data Migration (depends on architecture)
-        Task::new("data_mapping").duration(Duration::days(6)).depends_on("architecture"),
-        Task::new("etl_dev").duration(Duration::days(10)).depends_on("data_mapping"),
-        Task::new("test_migration").duration(Duration::days(5)).depends_on("etl_dev"),
-
+        Task::new("data_mapping")
+            .duration(Duration::days(6))
+            .depends_on("architecture"),
+        Task::new("etl_dev")
+            .duration(Duration::days(10))
+            .depends_on("data_mapping"),
+        Task::new("test_migration")
+            .duration(Duration::days(5))
+            .depends_on("etl_dev"),
         // Phase 3: Integration (depends on architecture, parallel to data)
-        Task::new("api_design").duration(Duration::days(3)).depends_on("architecture"),
-        Task::new("middleware").duration(Duration::days(4)).depends_on("api_design"),
-        Task::new("erp_connector").duration(Duration::days(8)).depends_on("api_design"),
-        Task::new("integration_test").duration(Duration::days(4))
+        Task::new("api_design")
+            .duration(Duration::days(3))
+            .depends_on("architecture"),
+        Task::new("middleware")
+            .duration(Duration::days(4))
+            .depends_on("api_design"),
+        Task::new("erp_connector")
+            .duration(Duration::days(8))
+            .depends_on("api_design"),
+        Task::new("integration_test")
+            .duration(Duration::days(4))
             .depends_on("middleware")
             .depends_on("erp_connector"),
-
         // Phase 4: Deployment (depends on BOTH data AND integration)
-        Task::new("training").duration(Duration::days(4))
+        Task::new("training")
+            .duration(Duration::days(4))
             .depends_on("test_migration")
             .depends_on("integration_test"),
-        Task::new("go_live").duration(Duration::days(2)).depends_on("training"),
+        Task::new("go_live")
+            .duration(Duration::days(2))
+            .depends_on("training"),
     ];
 
     let solver = CpmSolver::new();
@@ -405,14 +443,8 @@ fn ff_forward_pass_accounts_for_successor_duration() {
     );
 
     // Both should be critical
-    assert!(
-        schedule.tasks["a"].is_critical,
-        "FF: A should be critical"
-    );
-    assert!(
-        schedule.tasks["b"].is_critical,
-        "FF: B should be critical"
-    );
+    assert!(schedule.tasks["a"].is_critical, "FF: A should be critical");
+    assert!(schedule.tasks["b"].is_critical, "FF: B should be critical");
 }
 
 #[test]
@@ -605,8 +637,14 @@ fn mixed_dependency_types_correct_critical_path() {
     );
 
     // A and D are critical (FS path determines project length)
-    assert!(schedule.tasks["a"].is_critical, "Mixed: A should be critical");
-    assert!(schedule.tasks["d"].is_critical, "Mixed: D should be critical");
+    assert!(
+        schedule.tasks["a"].is_critical,
+        "Mixed: A should be critical"
+    );
+    assert!(
+        schedule.tasks["d"].is_critical,
+        "Mixed: D should be critical"
+    );
 
     // B and C should have slack
     assert!(

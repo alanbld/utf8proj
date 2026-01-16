@@ -72,9 +72,21 @@ fn test_01_completed_task_locks_to_actual_dates() {
     let design = schedule.tasks.get("design").expect("design exists");
 
     // Completed task uses actual dates
-    assert_eq!(design.forecast_start, date(2026, 1, 6), "forecast_start = actual_start");
-    assert_eq!(design.forecast_finish, date(2026, 1, 15), "forecast_finish = actual_finish");
-    assert_eq!(design.remaining_duration.as_days() as i64, 0, "remaining = 0");
+    assert_eq!(
+        design.forecast_start,
+        date(2026, 1, 6),
+        "forecast_start = actual_start"
+    );
+    assert_eq!(
+        design.forecast_finish,
+        date(2026, 1, 15),
+        "forecast_finish = actual_finish"
+    );
+    assert_eq!(
+        design.remaining_duration.as_days() as i64,
+        0,
+        "remaining = 0"
+    );
     assert_eq!(design.percent_complete, 100);
     assert_eq!(design.status, TaskStatus::Complete);
 }
@@ -110,11 +122,23 @@ fn test_02_partial_progress_schedules_from_status_date() {
     let develop = schedule.tasks.get("develop").expect("develop exists");
 
     // Started, so forecast_start = actual_start
-    assert_eq!(develop.forecast_start, date(2026, 1, 6), "forecast_start = actual_start");
+    assert_eq!(
+        develop.forecast_start,
+        date(2026, 1, 6),
+        "forecast_start = actual_start"
+    );
     // Remaining 5 days from status_date (2026-01-13)
     // In 2026: Jan 13=Tue, so 5 working days = Tue,Wed,Thu,Fri,Mon = Jan 19
-    assert_eq!(develop.remaining_duration.as_days() as i64, 5, "remaining = 5 days (linear)");
-    assert_eq!(develop.forecast_finish, date(2026, 1, 19), "forecast_finish = status_date + 5 working days");
+    assert_eq!(
+        develop.remaining_duration.as_days() as i64,
+        5,
+        "remaining = 5 days (linear)"
+    );
+    assert_eq!(
+        develop.forecast_finish,
+        date(2026, 1, 19),
+        "forecast_finish = status_date + 5 working days"
+    );
     assert_eq!(develop.percent_complete, 50);
     assert_eq!(develop.status, TaskStatus::InProgress);
 }
@@ -147,9 +171,17 @@ fn test_02b_explicit_remaining_duration_precedence() {
     let develop = schedule.tasks.get("develop").expect("develop exists");
 
     // Explicit remaining takes precedence
-    assert_eq!(develop.remaining_duration.as_days() as i64, 8, "remaining = explicit 8 days");
+    assert_eq!(
+        develop.remaining_duration.as_days() as i64,
+        8,
+        "remaining = explicit 8 days"
+    );
     // 8 working days from Mon Jan 13 = Wed Jan 22
-    assert_eq!(develop.forecast_finish, date(2026, 1, 22), "forecast_finish = status_date + 8 working days");
+    assert_eq!(
+        develop.forecast_finish,
+        date(2026, 1, 22),
+        "forecast_finish = status_date + 8 working days"
+    );
 }
 
 // =============================================================================
@@ -183,7 +215,7 @@ fn test_03_future_tasks_schedule_from_predecessors() {
         .depends_on("task_a");
     task_b.complete = Some(60.0);
     task_b.actual_start = Some(date(2026, 1, 13)); // Tue Jan 13
-    // remaining = ceil(5 * 0.4) = 2 days
+                                                   // remaining = ceil(5 * 0.4) = 2 days
     project.tasks.push(task_b);
 
     // Task C: not started, depends on B
@@ -205,9 +237,21 @@ fn test_03_future_tasks_schedule_from_predecessors() {
     // Task C: 5 days, EF = 10 + 5 = 15
     // Task C finishes: working day 14 = Jan 26 (skip Jan 24-25 weekend)
     assert_eq!(task_c_sched.status, TaskStatus::NotStarted);
-    assert_eq!(task_c_sched.forecast_start, date(2026, 1, 20), "task_c starts after task_b finishes");
-    assert_eq!(task_c_sched.forecast_finish, date(2026, 1, 26), "task_c = 5 working days");
-    assert_eq!(task_c_sched.remaining_duration.as_days() as i64, 5, "remaining = full duration");
+    assert_eq!(
+        task_c_sched.forecast_start,
+        date(2026, 1, 20),
+        "task_c starts after task_b finishes"
+    );
+    assert_eq!(
+        task_c_sched.forecast_finish,
+        date(2026, 1, 26),
+        "task_c = 5 working days"
+    );
+    assert_eq!(
+        task_c_sched.remaining_duration.as_days() as i64,
+        5,
+        "remaining = full duration"
+    );
 }
 
 // =============================================================================
@@ -328,7 +372,10 @@ fn test_05_container_weighted_rollup() {
     let dev = schedule.tasks.get("development").expect("development");
 
     // Container derives progress from weighted average
-    assert_eq!(dev.percent_complete, 45, "container = 45% (weighted average)");
+    assert_eq!(
+        dev.percent_complete, 45,
+        "container = 45% (weighted average)"
+    );
     assert_eq!(dev.status, TaskStatus::InProgress);
 }
 
@@ -347,9 +394,7 @@ fn test_06_status_date_resolution() {
     project.status_date = Some(date(2026, 1, 27)); // Explicit status date (Tue in 2026)
 
     // Task at 50% with 10-day duration
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     task.actual_start = Some(date(2026, 1, 6));
     project.tasks.push(task);
@@ -363,7 +408,11 @@ fn test_06_status_date_resolution() {
     // In 2026: Jan 27=Tue, so 5 working days = Tue,Wed,Thu,Fri,Mon = Feb 2
     // (skip Jan 31-Feb 1 weekend)
     assert_eq!(work.remaining_duration.as_days() as i64, 5);
-    assert_eq!(work.forecast_finish, date(2026, 2, 2), "finish = status_date + remaining");
+    assert_eq!(
+        work.forecast_finish,
+        date(2026, 2, 2),
+        "finish = status_date + remaining"
+    );
 }
 
 /// Test CLI --as-of override
@@ -376,9 +425,7 @@ fn test_06b_cli_as_of_override() {
     project.start = date(2026, 1, 6);
     project.status_date = Some(date(2026, 1, 27)); // Project says Jan 27
 
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     task.actual_start = Some(date(2026, 1, 6));
     project.tasks.push(task);
@@ -392,7 +439,11 @@ fn test_06b_cli_as_of_override() {
     // Should use CLI date (Jan 20=Tue), not project date (Jan 27)
     // In 2026: 5 remaining days from Jan 20 = Tue,Wed,Thu,Fri,Mon = Jan 26
     // (skip Jan 24-25 weekend)
-    assert_eq!(work.forecast_finish, date(2026, 1, 26), "CLI --as-of overrides project.status_date");
+    assert_eq!(
+        work.forecast_finish,
+        date(2026, 1, 26),
+        "CLI --as-of overrides project.status_date"
+    );
 }
 
 // =============================================================================
@@ -415,9 +466,7 @@ fn test_07_remaining_vs_complete_conflict_p005() {
 
     // Task at 50% complete but explicit remaining = 8 days
     // Linear derivation would be 5 days, so this is inconsistent
-    let mut task = Task::new("work")
-        .name("Work")
-        .duration(Duration::days(10));
+    let mut task = Task::new("work").name("Work").duration(Duration::days(10));
     task.complete = Some(50.0);
     task.actual_start = Some(date(2026, 1, 6));
     task.explicit_remaining = Some(Duration::days(8)); // Inconsistent with 50%
@@ -441,7 +490,11 @@ fn test_07_remaining_vs_complete_conflict_p005() {
 
     // Explicit remaining takes precedence
     let work = schedule.tasks.get("work").expect("work");
-    assert_eq!(work.remaining_duration.as_days() as i64, 8, "explicit remaining wins");
+    assert_eq!(
+        work.remaining_duration.as_days() as i64,
+        8,
+        "explicit remaining wins"
+    );
 }
 
 /// complete=100% always means remaining=0, even if explicit remaining disagrees
@@ -455,9 +508,7 @@ fn test_07b_complete_100_forces_remaining_zero() {
     // TODO: project.status_date = Some(date(2026, 1, 20));
 
     // Task at 100% complete but explicit remaining = 5 days (impossible)
-    let mut task = Task::new("done")
-        .name("Done")
-        .duration(Duration::days(10));
+    let mut task = Task::new("done").name("Done").duration(Duration::days(10));
     task.complete = Some(100.0);
     task.actual_start = Some(date(2026, 1, 6));
     task.actual_finish = Some(date(2026, 1, 17));
@@ -470,7 +521,11 @@ fn test_07b_complete_100_forces_remaining_zero() {
     let done = schedule.tasks.get("done").expect("done");
 
     // 100% complete always means remaining = 0
-    assert_eq!(done.remaining_duration.as_days() as i64, 0, "100% complete forces remaining=0");
+    assert_eq!(
+        done.remaining_duration.as_days() as i64,
+        0,
+        "100% complete forces remaining=0"
+    );
     assert_eq!(done.status, TaskStatus::Complete);
 }
 
@@ -503,8 +558,7 @@ fn test_08_container_explicit_complete_p006() {
         .duration(Duration::days(10));
     frontend.complete = Some(50.0);
 
-    let mut container = Task::new("development")
-        .name("Development");
+    let mut container = Task::new("development").name("Development");
     container = container.child(backend).child(frontend);
     // Explicit override: container says 80% but children average 50%
     container.complete = Some(80.0);
@@ -529,7 +583,10 @@ fn test_08_container_explicit_complete_p006() {
 
     // Explicit complete is used despite being inconsistent
     let dev = schedule.tasks.get("development").expect("development");
-    assert_eq!(dev.percent_complete, 80, "explicit complete overrides derived");
+    assert_eq!(
+        dev.percent_complete, 80,
+        "explicit complete overrides derived"
+    );
 }
 
 /// No P006 if explicit is within 10% of derived
@@ -556,8 +613,7 @@ fn test_08b_container_explicit_within_threshold_no_p006() {
         .duration(Duration::days(10));
     frontend.complete = Some(50.0);
 
-    let mut container = Task::new("development")
-        .name("Development");
+    let mut container = Task::new("development").name("Development");
     container = container.child(backend).child(frontend);
     container.complete = Some(55.0); // Within 10% of 50%
 

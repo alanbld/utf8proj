@@ -45,8 +45,8 @@ fn run_schedule(fixture: &str, strict: bool) -> String {
     let output = cmd.output().expect("failed to execute utf8proj");
 
     // Normalize paths in output for reproducibility
-    let stderr = String::from_utf8_lossy(&output.stderr)
-        .replace(input_path.to_str().unwrap(), fixture);
+    let stderr =
+        String::from_utf8_lossy(&output.stderr).replace(input_path.to_str().unwrap(), fixture);
 
     stderr.to_string()
 }
@@ -184,18 +184,16 @@ fn i001_success() {
 #[test]
 fn w001_json_output() {
     let expected_path = fixtures_dir().join("w001_abstract_assignment.json");
-    let expected: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(&expected_path).unwrap()
-    ).unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&expected_path).unwrap()).unwrap();
 
     let actual_str = run_schedule_json("w001_abstract_assignment.proj");
-    let actual: serde_json::Value = serde_json::from_str(&actual_str)
-        .expect("CLI output is not valid JSON");
+    let actual: serde_json::Value =
+        serde_json::from_str(&actual_str).expect("CLI output is not valid JSON");
 
     // Compare diagnostics array (order matters per spec)
     assert_eq!(
-        expected["diagnostics"],
-        actual["diagnostics"],
+        expected["diagnostics"], actual["diagnostics"],
         "Diagnostic JSON mismatch"
     );
 }

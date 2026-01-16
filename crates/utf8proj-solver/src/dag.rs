@@ -26,7 +26,11 @@ impl std::fmt::Display for GraphError {
                 write!(f, "Cycle detected involving tasks: {:?}", tasks)
             }
             GraphError::MissingDependency { task, missing } => {
-                write!(f, "Task '{}' depends on '{}' which doesn't exist", task, missing)
+                write!(
+                    f,
+                    "Task '{}' depends on '{}' which doesn't exist",
+                    task, missing
+                )
             }
         }
     }
@@ -132,12 +136,8 @@ impl SchedulingGraph {
 
         // Build edges
         for task in &leaf_tasks {
-            let resolved_deps = resolve_task_dependencies(
-                task,
-                &qualified_to_simple,
-                &all_tasks_map,
-                &task_map,
-            )?;
+            let resolved_deps =
+                resolve_task_dependencies(task, &qualified_to_simple, &all_tasks_map, &task_map)?;
 
             for (pred_id, dep_type, lag_days) in resolved_deps {
                 let edge = DependencyEdge {
@@ -194,7 +194,9 @@ fn collect_leaves(
             let duration_days = compute_duration_days(task);
 
             // Collect dependencies with lag
-            let dependencies: Vec<LeafDependency> = task.depends.iter()
+            let dependencies: Vec<LeafDependency> = task
+                .depends
+                .iter()
                 .map(|dep| LeafDependency {
                     predecessor: dep.predecessor.clone(),
                     dep_type: dep.dep_type,
@@ -207,7 +209,9 @@ fn collect_leaves(
                 name: task.name.clone(),
                 duration_days,
                 effort: task.effort,
-                assigned: task.assigned.iter()
+                assigned: task
+                    .assigned
+                    .iter()
                     .map(|a| (a.resource_id.clone(), a.units))
                     .collect(),
                 wbs_path: current_path,
@@ -221,17 +225,19 @@ fn collect_leaves(
         } else {
             // Container - recurse into children
             qualified_map.insert(qualified_id.clone(), task.id.clone());
-            collect_leaves(&task.children, leaves, qualified_map, current_path, &qualified_id);
+            collect_leaves(
+                &task.children,
+                leaves,
+                qualified_map,
+                current_path,
+                &qualified_id,
+            );
         }
     }
 }
 
 /// Build a map from container qualified ID to all leaf task IDs under it
-fn build_container_map(
-    tasks: &[Task],
-    map: &mut HashMap<String, Vec<TaskId>>,
-    prefix: &str,
-) {
+fn build_container_map(tasks: &[Task], map: &mut HashMap<String, Vec<TaskId>>, prefix: &str) {
     for task in tasks {
         let qualified_id = if prefix.is_empty() {
             task.id.clone()
@@ -241,7 +247,9 @@ fn build_container_map(
 
         if task.children.is_empty() {
             // Leaf task - add to all parent containers
-            map.entry(qualified_id.clone()).or_default().push(task.id.clone());
+            map.entry(qualified_id.clone())
+                .or_default()
+                .push(task.id.clone());
 
             // Also add to parent containers
             let mut container_path = prefix.to_string();
@@ -249,7 +257,9 @@ fn build_container_map(
                 if container_path.is_empty() {
                     container_path = part.to_string();
                 }
-                map.entry(container_path.clone()).or_default().push(task.id.clone());
+                map.entry(container_path.clone())
+                    .or_default()
+                    .push(task.id.clone());
             }
         } else {
             // Container - recurse
@@ -341,7 +351,9 @@ fn resolve_task_dependencies(
 
         // 4. Try relative resolution (sibling in same container)
         // Build the qualified path by prepending the task's container prefix
-        let container_prefix = task.qualified_id.rsplit_once('.')
+        let container_prefix = task
+            .qualified_id
+            .rsplit_once('.')
             .map(|(prefix, _)| prefix)
             .unwrap_or("");
 
@@ -476,10 +488,7 @@ mod tests {
 
     #[test]
     fn test_qualified_id_mapping() {
-        let tasks = vec![
-            Task::new("phase1")
-                .child(Task::new("a").duration(Duration::days(1))),
-        ];
+        let tasks = vec![Task::new("phase1").child(Task::new("a").duration(Duration::days(1)))];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
 
@@ -522,7 +531,9 @@ mod tests {
 
     #[test]
     fn test_graph_error_display() {
-        let err = GraphError::CycleDetected { tasks: vec!["a".to_string(), "b".to_string()] };
+        let err = GraphError::CycleDetected {
+            tasks: vec!["a".to_string(), "b".to_string()],
+        };
         let msg = format!("{}", err);
         assert!(msg.contains("Cycle"));
         assert!(msg.contains("a"));
@@ -561,8 +572,11 @@ mod tests {
             Task::new("phase1")
                 .child(Task::new("a").duration(Duration::days(3)))
                 .child(Task::new("b").duration(Duration::days(2)).depends_on("a")),
-            Task::new("phase2")
-                .child(Task::new("c").duration(Duration::days(2)).depends_on("phase1.b")),
+            Task::new("phase2").child(
+                Task::new("c")
+                    .duration(Duration::days(2))
+                    .depends_on("phase1.b"),
+            ),
         ];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
@@ -577,12 +591,10 @@ mod tests {
 
     #[test]
     fn test_deeply_nested_container() {
-        let tasks = vec![
-            Task::new("level1")
-                .child(Task::new("level2")
-                    .child(Task::new("level3")
-                        .child(Task::new("leaf").duration(Duration::days(1))))),
-        ];
+        let tasks = vec![Task::new("level1").child(
+            Task::new("level2")
+                .child(Task::new("level3").child(Task::new("leaf").duration(Duration::days(1)))),
+        )];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
 
@@ -626,11 +638,9 @@ mod tests {
     #[test]
     fn test_relative_dependency_resolution() {
         // Sibling dependencies within same container
-        let tasks = vec![
-            Task::new("phase")
-                .child(Task::new("a").duration(Duration::days(2)))
-                .child(Task::new("b").duration(Duration::days(3)).depends_on("a")),
-        ];
+        let tasks = vec![Task::new("phase")
+            .child(Task::new("a").duration(Duration::days(2)))
+            .child(Task::new("b").duration(Duration::days(3)).depends_on("a"))];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
 
@@ -644,10 +654,12 @@ mod tests {
     fn test_container_to_container_dependency() {
         // One container depends on another - should expand to leaf dependencies
         let tasks = vec![
-            Task::new("phase1")
-                .child(Task::new("a").duration(Duration::days(2))),
-            Task::new("phase2")
-                .child(Task::new("b").duration(Duration::days(2)).depends_on("phase1")),
+            Task::new("phase1").child(Task::new("a").duration(Duration::days(2))),
+            Task::new("phase2").child(
+                Task::new("b")
+                    .duration(Duration::days(2))
+                    .depends_on("phase1"),
+            ),
         ];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
@@ -678,11 +690,9 @@ mod tests {
     fn test_relative_sibling_leaf_resolution() {
         // Tests lines 344-354: relative sibling resolution using container prefix
         // Task b depends on "a" by simple ID - resolved via qualified path
-        let tasks = vec![
-            Task::new("container")
-                .child(Task::new("a").duration(Duration::days(1)))
-                .child(Task::new("b").duration(Duration::days(1)).depends_on("a")),
-        ];
+        let tasks = vec![Task::new("container")
+            .child(Task::new("a").duration(Duration::days(1)))
+            .child(Task::new("b").duration(Duration::days(1)).depends_on("a"))];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
 
@@ -696,23 +706,24 @@ mod tests {
     fn test_relative_sibling_container_resolution() {
         // Tests lines 360-363: relative sibling container resolution
         // Task in one sub-container depends on sibling sub-container
-        let tasks = vec![
-            Task::new("parent")
-                .child(
-                    Task::new("sub1")
-                        .child(Task::new("a").duration(Duration::days(1)))
-                )
-                .child(
-                    Task::new("sub2")
-                        .child(Task::new("b").duration(Duration::days(1)).depends_on("sub1"))
+        let tasks = vec![Task::new("parent")
+            .child(Task::new("sub1").child(Task::new("a").duration(Duration::days(1))))
+            .child(
+                Task::new("sub2").child(
+                    Task::new("b")
+                        .duration(Duration::days(1))
+                        .depends_on("sub1"),
                 ),
-        ];
+            )];
 
         let graph = SchedulingGraph::from_wbs(&tasks).unwrap();
 
         // b should depend on a (the leaf under sub1)
         let b = graph.get_task("b").unwrap();
-        assert!(!b.dependencies.is_empty(), "b should have dependencies on sub1's leaves");
+        assert!(
+            !b.dependencies.is_empty(),
+            "b should have dependencies on sub1's leaves"
+        );
     }
 
     #[test]

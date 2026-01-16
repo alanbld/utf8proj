@@ -333,9 +333,7 @@ impl JsonEmitter {
 
     /// Check if any errors were emitted
     pub fn has_errors(&self) -> bool {
-        self.diagnostics
-            .iter()
-            .any(|d| d.severity == "error")
+        self.diagnostics.iter().any(|d| d.severity == "error")
     }
 
     /// Get error count
@@ -489,8 +487,7 @@ mod tests {
     #[test]
     fn terminal_emitter_path_normalization() {
         let mut output = Vec::new();
-        let config = DiagnosticConfig::default()
-            .with_base_path("/project");
+        let config = DiagnosticConfig::default().with_base_path("/project");
         let mut emitter = TerminalEmitter::new(&mut output, config);
 
         emitter.emit(make_test_diagnostic());

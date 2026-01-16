@@ -207,7 +207,11 @@ impl ResourceTimeline {
                                 start: date,
                                 end: date,
                                 peak_usage: day.total_units,
-                                involved_tasks: day.tasks.iter().map(|(id, _)| id.clone()).collect(),
+                                involved_tasks: day
+                                    .tasks
+                                    .iter()
+                                    .map(|(id, _)| id.clone())
+                                    .collect(),
                             });
                         }
                     }
@@ -704,10 +708,7 @@ pub fn level_resources_with_options(
 }
 
 /// Calculate peak resource utilization across all resources
-fn calculate_peak_utilization(
-    project: &Project,
-    tasks: &HashMap<TaskId, ScheduledTask>,
-) -> f32 {
+fn calculate_peak_utilization(project: &Project, tasks: &HashMap<TaskId, ScheduledTask>) -> f32 {
     let timelines = build_resource_timelines(project, tasks);
     timelines
         .values()
@@ -734,7 +735,12 @@ fn build_resource_timelines(
     for task in tasks.values() {
         for assignment in &task.assignments {
             if let Some(timeline) = timelines.get_mut(&assignment.resource_id) {
-                timeline.add_usage(&task.task_id, assignment.start, assignment.finish, assignment.units);
+                timeline.add_usage(
+                    &task.task_id,
+                    assignment.start,
+                    assignment.finish,
+                    assignment.units,
+                );
             }
         }
     }
@@ -1099,7 +1105,10 @@ mod tests {
         let result = level_resources(&project, &schedule, &calendar);
 
         // One task should have been shifted
-        assert!(!result.shifted_tasks.is_empty(), "Should shift at least one task");
+        assert!(
+            !result.shifted_tasks.is_empty(),
+            "Should shift at least one task"
+        );
 
         // No unresolved conflicts
         assert!(
@@ -1112,7 +1121,10 @@ mod tests {
         let task2 = &result.leveled_schedule.tasks["task2"];
 
         let overlap = task1.start <= task2.finish && task2.start <= task1.finish;
-        assert!(!overlap || task1.start == task2.start, "Tasks should not overlap after leveling");
+        assert!(
+            !overlap || task1.start == task2.start,
+            "Tasks should not overlap after leveling"
+        );
     }
 
     #[test]
@@ -1326,7 +1338,9 @@ mod tests {
         // Test lines 297-300: UnresolvedConflict when candidates.is_empty()
         // This happens when all conflicting tasks are on the critical path
         // and have zero slack
-        use utf8proj_core::{Dependency, DependencyType, Project, Resource, ResourceRef, Scheduler};
+        use utf8proj_core::{
+            Dependency, DependencyType, Project, Resource, ResourceRef, Scheduler,
+        };
 
         let mut project = Project::new("All Critical Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
@@ -1370,7 +1384,10 @@ mod tests {
 
         // Detect overallocation - there shouldn't be any since tasks are sequential
         let overallocations = detect_overallocations(&project, &schedule);
-        assert!(overallocations.is_empty(), "Sequential critical tasks should not conflict");
+        assert!(
+            overallocations.is_empty(),
+            "Sequential critical tasks should not conflict"
+        );
     }
 
     #[test]
@@ -1413,9 +1430,7 @@ mod tests {
         let mut project = Project::new("Utilization Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
         project.resources = vec![Resource::new("dev").capacity(1.0)];
-        project.tasks = vec![
-            Task::new("task1").effort(Duration::days(5)).assign("dev"),
-        ];
+        project.tasks = vec![Task::new("task1").effort(Duration::days(5)).assign("dev")];
 
         let solver = crate::CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -1456,8 +1471,16 @@ mod tests {
         assert!(utilization.average_utilization > 0.0);
 
         // dev1 should have higher utilization than dev2
-        let dev1 = utilization.resources.iter().find(|r| r.resource_id == "dev1").unwrap();
-        let dev2 = utilization.resources.iter().find(|r| r.resource_id == "dev2").unwrap();
+        let dev1 = utilization
+            .resources
+            .iter()
+            .find(|r| r.resource_id == "dev1")
+            .unwrap();
+        let dev2 = utilization
+            .resources
+            .iter()
+            .find(|r| r.resource_id == "dev2")
+            .unwrap();
         assert!(dev1.used_days > dev2.used_days);
     }
 
@@ -1467,9 +1490,7 @@ mod tests {
 
         let mut project = Project::new("No Resources Test");
         project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
-        project.tasks = vec![
-            Task::new("task1").effort(Duration::days(5)),
-        ];
+        project.tasks = vec![Task::new("task1").effort(Duration::days(5))];
 
         let solver = crate::CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -1491,9 +1512,7 @@ mod tests {
             Resource::new("dev1").capacity(1.0),
             Resource::new("dev2").capacity(1.0), // No assignments
         ];
-        project.tasks = vec![
-            Task::new("task1").effort(Duration::days(5)).assign("dev1"),
-        ];
+        project.tasks = vec![Task::new("task1").effort(Duration::days(5)).assign("dev1")];
 
         let solver = crate::CpmSolver::new();
         let schedule = solver.schedule(&project).unwrap();
@@ -1501,7 +1520,11 @@ mod tests {
 
         let utilization = calculate_utilization(&project, &schedule, &calendar);
 
-        let dev2 = utilization.resources.iter().find(|r| r.resource_id == "dev2").unwrap();
+        let dev2 = utilization
+            .resources
+            .iter()
+            .find(|r| r.resource_id == "dev2")
+            .unwrap();
         assert_eq!(dev2.used_days, 0.0);
         assert_eq!(dev2.utilization_percent, 0.0);
         assert_eq!(dev2.assigned_days, 0);

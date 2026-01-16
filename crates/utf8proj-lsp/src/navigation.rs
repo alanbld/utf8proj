@@ -382,7 +382,10 @@ fn is_identifier_char(c: char) -> bool {
 }
 
 /// Find a task by ID in a task tree
-fn find_task_by_id<'a>(tasks: &'a [utf8proj_core::Task], id: &str) -> Option<&'a utf8proj_core::Task> {
+fn find_task_by_id<'a>(
+    tasks: &'a [utf8proj_core::Task],
+    id: &str,
+) -> Option<&'a utf8proj_core::Task> {
     for task in tasks {
         if task.id == id {
             return Some(task);

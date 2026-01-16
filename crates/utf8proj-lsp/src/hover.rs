@@ -9,7 +9,10 @@
 use chrono::Datelike;
 use tower_lsp::lsp_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
-use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, ResourceProfile, ResourceRate, Schedule, Task, TaskConstraint};
+use utf8proj_core::{
+    Calendar, Diagnostic, DiagnosticCode, Project, ResourceProfile, ResourceRate, Schedule, Task,
+    TaskConstraint,
+};
 
 /// Get hover information for a position in the document
 pub fn get_hover_info(
@@ -102,7 +105,9 @@ fn hover_for_profile(profile: &ResourceProfile, project: &Project) -> Hover {
             ResourceRate::Range(range) => {
                 lines.push(format!(
                     "Rate: ${} - ${}/day (expected: ${})",
-                    range.min, range.max, range.expected()
+                    range.min,
+                    range.max,
+                    range.expected()
                 ));
             }
         }
@@ -181,7 +186,10 @@ fn hover_for_resource(resource: &utf8proj_core::Resource) -> Hover {
     }
 
     if resource.efficiency != 1.0 {
-        lines.push(format!("Efficiency: {}%", (resource.efficiency * 100.0) as i32));
+        lines.push(format!(
+            "Efficiency: {}%",
+            (resource.efficiency * 100.0) as i32
+        ));
     }
 
     Hover {
@@ -194,7 +202,13 @@ fn hover_for_resource(resource: &utf8proj_core::Resource) -> Hover {
 }
 
 /// Build hover content for a task
-fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Option<&Schedule>, diagnostics: &[Diagnostic]) -> Hover {
+fn hover_for_task(
+    task: &Task,
+    task_id: &str,
+    project: &Project,
+    schedule: Option<&Schedule>,
+    diagnostics: &[Diagnostic],
+) -> Hover {
     let mut lines = vec![format!("**Task: {}**", task.id)];
 
     if task.name != task.id {
@@ -204,7 +218,10 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
     if task.milestone {
         lines.push("Type: Milestone".to_string());
     } else if !task.children.is_empty() {
-        lines.push(format!("Type: Container ({} children)", task.children.len()));
+        lines.push(format!(
+            "Type: Container ({} children)",
+            task.children.len()
+        ));
     }
 
     if let Some(dur) = task.duration {
@@ -231,17 +248,17 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
     }
 
     if !task.depends.is_empty() {
-        let deps: Vec<&str> = task.depends.iter().map(|d| d.predecessor.as_str()).collect();
+        let deps: Vec<&str> = task
+            .depends
+            .iter()
+            .map(|d| d.predecessor.as_str())
+            .collect();
         lines.push(format!("Depends on: {}", deps.join(", ")));
     }
 
     // Show temporal constraints
     if !task.constraints.is_empty() {
-        let constraint_strs: Vec<String> = task
-            .constraints
-            .iter()
-            .map(format_constraint)
-            .collect();
+        let constraint_strs: Vec<String> = task.constraints.iter().map(format_constraint).collect();
         lines.push(format!("Constraints: {}", constraint_strs.join(", ")));
     }
 
@@ -254,7 +271,10 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
     // Add schedule information if available
     if let Some(sched) = schedule {
         // Try to find this task in the schedule (may be qualified ID like "phase.task")
-        let scheduled = sched.tasks.get(task_id).or_else(|| sched.tasks.get(&task.id));
+        let scheduled = sched
+            .tasks
+            .get(task_id)
+            .or_else(|| sched.tasks.get(&task.id));
 
         if let Some(st) = scheduled {
             lines.push("---".to_string()); // Separator
@@ -267,7 +287,10 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
             ));
 
             // Duration (from schedule, may differ from effort)
-            lines.push(format!("⏱️ Duration: {} days", st.duration.as_days() as i64));
+            lines.push(format!(
+                "⏱️ Duration: {} days",
+                st.duration.as_days() as i64
+            ));
 
             // Slack and criticality
             let slack_days = st.slack.as_days() as i64;
@@ -278,7 +301,9 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
             }
 
             // Calendar Impact section
-            let project_calendar = project.calendars.iter()
+            let project_calendar = project
+                .calendars
+                .iter()
                 .find(|c| c.id == project.calendar)
                 .cloned()
                 .unwrap_or_else(Calendar::default);
@@ -296,7 +321,11 @@ fn hover_for_task(task: &Task, task_id: &str, project: &Project, schedule: Optio
                 if holiday_days > 0 {
                     impact_parts.push(format!("{} holidays", holiday_days));
                 }
-                lines.push(format!("• {} working days, {}", working_days, impact_parts.join(", ")));
+                lines.push(format!(
+                    "• {} working days, {}",
+                    working_days,
+                    impact_parts.join(", ")
+                ));
             }
 
             // Show constraint effects if any
@@ -355,7 +384,9 @@ fn calculate_calendar_impact(
         let weekday = current.weekday().num_days_from_sunday() as u8;
 
         // Check if it's a holiday
-        let is_holiday = calendar.holidays.iter()
+        let is_holiday = calendar
+            .holidays
+            .iter()
             .any(|h| current >= h.start && current <= h.end);
 
         if is_holiday {
@@ -515,18 +546,12 @@ fn analyze_constraint_effects(
             TaskConstraint::StartNoLaterThan(date) => {
                 if ls == *date {
                     if scheduled.slack == zero_slack {
-                        format!(
-                            "🔴 `start_no_later_than: {}` — Made task critical",
-                            date
-                        )
+                        format!("🔴 `start_no_later_than: {}` — Made task critical", date)
                     } else {
                         format!("✓ `start_no_later_than: {}` — Capped late start", date)
                     }
                 } else if ls < *date {
-                    format!(
-                        "○ `start_no_later_than: {}` — Redundant (LS={})",
-                        date, ls
-                    )
+                    format!("○ `start_no_later_than: {}` — Redundant (LS={})", date, ls)
                 } else {
                     format!("✓ `start_no_later_than: {}` — Caps late start", date)
                 }
@@ -543,27 +568,18 @@ fn analyze_constraint_effects(
                         date, ef
                     )
                 } else {
-                    format!(
-                        "✓ `finish_no_earlier_than: {}` — Pushed early finish",
-                        date
-                    )
+                    format!("✓ `finish_no_earlier_than: {}` — Pushed early finish", date)
                 }
             }
             TaskConstraint::FinishNoLaterThan(date) => {
                 if lf == *date {
                     if scheduled.slack == zero_slack {
-                        format!(
-                            "🔴 `finish_no_later_than: {}` — Made task critical",
-                            date
-                        )
+                        format!("🔴 `finish_no_later_than: {}` — Made task critical", date)
                     } else {
                         format!("✓ `finish_no_later_than: {}` — Capped late finish", date)
                     }
                 } else if lf < *date {
-                    format!(
-                        "○ `finish_no_later_than: {}` — Redundant (LF={})",
-                        date, lf
-                    )
+                    format!("○ `finish_no_later_than: {}` — Redundant (LF={})", date, lf)
                 } else {
                     format!("✓ `finish_no_later_than: {}` — Caps late finish", date)
                 }
@@ -741,7 +757,9 @@ mod tests {
         fixed_rate_dev.rate = Some(ResourceRate::Fixed(Money::new(dec!(150), "USD")));
         project.profiles.push(fixed_rate_dev);
 
-        project.profiles.push(ResourceProfile::new("no_rate_profile"));
+        project
+            .profiles
+            .push(ResourceProfile::new("no_rate_profile"));
 
         let mut unknown_trait_profile = ResourceProfile::new("unknown_trait_profile");
         unknown_trait_profile.traits = vec!["nonexistent".to_string()];
@@ -901,9 +919,7 @@ mod tests {
         let mut project = Project::new("Test");
 
         // Parent with no rate
-        project
-            .profiles
-            .push(ResourceProfile::new("base_profile"));
+        project.profiles.push(ResourceProfile::new("base_profile"));
 
         // Child specializing from parent with no rate
         let mut child = ResourceProfile::new("child_profile");
