@@ -1425,14 +1425,44 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
         }
     }
 
+    // Summary (optional short display name)
+    if let Some(ref summary) = task.summary {
+        output.push_str(&format!("{}summary: \"{}\"\n", inner_indent, summary));
+    }
+
     // Completion
     if let Some(complete) = task.complete {
         output.push_str(&format!("{}complete: {}%\n", inner_indent, complete as i32));
     }
 
+    // Remaining duration (explicit override)
+    if let Some(ref remaining) = task.explicit_remaining {
+        output.push_str(&format!("{}remaining: {}d\n", inner_indent, remaining.as_days()));
+    }
+
     // Priority (only if non-default)
     if task.priority != 500 {
         output.push_str(&format!("{}priority: {}\n", inner_indent, task.priority));
+    }
+
+    // Note (from attributes)
+    if let Some(note) = task.attributes.get("note") {
+        output.push_str(&format!("{}note: \"{}\"\n", inner_indent, note));
+    }
+
+    // Tags (from attributes)
+    if let Some(tags) = task.attributes.get("tags") {
+        output.push_str(&format!("{}tag: {}\n", inner_indent, tags));
+    }
+
+    // Cost (from attributes)
+    if let Some(cost) = task.attributes.get("cost") {
+        output.push_str(&format!("{}cost: {}\n", inner_indent, cost));
+    }
+
+    // Payment (from attributes)
+    if let Some(payment) = task.attributes.get("payment") {
+        output.push_str(&format!("{}payment: {}\n", inner_indent, payment));
     }
 
     // Children (recursive)

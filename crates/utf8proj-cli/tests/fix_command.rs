@@ -122,6 +122,249 @@ task parent "Parent Task" {
     );
 }
 
+/// Test that fix container-deps preserves summary
+#[test]
+fn fix_container_deps_preserves_summary() {
+    let temp_dir = TempDir::new().unwrap();
+    let input_path = temp_dir.path().join("input.proj");
+    let output_path = temp_dir.path().join("output.proj");
+
+    let input_content = r#"project "Test Project" {
+    start: 2026-01-01
+}
+
+calendar "standard" {
+    working_days: mon-fri
+}
+
+task parent "Parent Task" {
+    depends: external_task
+
+    task child "Child Task" {
+        duration: 5d
+        summary: "Short Name"
+    }
+}
+"#;
+
+    fs::write(&input_path, input_content).unwrap();
+
+    let status = Command::new(utf8proj_binary())
+        .arg("fix")
+        .arg("container-deps")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .status()
+        .expect("failed to execute utf8proj");
+
+    assert!(status.success(), "fix command should succeed");
+
+    let output_content = fs::read_to_string(&output_path).unwrap();
+
+    assert!(
+        output_content.contains("summary: \"Short Name\""),
+        "summary should be preserved. Output:\n{}",
+        output_content
+    );
+}
+
+/// Test that fix container-deps preserves note
+#[test]
+fn fix_container_deps_preserves_note() {
+    let temp_dir = TempDir::new().unwrap();
+    let input_path = temp_dir.path().join("input.proj");
+    let output_path = temp_dir.path().join("output.proj");
+
+    let input_content = r#"project "Test Project" {
+    start: 2026-01-01
+}
+
+calendar "standard" {
+    working_days: mon-fri
+}
+
+task parent "Parent Task" {
+    depends: external_task
+
+    task child "Child Task" {
+        duration: 5d
+        note: "This is a detailed note about the task"
+    }
+}
+"#;
+
+    fs::write(&input_path, input_content).unwrap();
+
+    let status = Command::new(utf8proj_binary())
+        .arg("fix")
+        .arg("container-deps")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .status()
+        .expect("failed to execute utf8proj");
+
+    assert!(status.success(), "fix command should succeed");
+
+    let output_content = fs::read_to_string(&output_path).unwrap();
+
+    assert!(
+        output_content.contains("note: \"This is a detailed note about the task\""),
+        "note should be preserved. Output:\n{}",
+        output_content
+    );
+}
+
+/// Test that fix container-deps preserves tags
+#[test]
+fn fix_container_deps_preserves_tags() {
+    let temp_dir = TempDir::new().unwrap();
+    let input_path = temp_dir.path().join("input.proj");
+    let output_path = temp_dir.path().join("output.proj");
+
+    let input_content = r#"project "Test Project" {
+    start: 2026-01-01
+}
+
+calendar "standard" {
+    working_days: mon-fri
+}
+
+task parent "Parent Task" {
+    depends: external_task
+
+    task child "Child Task" {
+        duration: 5d
+        tag: critical, backend
+    }
+}
+"#;
+
+    fs::write(&input_path, input_content).unwrap();
+
+    let status = Command::new(utf8proj_binary())
+        .arg("fix")
+        .arg("container-deps")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .status()
+        .expect("failed to execute utf8proj");
+
+    assert!(status.success(), "fix command should succeed");
+
+    let output_content = fs::read_to_string(&output_path).unwrap();
+
+    // Tags might be in different order, so check for both
+    assert!(
+        output_content.contains("tag:") && output_content.contains("critical") && output_content.contains("backend"),
+        "tags should be preserved. Output:\n{}",
+        output_content
+    );
+}
+
+/// Test that fix container-deps preserves remaining duration
+#[test]
+fn fix_container_deps_preserves_remaining() {
+    let temp_dir = TempDir::new().unwrap();
+    let input_path = temp_dir.path().join("input.proj");
+    let output_path = temp_dir.path().join("output.proj");
+
+    let input_content = r#"project "Test Project" {
+    start: 2026-01-01
+}
+
+calendar "standard" {
+    working_days: mon-fri
+}
+
+task parent "Parent Task" {
+    depends: external_task
+
+    task child "Child Task" {
+        duration: 10d
+        complete: 60%
+        remaining: 3d
+    }
+}
+"#;
+
+    fs::write(&input_path, input_content).unwrap();
+
+    let status = Command::new(utf8proj_binary())
+        .arg("fix")
+        .arg("container-deps")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .status()
+        .expect("failed to execute utf8proj");
+
+    assert!(status.success(), "fix command should succeed");
+
+    let output_content = fs::read_to_string(&output_path).unwrap();
+
+    assert!(
+        output_content.contains("remaining: 3d"),
+        "remaining duration should be preserved. Output:\n{}",
+        output_content
+    );
+}
+
+/// Test that fix container-deps preserves cost and payment
+#[test]
+fn fix_container_deps_preserves_cost_payment() {
+    let temp_dir = TempDir::new().unwrap();
+    let input_path = temp_dir.path().join("input.proj");
+    let output_path = temp_dir.path().join("output.proj");
+
+    let input_content = r#"project "Test Project" {
+    start: 2026-01-01
+}
+
+calendar "standard" {
+    working_days: mon-fri
+}
+
+task parent "Parent Task" {
+    depends: external_task
+
+    task child "Child Task" {
+        duration: 5d
+        cost: 1500
+        payment: 25000
+    }
+}
+"#;
+
+    fs::write(&input_path, input_content).unwrap();
+
+    let status = Command::new(utf8proj_binary())
+        .arg("fix")
+        .arg("container-deps")
+        .arg(&input_path)
+        .arg("-o")
+        .arg(&output_path)
+        .status()
+        .expect("failed to execute utf8proj");
+
+    assert!(status.success(), "fix command should succeed");
+
+    let output_content = fs::read_to_string(&output_path).unwrap();
+
+    assert!(
+        output_content.contains("cost: 1500"),
+        "cost should be preserved. Output:\n{}",
+        output_content
+    );
+    assert!(
+        output_content.contains("payment: 25000"),
+        "payment should be preserved. Output:\n{}",
+        output_content
+    );
+}
+
 /// Test that fix container-deps preserves assignments
 #[test]
 fn fix_container_deps_preserves_assignments() {
