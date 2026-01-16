@@ -4,6 +4,28 @@
 
 Rust-based **explainable** project scheduling engine with CPM (Critical Path Method) solver and deterministic resource leveling. Parses TaskJuggler (.tjp) and native DSL (.proj) formats, schedules tasks, and renders output. Core philosophy: **"describe, don't prescribe"** — diagnostics explain scheduling decisions rather than silently fixing them.
 
+## Versioning Policy
+
+This project follows **Semantic Versioning** (SemVer):
+
+| Change Type | Version Bump | Example |
+|-------------|--------------|---------|
+| Breaking API change | MAJOR (X.0.0) | Remove public function, change signature |
+| New feature (backward compatible) | MINOR (0.X.0) | Add new diagnostic, new render format |
+| Bug fix (backward compatible) | PATCH (0.0.X) | Fix calculation bug, auto-fit issue |
+
+**IMPORTANT**: Every commit that changes behavior MUST bump the version:
+- Bug fixes → bump PATCH (e.g., 0.9.0 → 0.9.1)
+- New features → bump MINOR (e.g., 0.9.1 → 0.10.0)
+- Breaking changes → bump MAJOR (requires discussion)
+
+Version is set in `Cargo.toml` under `[workspace.package]`:
+```toml
+version = "0.9.1"
+```
+
+All crates inherit this version via `version.workspace = true`.
+
 ## Workspace Structure
 
 ```

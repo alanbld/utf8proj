@@ -36,7 +36,8 @@ Read our [Explainability Manifesto](docs/EXPLAINABILITY.md) for the full philoso
 - **CPM Scheduling** — Critical path calculation with FS/SS/FF/SF dependencies and lag
 - **Deterministic Resource Leveling** — Opt-in conflict resolution with complete audit trail
 - **Calendar-Aware** — Working days, weekends, holidays with impact quantification
-- **Progress Tracking** — Forecasts, earned value, variance detection
+- **Progress-Aware Scheduling** — Status date resolution, remaining duration calculation, forecasts
+- **Earned Value Analysis** — Variance detection (SPI), baseline vs forecast comparison
 - **Hierarchical Tasks** — Nested task structures with automatic container date derivation
 
 ### Explainability & Diagnostics
@@ -44,17 +45,19 @@ Read our [Explainability Manifesto](docs/EXPLAINABILITY.md) for the full philoso
   - **E***: Errors (circular dependencies, infeasible constraints)
   - **W***: Warnings (overallocation, wide cost ranges)
   - **H***: Hints (unused profiles, unconstrained tasks)
-  - **I***: Info (utilization summaries, project status)
+  - **I***: Info (utilization summaries, project status, earned value)
   - **C***: Calendar issues (C001-C023)
   - **L***: Leveling decisions (L001-L004)
+  - **P***: Progress tracking (P005-P006 remaining vs complete conflicts)
 - **CalendarImpact Analysis** — Working days vs calendar days per task
 - **Diagnostic→Task Linking** — Trace every diagnostic to affected tasks
 
 ### Tooling & Integration
-- **LSP Support** — IDE integration with hover explanations and inline diagnostics
-- **WASM Dashboard** — Interactive browser visualization with calendar impact
-- **Excel Export** — Workbooks with Calendar Analysis and Diagnostics sheets
-- **Multiple Formats** — JSON, SVG, Mermaid, PlantUML
+- **LSP Support** — IDE integration with hover explanations, go-to-definition, find-references
+- **WASM Playground** — Interactive browser scheduling with live Gantt preview
+- **Excel Export** — Formula-driven workbooks with auto-fit, dependency cascading, Calendar Analysis
+- **Focus View** — Filter Gantt charts by task prefix with configurable context depth
+- **Multiple Formats** — HTML, SVG, Mermaid, PlantUML, XLSX
 
 ## Quick Start
 
@@ -113,11 +116,16 @@ utf8proj check --strict project.proj    # Warnings become errors
 utf8proj schedule project.proj
 utf8proj schedule -l project.proj       # Enable resource leveling
 utf8proj schedule -V project.proj       # Verbose: show [task_id] Display Name
+utf8proj schedule --as-of 2025-03-15    # Progress-aware scheduling from status date
 
 # Generate Gantt chart
 utf8proj gantt project.proj -o timeline.svg           # SVG (default)
+utf8proj gantt project.proj -o timeline.html -f html  # Interactive HTML
 utf8proj gantt project.proj -o chart.xlsx -f xlsx     # Excel workbook
 utf8proj gantt project.proj -o chart.xlsx -f xlsx --include-calendar --include-diagnostics
+
+# Focus view (filter by task prefix)
+utf8proj gantt project.proj -o impl.html -f html --focus="impl" --context-depth=1
 
 # Fix MS Project import issues
 utf8proj fix container-deps project.proj -o fixed.proj
