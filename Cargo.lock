@@ -1957,6 +1957,7 @@ dependencies = [
  "rust_decimal",
  "rust_decimal_macros",
  "rust_xlsxwriter",
+ "serde",
  "svg",
  "thiserror 1.0.69",
  "utf8proj-core",

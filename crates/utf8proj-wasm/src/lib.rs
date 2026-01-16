@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 
 use utf8proj_core::{CollectingEmitter, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
-use utf8proj_render::{ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
+use utf8proj_render::{ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer};
 use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
 
 /// Initialize panic hook for better error messages in console
@@ -517,6 +517,35 @@ impl Playground {
         match (&self.project, &self.schedule) {
             (Some(project), Some(schedule)) => {
                 let renderer = ExcelRenderer::new();
+                renderer.render(project, schedule).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Render as Excel workbook with configuration (RFC-0009)
+    ///
+    /// # Arguments
+    /// * `config` - JSON configuration object (ExcelConfig)
+    ///   - `scale`: "daily" or "weekly" (default: "weekly")
+    ///   - `currency`: currency symbol (default: "EUR")
+    ///   - `auto_fit`: auto-fit timeframe to project (default: true)
+    ///   - `weeks`: number of weeks (if auto_fit=false, scale=weekly)
+    ///   - `days`: number of days (if auto_fit=false, scale=daily)
+    ///   - `hours_per_day`: working hours per day (default: 8.0)
+    ///   - `include_summary`: include executive summary sheet (default: true)
+    ///   - `show_dependencies`: show dependency columns (default: true)
+    ///
+    /// # Returns
+    /// Raw bytes of the XLSX file as a Vec<u8>, or empty if no schedule
+    pub fn render_xlsx_with_config(&self, config: JsValue) -> Vec<u8> {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                // Deserialize config from JavaScript, falling back to defaults
+                let config: ExcelConfig = serde_wasm_bindgen::from_value(config)
+                    .unwrap_or_default();
+
+                let renderer = config.to_renderer();
                 renderer.render(project, schedule).unwrap_or_default()
             }
             _ => Vec::new(),

@@ -718,8 +718,16 @@ function exportGantt() {
             mimeType = 'text/html';
             break;
         case 'xlsx':
-            // Excel export returns binary data (Uint8Array)
-            const xlsxBytes = playground.render_xlsx();
+            // Excel export with auto-fit configuration (RFC-0009)
+            const excelConfig = {
+                scale: 'weekly',           // 'weekly' or 'daily'
+                currency: 'EUR',           // Currency symbol
+                auto_fit: true,            // Auto-fit timeframe to project duration
+                hours_per_day: 8.0,        // Working hours per day
+                include_summary: true,     // Include executive summary sheet
+                show_dependencies: true    // Show dependency columns
+            };
+            const xlsxBytes = playground.render_xlsx_with_config(excelConfig);
             if (xlsxBytes.length === 0) {
                 setStatus('Failed to generate Excel file', 'error');
                 return;

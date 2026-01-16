@@ -61,17 +61,143 @@ use rust_xlsxwriter::{
     ConditionalFormatFormula, Format, FormatAlign, FormatBorder, Workbook, Worksheet,
 };
 use rust_decimal::prelude::ToPrimitive;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utf8proj_core::{Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask, Severity};
 
 /// Schedule time granularity for Excel export
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ScheduleGranularity {
     /// One column per calendar day (shows weekends/holidays)
     Daily,
     /// One column per week (current behavior)
     #[default]
     Weekly,
+}
+
+/// Configuration for Excel export (RFC-0009)
+///
+/// This struct is designed for JSON serialization to support WASM/browser usage.
+/// All fields have sensible defaults, so `ExcelConfig::default()` works well.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use utf8proj_render::ExcelConfig;
+///
+/// let config = ExcelConfig {
+///     scale: "daily".to_string(),
+///     currency: "USD".to_string(),
+///     auto_fit: true,
+///     ..Default::default()
+/// };
+///
+/// let renderer = config.to_renderer();
+/// ```
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExcelConfig {
+    /// Scale: "daily" or "weekly" (default: "weekly")
+    #[serde(default = "default_scale")]
+    pub scale: String,
+
+    /// Currency symbol (default: "EUR")
+    #[serde(default = "default_currency")]
+    pub currency: String,
+
+    /// Auto-fit timeframe to project duration (default: true)
+    #[serde(default = "default_true")]
+    pub auto_fit: bool,
+
+    /// Number of weeks (only used if auto_fit=false and scale=weekly)
+    #[serde(default)]
+    pub weeks: Option<u32>,
+
+    /// Number of days (only used if auto_fit=false and scale=daily)
+    #[serde(default)]
+    pub days: Option<u32>,
+
+    /// Working hours per day (default: 8.0)
+    #[serde(default = "default_hours_per_day")]
+    pub hours_per_day: f64,
+
+    /// Include executive summary sheet (default: true)
+    #[serde(default = "default_true")]
+    pub include_summary: bool,
+
+    /// Show dependency columns for formula-driven scheduling (default: true)
+    #[serde(default = "default_true")]
+    pub show_dependencies: bool,
+}
+
+fn default_scale() -> String {
+    "weekly".to_string()
+}
+
+fn default_currency() -> String {
+    "EUR".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_hours_per_day() -> f64 {
+    8.0
+}
+
+impl Default for ExcelConfig {
+    fn default() -> Self {
+        Self {
+            scale: default_scale(),
+            currency: default_currency(),
+            auto_fit: true,
+            weeks: None,
+            days: None,
+            hours_per_day: default_hours_per_day(),
+            include_summary: true,
+            show_dependencies: true,
+        }
+    }
+}
+
+impl ExcelConfig {
+    /// Convert this configuration into an ExcelRenderer
+    pub fn to_renderer(&self) -> ExcelRenderer {
+        let mut renderer = ExcelRenderer::new()
+            .currency(&self.currency)
+            .hours_per_day(self.hours_per_day);
+
+        // Apply scale
+        if self.scale == "daily" {
+            renderer = renderer.daily();
+            if !self.auto_fit {
+                if let Some(days) = self.days {
+                    renderer = renderer.days(days);
+                }
+            }
+        } else if !self.auto_fit {
+            if let Some(weeks) = self.weeks {
+                renderer = renderer.weeks(weeks);
+            }
+        }
+
+        // Apply auto-fit setting
+        if !self.auto_fit {
+            renderer = renderer.no_auto_fit();
+        }
+
+        // Apply other settings
+        if !self.include_summary {
+            renderer = renderer.no_summary();
+        }
+
+        if !self.show_dependencies {
+            renderer = renderer.no_dependencies();
+        }
+
+        renderer
+    }
 }
 
 /// Excel costing report renderer
