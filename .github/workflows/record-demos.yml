@@ -1,0 +1,79 @@
+name: Record Demo Videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      demo:
+        description: 'Demo to record'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - quickstart
+          - features
+          - all
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "crates/utf8proj-wasm"
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: |
+          cd crates/utf8proj-wasm
+          wasm-pack build --target web --out-dir ../../playground/pkg
+          rm -f ../../playground/pkg/.gitignore
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: playground/package.json
+
+      - name: Install dependencies
+        run: cd playground && npm ci || npm install
+
+      - name: Install Playwright browsers
+        run: cd playground && npx playwright install chromium --with-deps
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Record Demo
+        run: cd playground && npm run demo:${{ inputs.demo }}
+
+      - name: Convert WebM to MP4
+        run: |
+          cd playground/demo-recordings
+          for f in **/*.webm; do
+            if [ -f "$f" ]; then
+              ffmpeg -i "$f" -c:v libx264 -crf 23 -pix_fmt yuv420p "${f%.webm}.mp4"
+            fi
+          done
+
+      - name: Upload Videos
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-videos-${{ inputs.demo }}
+          path: |
+            playground/demo-recordings/**/*.mp4
+            playground/demo-recordings/**/*.webm
+          retention-days: 30
