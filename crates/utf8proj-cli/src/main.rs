@@ -1361,18 +1361,13 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
     // Dependencies
     if !task.depends.is_empty() {
         let deps: Vec<_> = task.depends.iter().map(|d| {
-            let mut dep_str = String::new();
-            // Add prefix for dependency type
+            let mut dep_str = d.predecessor.clone();
+            // Add dependency type suffix (FS is default, no suffix needed)
             match d.dep_type {
-                utf8proj_core::DependencyType::StartToStart => dep_str.push('!'),
-                utf8proj_core::DependencyType::StartToFinish => dep_str.push_str("!~"),
-                utf8proj_core::DependencyType::FinishToFinish => {}, // Will add ~ suffix
-                utf8proj_core::DependencyType::FinishToStart => {},
-            }
-            dep_str.push_str(&d.predecessor);
-            // Add suffix for FF
-            if matches!(d.dep_type, utf8proj_core::DependencyType::FinishToFinish) {
-                dep_str.push('~');
+                utf8proj_core::DependencyType::StartToStart => dep_str.push_str(" SS"),
+                utf8proj_core::DependencyType::StartToFinish => dep_str.push_str(" SF"),
+                utf8proj_core::DependencyType::FinishToFinish => dep_str.push_str(" FF"),
+                utf8proj_core::DependencyType::FinishToStart => {}, // Default, no suffix
             }
             // Add lag
             if let Some(ref lag) = d.lag {
