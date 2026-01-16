@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>utf8proj Syntax Reference</title>
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f7fa;
+            --bg-code: #f0f4f8;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --accent-color: #3182ce;
+            --border-color: #e2e8f0;
+            --keyword-color: #805ad5;
+            --string-color: #38a169;
+            --comment-color: #718096;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-primary: #1a202c;
+                --bg-secondary: #2d3748;
+                --bg-code: #2d3748;
+                --text-primary: #e2e8f0;
+                --text-secondary: #a0aec0;
+                --accent-color: #63b3ed;
+                --border-color: #4a5568;
+                --keyword-color: #b794f4;
+                --string-color: #68d391;
+                --comment-color: #718096;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        h1 .version {
+            font-size: 1rem;
+            font-weight: normal;
+            color: var(--text-secondary);
+        }
+
+        header p {
+            color: var(--text-secondary);
+        }
+
+        header a {
+            color: var(--accent-color);
+        }
+
+        nav {
+            background: var(--bg-secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+
+        nav h2 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        nav ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1.5rem;
+        }
+
+        nav a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+        section {
+            margin-bottom: 2.5rem;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h3 {
+            font-size: 1.1rem;
+            margin: 1.5rem 0 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        p {
+            margin-bottom: 1rem;
+        }
+
+        pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin-bottom: 1rem;
+        }
+
+        code {
+            font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+            font-size: 0.875em;
+            background: var(--bg-code);
+            padding: 0.15em 0.4em;
+            border-radius: 3px;
+        }
+
+        .keyword { color: var(--keyword-color); font-weight: 600; }
+        .string { color: var(--string-color); }
+        .comment { color: var(--comment-color); font-style: italic; }
+        .number { color: var(--accent-color); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-secondary);
+            font-weight: 600;
+        }
+
+        .note {
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--accent-color);
+            padding: 0.75rem 1rem;
+            margin: 1rem 0;
+            border-radius: 0 6px 6px 0;
+        }
+
+        footer {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        footer a {
+            color: var(--accent-color);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>utf8proj Syntax Reference <span class="version">v0.2.0</span></h1>
+        <p>Native DSL grammar for project scheduling. File extension: <code>.proj</code></p>
+        <p><a href="index.html">&larr; Back to Playground</a> | <a href="https://github.com/alanbld/utf8proj">GitHub Repository</a></p>
+    </header>
+
+    <nav>
+        <h2>Contents</h2>
+        <ul>
+            <li><a href="#project">Project</a></li>
+            <li><a href="#calendar">Calendar</a></li>
+            <li><a href="#resource">Resource</a></li>
+            <li><a href="#task">Task</a></li>
+            <li><a href="#dependencies">Dependencies</a></li>
+            <li><a href="#milestone">Milestone</a></li>
+            <li><a href="#duration">Duration &amp; Dates</a></li>
+        </ul>
+    </nav>
+
+    <section id="project">
+        <h2>Project Declaration</h2>
+        <p>Every project file must have exactly one project declaration.</p>
+        <pre><span class="keyword">project</span> <span class="string">"Project Name"</span> {
+    <span class="keyword">start:</span> <span class="number">2026-01-15</span>
+    <span class="keyword">end:</span> <span class="number">2026-12-31</span>          <span class="comment"># optional</span>
+    <span class="keyword">currency:</span> EUR              <span class="comment"># optional, default: USD</span>
+    <span class="keyword">calendar:</span> standard         <span class="comment"># optional, reference to calendar</span>
+    <span class="keyword">status_date:</span> <span class="number">2026-03-01</span>   <span class="comment"># optional, for progress tracking</span>
+}</pre>
+        <table>
+            <tr><th>Attribute</th><th>Required</th><th>Description</th></tr>
+            <tr><td><code>start</code></td><td>Yes</td><td>Project start date (YYYY-MM-DD)</td></tr>
+            <tr><td><code>end</code></td><td>No</td><td>Project end date constraint</td></tr>
+            <tr><td><code>currency</code></td><td>No</td><td>Currency code for cost calculations</td></tr>
+            <tr><td><code>calendar</code></td><td>No</td><td>Reference to default working calendar</td></tr>
+            <tr><td><code>status_date</code></td><td>No</td><td>As-of date for progress reporting</td></tr>
+        </table>
+    </section>
+
+    <section id="calendar">
+        <h2>Calendar Declaration</h2>
+        <p>Define working days, hours, and holidays.</p>
+        <pre><span class="keyword">calendar</span> <span class="string">"standard"</span> {
+    <span class="keyword">working_days:</span> mon-fri
+    <span class="keyword">working_hours:</span> <span class="number">09:00</span>-<span class="number">18:00</span>
+    <span class="keyword">holiday</span> <span class="string">"Christmas"</span> <span class="number">2026-12-25</span>
+    <span class="keyword">holiday</span> <span class="string">"New Year"</span> <span class="number">2026-12-31</span>..<span class="number">2027-01-01</span>
+}</pre>
+        <table>
+            <tr><th>Attribute</th><th>Description</th></tr>
+            <tr><td><code>working_days</code></td><td>Days of the week: <code>mon-fri</code>, <code>mon-sat</code>, etc.</td></tr>
+            <tr><td><code>working_hours</code></td><td>Daily working hours: <code>HH:MM-HH:MM</code></td></tr>
+            <tr><td><code>holiday</code></td><td>Single date or date range</td></tr>
+        </table>
+    </section>
+
+    <section id="resource">
+        <h2>Resource Declaration</h2>
+        <p>Define team members with rates and capacity.</p>
+        <pre><span class="keyword">resource</span> dev <span class="string">"Senior Developer"</span> {
+    <span class="keyword">rate:</span> <span class="number">500</span>/day
+    <span class="keyword">capacity:</span> <span class="number">0.8</span>             <span class="comment"># 80% availability</span>
+    <span class="keyword">efficiency:</span> <span class="number">1.2</span>           <span class="comment"># productivity factor</span>
+    <span class="keyword">email:</span> <span class="string">"dev@company.com"</span>
+    <span class="keyword">role:</span> <span class="string">"Backend Developer"</span>
+    <span class="keyword">leave:</span> <span class="number">2026-08-01</span>..<span class="number">2026-08-15</span>
+}</pre>
+        <table>
+            <tr><th>Attribute</th><th>Required</th><th>Description</th></tr>
+            <tr><td><code>rate</code></td><td>No</td><td>Cost per day or hour: <code>500/day</code>, <code>60/hour</code></td></tr>
+            <tr><td><code>capacity</code></td><td>No</td><td>Availability factor (0.0-1.0), default: 1.0</td></tr>
+            <tr><td><code>efficiency</code></td><td>No</td><td>Productivity multiplier, default: 1.0</td></tr>
+            <tr><td><code>email</code></td><td>No</td><td>Contact email</td></tr>
+            <tr><td><code>role</code></td><td>No</td><td>Job title or role description</td></tr>
+            <tr><td><code>leave</code></td><td>No</td><td>Vacation/leave date range</td></tr>
+            <tr><td><code>calendar</code></td><td>No</td><td>Custom working calendar</td></tr>
+        </table>
+    </section>
+
+    <section id="task">
+        <h2>Task Declaration</h2>
+        <p>Tasks can be nested to create a Work Breakdown Structure (WBS).</p>
+        <pre><span class="keyword">task</span> impl <span class="string">"Implementation Phase"</span> {
+    <span class="keyword">duration:</span> <span class="number">10d</span>              <span class="comment"># fixed calendar duration</span>
+    <span class="keyword">effort:</span> <span class="number">40d</span>               <span class="comment"># person-days of work</span>
+    <span class="keyword">assign:</span> dev, qa           <span class="comment"># resource assignments</span>
+    <span class="keyword">depends:</span> design           <span class="comment"># dependencies</span>
+    <span class="keyword">priority:</span> <span class="number">800</span>             <span class="comment"># higher = scheduled first</span>
+    <span class="keyword">complete:</span> <span class="number">50</span>%             <span class="comment"># progress tracking</span>
+    <span class="keyword">remaining:</span> <span class="number">3d</span>             <span class="comment"># explicit remaining work</span>
+    <span class="keyword">summary:</span> <span class="string">"Impl"</span>           <span class="comment"># short display name</span>
+    <span class="keyword">note:</span> <span class="string">"Detailed notes"</span>
+    <span class="keyword">tag:</span> backend, critical
+    <span class="keyword">cost:</span> <span class="number">5000</span>                <span class="comment"># fixed cost</span>
+    <span class="keyword">payment:</span> <span class="number">25000</span>            <span class="comment"># milestone payment</span>
+
+    <span class="comment"># Nested child task</span>
+    <span class="keyword">task</span> api <span class="string">"API Development"</span> {
+        <span class="keyword">effort:</span> <span class="number">20d</span>
+        <span class="keyword">assign:</span> dev
+    }
+}</pre>
+
+        <h3>Duration vs Effort</h3>
+        <div class="note">
+            <strong>Duration</strong> = calendar time (how many days the task spans)<br>
+            <strong>Effort</strong> = person-time (total work required)<br><br>
+            PMI Formula: <code>Duration = Effort / Total_Resource_Units</code>
+        </div>
+
+        <h3>Assignment Syntax</h3>
+        <pre><span class="keyword">assign:</span> dev                    <span class="comment"># 100% allocation</span>
+<span class="keyword">assign:</span> dev@<span class="number">50</span>%                <span class="comment"># 50% allocation</span>
+<span class="keyword">assign:</span> dev, qa@<span class="number">75</span>%           <span class="comment"># multiple resources</span>
+<span class="keyword">assign:</span> developer * <span class="number">2</span>         <span class="comment"># 2 instances of profile</span></pre>
+    </section>
+
+    <section id="dependencies">
+        <h2>Dependencies</h2>
+        <p>Four dependency types with optional lag/lead time.</p>
+        <pre><span class="keyword">depends:</span> task_a               <span class="comment"># Finish-to-Start (default)</span>
+<span class="keyword">depends:</span> task_a SS             <span class="comment"># Start-to-Start</span>
+<span class="keyword">depends:</span> task_a FF             <span class="comment"># Finish-to-Finish</span>
+<span class="keyword">depends:</span> task_a SF             <span class="comment"># Start-to-Finish</span>
+<span class="keyword">depends:</span> task_a +<span class="number">5d</span>            <span class="comment"># FS with 5-day lag</span>
+<span class="keyword">depends:</span> task_a SS +<span class="number">2d</span>        <span class="comment"># SS with 2-day lag</span>
+<span class="keyword">depends:</span> task_a -<span class="number">1d</span>            <span class="comment"># FS with 1-day lead</span>
+<span class="keyword">depends:</span> task_a, task_b        <span class="comment"># multiple dependencies</span>
+<span class="keyword">depends:</span> parent.child          <span class="comment"># hierarchical reference</span></pre>
+
+        <table>
+            <tr><th>Type</th><th>Syntax</th><th>Meaning</th></tr>
+            <tr><td>Finish-to-Start</td><td><code>FS</code> (default)</td><td>B starts when A finishes</td></tr>
+            <tr><td>Start-to-Start</td><td><code>SS</code></td><td>B starts when A starts</td></tr>
+            <tr><td>Finish-to-Finish</td><td><code>FF</code></td><td>B finishes when A finishes</td></tr>
+            <tr><td>Start-to-Finish</td><td><code>SF</code></td><td>B finishes when A starts</td></tr>
+        </table>
+    </section>
+
+    <section id="milestone">
+        <h2>Milestone Declaration</h2>
+        <p>Zero-duration markers for key dates.</p>
+        <pre><span class="keyword">milestone</span> go_live <span class="string">"Go-Live Date"</span> {
+    <span class="keyword">depends:</span> testing, documentation
+    <span class="keyword">payment:</span> <span class="number">50000</span>
+    <span class="keyword">note:</span> <span class="string">"Production deployment"</span>
+}</pre>
+        <p>Alternatively, set <code>milestone: true</code> on any task.</p>
+    </section>
+
+    <section id="duration">
+        <h2>Duration &amp; Date Formats</h2>
+
+        <h3>Duration Units</h3>
+        <pre><span class="number">5d</span>     <span class="comment"># 5 days</span>
+<span class="number">2w</span>     <span class="comment"># 2 weeks (10 working days)</span>
+<span class="number">8h</span>     <span class="comment"># 8 hours (1 day)</span>
+<span class="number">1m</span>     <span class="comment"># 1 month (~20 working days)</span></pre>
+
+        <h3>Date Format</h3>
+        <pre><span class="number">2026-01-15</span>    <span class="comment"># ISO 8601 format (YYYY-MM-DD)</span></pre>
+
+        <h3>Date Ranges</h3>
+        <pre><span class="number">2026-01-01</span>..<span class="number">2026-01-15</span>    <span class="comment"># inclusive range</span></pre>
+    </section>
+
+    <footer>
+        <p>utf8proj &mdash; Explainable Project Scheduling</p>
+        <p><a href="https://github.com/alanbld/utf8proj">GitHub</a> | <a href="index.html">Playground</a></p>
+    </footer>
+</body>
+</html>

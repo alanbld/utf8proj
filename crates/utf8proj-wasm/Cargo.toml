@@ -1,9 +1,10 @@
 [package]
 name = "utf8proj-wasm"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "WebAssembly bindings for utf8proj scheduling engine"
-license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

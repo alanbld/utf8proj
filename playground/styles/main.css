@@ -360,6 +360,36 @@ kbd {
     color: white;
 }
 
+.status-left,
+.status-center,
+.status-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.status-center {
+    flex: 1;
+    justify-content: center;
+}
+
+.status-right a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.status-right a:hover {
+    text-decoration: underline;
+}
+
+.status-right .version {
+    font-weight: 500;
+}
+
+.status-right .separator {
+    color: var(--border-color);
+}
+
 /* Modal */
 .modal {
     position: fixed;
