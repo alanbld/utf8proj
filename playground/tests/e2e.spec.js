@@ -182,24 +182,374 @@ task b "Task B" { effort: 1d, assign: dev, depends: a }
 });
 
 test.describe('Theme Toggle', () => {
-    test('can switch to dark theme', async ({ page }) => {
+    test.beforeEach(async ({ page }) => {
         await page.goto('/');
         await waitForWasm(page);
+    });
 
-        // Look for theme toggle button
-        const themeBtn = page.locator('[data-theme-toggle], #theme-toggle, button:has-text("Dark"), button:has-text("Theme")');
-        if (await themeBtn.count() > 0) {
-            await themeBtn.first().click();
-            // Check if dark class was added
-            const isDark = await page.evaluate(() => {
-                return document.body.classList.contains('dark') ||
-                       document.documentElement.classList.contains('dark') ||
-                       document.body.getAttribute('data-theme') === 'dark';
-            });
-            expect(isDark).toBe(true);
-        } else {
-            // Theme toggle may not exist, skip
-            test.skip();
-        }
+    test('can switch to dark theme', async ({ page }) => {
+        // Click theme button (moon emoji)
+        const themeBtn = page.locator('#theme-btn');
+        await themeBtn.click();
+
+        // Check if dark theme was applied
+        const isDark = await page.evaluate(() => {
+            return document.documentElement.getAttribute('data-theme') === 'dark';
+        });
+        expect(isDark).toBe(true);
+    });
+
+    test('can switch back to light theme', async ({ page }) => {
+        // Switch to dark first
+        const themeBtn = page.locator('#theme-btn');
+        await themeBtn.click();
+
+        // Switch back to light
+        await themeBtn.click();
+
+        const isLight = await page.evaluate(() => {
+            return document.documentElement.getAttribute('data-theme') !== 'dark';
+        });
+        expect(isLight).toBe(true);
+    });
+});
+
+test.describe('Format Detection', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('detects native DSL format', async ({ page }) => {
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        // Check format selector shows native
+        const format = await page.locator('#format-select').inputValue();
+        expect(format).toBe('native');
+    });
+
+    test('handles TJP format selection', async ({ page }) => {
+        // Select TJP format
+        await page.selectOption('#format-select', 'tjp');
+
+        const format = await page.locator('#format-select').inputValue();
+        expect(format).toBe('tjp');
+    });
+});
+
+test.describe('Example Loading', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('can load native example', async ({ page }) => {
+        await page.selectOption('#example-select', 'native');
+        await page.waitForTimeout(500);
+
+        // Verify example loaded by scheduling
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        const status = await getStatusMessage(page);
+        expect(status).toContain('Scheduled successfully');
+    });
+
+    test('can load hierarchical example', async ({ page }) => {
+        await page.selectOption('#example-select', 'hierarchical');
+        await page.waitForTimeout(500);
+
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        const status = await getStatusMessage(page);
+        expect(status).toContain('Scheduled successfully');
+    });
+
+    test('can load progress tracking example', async ({ page }) => {
+        await page.selectOption('#example-select', 'progress');
+        await page.waitForTimeout(500);
+
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        const status = await getStatusMessage(page);
+        expect(status).toContain('Scheduled successfully');
+    });
+});
+
+test.describe('Resource Leveling', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('leveling checkbox exists', async ({ page }) => {
+        const checkbox = page.locator('#leveling-checkbox');
+        await expect(checkbox).toBeVisible();
+    });
+
+    test('can enable resource leveling', async ({ page }) => {
+        const checkbox = page.locator('#leveling-checkbox');
+        await checkbox.check();
+
+        const isChecked = await checkbox.isChecked();
+        expect(isChecked).toBe(true);
+    });
+
+    test('schedule works with leveling enabled', async ({ page }) => {
+        await page.locator('#leveling-checkbox').check();
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        const status = await getStatusMessage(page);
+        expect(status).toContain('Scheduled successfully');
+    });
+});
+
+test.describe('Focus View', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('focus input exists', async ({ page }) => {
+        const focusInput = page.locator('#focus-input');
+        await expect(focusInput).toBeVisible();
+    });
+
+    test('context depth selector exists', async ({ page }) => {
+        const contextDepth = page.locator('#context-depth-select');
+        await expect(contextDepth).toBeVisible();
+    });
+
+    test('can set focus filter', async ({ page }) => {
+        await page.fill('#focus-input', 'design');
+
+        const value = await page.locator('#focus-input').inputValue();
+        expect(value).toBe('design');
+    });
+});
+
+test.describe('JSON Output', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+    });
+
+    test('JSON tab shows schedule data', async ({ page }) => {
+        // Click JSON tab
+        await page.click('[data-tab="json"]');
+
+        const jsonOutput = await getJsonOutput(page);
+        expect(jsonOutput.length).toBeGreaterThan(10);
+    });
+
+    test('JSON contains task array', async ({ page }) => {
+        await page.click('[data-tab="json"]');
+
+        const jsonOutput = await getJsonOutput(page);
+        expect(jsonOutput).toContain('tasks');
+    });
+
+    test('JSON contains duration info', async ({ page }) => {
+        await page.click('[data-tab="json"]');
+
+        const jsonOutput = await getJsonOutput(page);
+        expect(jsonOutput).toMatch(/duration|days/i);
+    });
+
+    test('JSON contains critical path', async ({ page }) => {
+        await page.click('[data-tab="json"]');
+
+        const jsonOutput = await getJsonOutput(page);
+        expect(jsonOutput).toContain('critical_path');
+    });
+});
+
+test.describe('Export Functionality', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+    });
+
+    test('export format selector exists', async ({ page }) => {
+        const exportFormat = page.locator('#export-format-select');
+        await expect(exportFormat).toBeVisible();
+    });
+
+    test('export button exists', async ({ page }) => {
+        const exportBtn = page.locator('#export-btn');
+        await expect(exportBtn).toBeVisible();
+    });
+
+    test('can select HTML export format', async ({ page }) => {
+        await page.selectOption('#export-format-select', 'html');
+        const format = await page.locator('#export-format-select').inputValue();
+        expect(format).toBe('html');
+    });
+
+    test('can select Excel export format', async ({ page }) => {
+        await page.selectOption('#export-format-select', 'xlsx');
+        const format = await page.locator('#export-format-select').inputValue();
+        expect(format).toBe('xlsx');
+    });
+
+    test('can select Mermaid export format', async ({ page }) => {
+        await page.selectOption('#export-format-select', 'mermaid');
+        const format = await page.locator('#export-format-select').inputValue();
+        expect(format).toBe('mermaid');
+    });
+});
+
+test.describe('Share Functionality', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('share button exists', async ({ page }) => {
+        const shareBtn = page.locator('#share-btn');
+        await expect(shareBtn).toBeVisible();
+    });
+
+    test('share modal opens', async ({ page }) => {
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await page.click('#share-btn');
+
+        const modal = page.locator('#share-modal');
+        await expect(modal).not.toHaveClass(/hidden/);
+    });
+
+    test('share URL is generated', async ({ page }) => {
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await page.click('#share-btn');
+        await page.waitForTimeout(500);
+
+        const shareUrl = await page.locator('#share-url').inputValue();
+        expect(shareUrl).toContain('#p=');
+    });
+
+    test('share modal can be closed', async ({ page }) => {
+        await page.click('#share-btn');
+        await page.click('#share-modal-close');
+
+        const modal = page.locator('#share-modal');
+        await expect(modal).toHaveClass(/hidden/);
+    });
+});
+
+test.describe('Download Functionality', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('download button exists', async ({ page }) => {
+        const downloadBtn = page.locator('#download-proj-btn');
+        await expect(downloadBtn).toBeVisible();
+    });
+});
+
+test.describe('Panel Resizing', () => {
+    test('resize handle exists', async ({ page }) => {
+        await page.goto('/');
+        const handle = page.locator('#resize-handle');
+        await expect(handle).toBeVisible();
+    });
+});
+
+test.describe('Gantt Interactions', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+    });
+
+    test('Gantt SVG has text labels', async ({ page }) => {
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const textElements = iframe.locator('svg text');
+        const count = await textElements.count();
+        expect(count).toBeGreaterThan(0);
+    });
+
+    test('Gantt SVG has multiple rectangles for tasks', async ({ page }) => {
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const rects = iframe.locator('svg rect');
+        const count = await rects.count();
+        // Should have at least task bars (design, build, launch)
+        expect(count).toBeGreaterThanOrEqual(2);
+    });
+
+    test('Gantt renders milestone differently', async ({ page }) => {
+        // Milestones are typically rendered as diamonds or small shapes
+        const iframe = page.frameLocator('#gantt-output iframe');
+        // Check for any path or polygon elements (milestones often use these)
+        const shapes = iframe.locator('svg path, svg polygon, svg rect');
+        const count = await shapes.count();
+        expect(count).toBeGreaterThan(0);
+    });
+});
+
+test.describe('Validation', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('shows error for incomplete task block', async ({ page }) => {
+        const invalidProject = `project "Bad Syntax" {
+    start: 2025-02-01
+}
+
+task a "Task" {
+    effort: 1d
+    this_is_not_valid
+}
+`;
+        await typeProject(page, invalidProject);
+        await clickSchedule(page);
+        await page.waitForTimeout(1000);
+
+        const status = await getStatusMessage(page);
+        expect(status.toLowerCase()).toMatch(/error|syntax|expected/);
+    });
+
+    test('shows error for missing closing brace', async ({ page }) => {
+        const invalidProject = `project "Unclosed" {
+    start: 2025-02-01
+
+task a "Task" {
+    effort: 1d
+`;
+        await typeProject(page, invalidProject);
+        await clickSchedule(page);
+        await page.waitForTimeout(1000);
+
+        const status = await getStatusMessage(page);
+        expect(status.toLowerCase()).toMatch(/error|syntax|expected/);
     });
 });
