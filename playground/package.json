@@ -1,0 +1,26 @@
+{
+  "name": "utf8proj-playground",
+  "version": "0.9.1",
+  "description": "Browser-based playground for utf8proj project scheduling",
+  "type": "module",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug",
+    "demo:quickstart": "RECORD_DEMO=true npx playwright test demo-quickstart --config=playwright.demo.config.js",
+    "demo:features": "RECORD_DEMO=true npx playwright test demo-features --config=playwright.demo.config.js",
+    "demo:all": "npm run demo:quickstart && npm run demo:features",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  },
+  "keywords": [
+    "utf8proj",
+    "project-scheduling",
+    "gantt",
+    "playground"
+  ],
+  "license": "MIT OR Apache-2.0"
+}
