@@ -85,10 +85,10 @@ tools/
 - **Interactive Gantt chart**: Standalone HTML output with SVG, tooltips, zoom, dependency arrows
 - **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
-- **Excel costing reports**: Formula-driven scheduling with dependency cascading
+- **Excel costing reports**: Formula-driven scheduling with dependency cascading, auto-fit timeframe
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
-## Test Coverage (as of 2026-01-10)
+## Test Coverage (as of 2026-01-16)
 
 | Module | Lines | Coverage |
 |--------|-------|----------|
@@ -114,7 +114,7 @@ tools/
 
 **All core business logic components achieve 90%+ coverage** (excluding CLI entry point).
 
-**Tests:** 769 passing, 1 ignored (render doctest)
+**Tests:** 809 passing, 4 ignored (render doctests)
 
 **Test breakdown:**
 - utf8proj-solver: 102 unit + 27 hierarchical + 13 correctness + 25 leveling + 12 progress-aware + 4 variance + 19 semantic = 202 tests
@@ -571,7 +571,14 @@ let renderer = ExcelRenderer::new()
 
 ## Recent Work Completed
 
-1. **RFC-0006: Focus View for Gantt Charts** (2026-01-15)
+1. **Excel Auto-Fit Bug Fixes** (2026-01-16)
+   - Fixed `add_schedule_sheet` to use `get_effective_weeks()` instead of `self.schedule_weeks`
+   - Fixed `calculate_auto_fit_weeks` to use actual max task finish date (not just `schedule.project_end`)
+   - Both fixes ensure all tasks are covered in week columns for long projects
+   - Affected methods updated: `write_schedule_row_simple`, `write_schedule_row_with_deps`, `write_week_columns`, `write_schedule_totals`
+   - Version bumped to 0.9.1
+
+2. **RFC-0006: Focus View for Gantt Charts** (2026-01-15)
    - Added `focus()` and `context_depth()` builder methods to `HtmlGanttRenderer`
    - Pattern matching: prefix, contains, glob patterns for task filtering
    - Context depth control: show ancestors/siblings of focused tasks
