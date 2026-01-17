@@ -638,6 +638,11 @@ impl Playground {
     pub fn get_example_progress() -> String {
         EXAMPLE_PROGRESS.to_string()
     }
+
+    /// Get focus view example demonstrating filtering large projects (RFC-0006)
+    pub fn get_example_focus() -> String {
+        EXAMPLE_FOCUS.to_string()
+    }
 }
 
 impl Default for Playground {
@@ -930,6 +935,137 @@ task future "Feature D - Not Started" {
 # Milestone tracks overall completion
 milestone sprint_end "Sprint Complete" {
     depends: future
+}
+"#;
+
+const EXAMPLE_FOCUS: &str = r#"# Focus View Example (RFC-0006)
+# Try the Focus feature to filter this large project!
+#
+# How to use Focus View:
+# 1. Enter a pattern in the "Focus" field (e.g., "backend" or "api")
+# 2. Adjust "Context Depth" to show more/less surrounding structure
+# 3. Click "Run" to see filtered Gantt chart
+#
+# Pattern examples:
+#   "backend"     - Shows all tasks containing "backend"
+#   "api"         - Shows API-related tasks
+#   "stream_a"    - Shows entire Stream A
+#   "testing"     - Shows all testing tasks
+
+project "Enterprise Platform" {
+    start: 2026-01-06
+}
+
+resource dev "Developer" { capacity: 1.0 }
+resource qa "QA Engineer" { capacity: 1.0 }
+resource devops "DevOps" { capacity: 1.0 }
+
+# Stream A: Backend Services
+task stream_a "Stream A: Backend" {
+    task backend_api "Backend API Development" {
+        task api_design "API Design" {
+            effort: 5d
+            assign: dev
+        }
+        task api_impl "API Implementation" {
+            effort: 15d
+            depends: api_design
+            assign: dev
+        }
+        task api_testing "API Testing" {
+            effort: 5d
+            depends: api_impl
+            assign: qa
+        }
+    }
+    task backend_db "Database Layer" {
+        task db_schema "Schema Design" {
+            effort: 3d
+            assign: dev
+        }
+        task db_migration "Migration Scripts" {
+            effort: 5d
+            depends: db_schema
+            assign: dev
+        }
+    }
+}
+
+# Stream B: Frontend
+task stream_b "Stream B: Frontend" {
+    task frontend_ui "UI Components" {
+        task ui_design "UI Design" {
+            effort: 5d
+            assign: dev
+        }
+        task ui_impl "UI Implementation" {
+            effort: 12d
+            depends: ui_design
+            assign: dev
+        }
+    }
+    task frontend_integration "Frontend Integration" {
+        task integration_api "API Integration" {
+            effort: 5d
+            depends: stream_a.backend_api.api_impl, stream_b.frontend_ui.ui_impl
+            assign: dev
+        }
+        task integration_testing "Integration Testing" {
+            effort: 5d
+            depends: integration_api
+            assign: qa
+        }
+    }
+}
+
+# Stream C: Infrastructure
+task stream_c "Stream C: Infrastructure" {
+    task infra_setup "Infrastructure Setup" {
+        task cloud_setup "Cloud Environment" {
+            effort: 3d
+            assign: devops
+        }
+        task ci_cd "CI/CD Pipeline" {
+            effort: 5d
+            depends: cloud_setup
+            assign: devops
+        }
+    }
+    task infra_security "Security Hardening" {
+        task security_audit "Security Audit" {
+            effort: 3d
+            depends: infra_setup.ci_cd
+            assign: devops
+        }
+        task security_fixes "Security Fixes" {
+            effort: 5d
+            depends: security_audit
+            assign: devops
+        }
+    }
+}
+
+# Final Phase: Deployment
+task deployment "Deployment Phase" {
+    task staging "Staging Deployment" {
+        effort: 2d
+        depends: stream_b.frontend_integration.integration_testing, stream_c.infra_security.security_fixes
+        assign: devops
+    }
+    task uat "User Acceptance Testing" {
+        effort: 5d
+        depends: staging
+        assign: qa
+    }
+    task production "Production Deployment" {
+        effort: 1d
+        depends: uat
+        assign: devops
+    }
+}
+
+milestone launch "Platform Launch" {
+    depends: deployment.production
 }
 "#;
 

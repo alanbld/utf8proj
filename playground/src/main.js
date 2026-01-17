@@ -512,6 +512,10 @@ function setupEventListeners() {
                 code = wasmModule ? wasmModule.Playground.get_example_progress() : '';
                 format = 'native';
                 break;
+            case 'focus':
+                code = wasmModule ? wasmModule.Playground.get_example_focus() : '';
+                format = 'native';
+                break;
             default:
                 return;
         }
