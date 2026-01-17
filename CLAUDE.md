@@ -877,6 +877,55 @@ python3 -m http.server 8080
 # Open http://localhost:8080
 ```
 
+## Clippy Lint Configuration
+
+The workspace uses strict clippy linting with `pedantic` and `nursery` lint groups enabled. CI runs `cargo clippy --workspace --all-targets -- -D warnings`, treating all warnings as errors.
+
+### Configuration Location
+
+Lint configuration is in the root `Cargo.toml` under `[workspace.lints.clippy]`:
+
+```toml
+[workspace.lints.clippy]
+# Set lint groups with lower priority so individual overrides take precedence
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Individual lints allowed below...
+must_use_candidate = "allow"
+# ... (60+ allowed lints)
+```
+
+Each crate inherits these lints via `[lints] workspace = true` in their `Cargo.toml`.
+
+### Allowed Lints
+
+The following pedantic/nursery lints are allowed because they require significant refactoring or have many false positives:
+
+| Category | Lints |
+|----------|-------|
+| Casting | `cast_precision_loss`, `cast_possible_truncation`, `cast_sign_loss`, `cast_lossless`, `cast_possible_wrap` |
+| Documentation | `missing_errors_doc`, `missing_panics_doc`, `doc_markdown` |
+| Code style | `must_use_candidate`, `return_self_not_must_use`, `use_self`, `similar_names`, `uninlined_format_args` |
+| Complexity | `too_many_lines`, `too_many_arguments`, `fn_params_excessive_bools`, `struct_excessive_bools` |
+| Performance | `redundant_clone`, `clone_on_copy`, `inefficient_to_string`, `cloned_instead_of_copied` |
+| Patterns | `match_same_arms`, `single_match`, `single_match_else`, `option_if_let_else`, `if_not_else` |
+| Misc | `items_after_statements`, `needless_pass_by_value`, `trivially_copy_pass_by_ref`, `float_cmp` |
+
+### Adding New Lint Exceptions
+
+When clippy introduces new lints or existing code triggers new warnings:
+
+1. Run `cargo clippy --workspace --all-targets -- -D warnings` locally
+2. Identify the lint name from the error (e.g., `clippy::new_lint_name`)
+3. Add to `Cargo.toml`: `new_lint_name = "allow"`
+4. Use underscore separators (e.g., `self_only_used_in_recursion`, not hyphens)
+
+### CI Cache
+
+The CI uses `Swatinem/rust-cache@v2` with `prefix-key: "v2-rust"`. If lint configuration changes aren't being picked up, increment the prefix (e.g., `v3-rust`) to force a fresh cache.
+
 ## Bugs Identified and Fixed (2026-01-04)
 
 ### TJP Parser: Choice Rule Unwrapping
