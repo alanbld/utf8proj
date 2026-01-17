@@ -18,13 +18,25 @@
   <strong><a href="https://alanbld.github.io/utf8proj/">🚀 Try the Interactive Demo</a></strong> — no install, runs in your browser
 </p>
 
-<p align="center">
-  <a href="https://youtu.be/rp5juOZq1J0?si=cG9Q81jB3y7hFusB">
-    <img src="https://img.youtube.com/vi/rp5juOZq1J0/maxresdefault.jpg" alt="utf8proj demo video" width="600">
-  </a>
-  <br>
-  <sub>▶️ Watch: 3-minute overview (AI-generated with NotebookLM)</sub>
-</p>
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="https://youtu.be/rp5juOZq1J0?si=cG9Q81jB3y7hFusB">
+        <img src="https://img.youtube.com/vi/rp5juOZq1J0/mqdefault.jpg" alt="utf8proj overview" width="320">
+      </a>
+      <br>
+      <sub>▶️ 3-min Overview</sub>
+    </td>
+    <td align="center">
+      <a href="https://www.youtube.com/watch?v=c8BVzJjnp0A">
+        <img src="https://img.youtube.com/vi/c8BVzJjnp0A/mqdefault.jpg" alt="utf8proj deep dive" width="320">
+      </a>
+      <br>
+      <sub>▶️ Deep Dive: Architecture & Design</sub>
+    </td>
+  </tr>
+</table>
+<p align="center"><sub>AI-generated with NotebookLM</sub></p>
 
 ---
 
