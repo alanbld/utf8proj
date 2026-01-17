@@ -25,7 +25,7 @@
         <img src="https://img.youtube.com/vi/rp5juOZq1J0/mqdefault.jpg" alt="utf8proj overview" width="320">
       </a>
       <br>
-      <sub>▶️ 3-min Overview</sub>
+      <sub>▶️ 10-min Overview</sub>
     </td>
     <td align="center">
       <a href="https://www.youtube.com/watch?v=c8BVzJjnp0A">
