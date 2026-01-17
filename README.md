@@ -3,133 +3,110 @@
 
   # utf8proj
 
-  **Explainable Project Scheduling for Text-Based Workflows**
+  **Explainable, deterministic project scheduling from plain text.**<br>
+  CLI + LSP + WebAssembly — schedules you can read, diff, and trust.
 </div>
 
-[![Build](https://github.com/alanbld/utf8proj/actions/workflows/ci.yml/badge.svg)](https://github.com/alanbld/utf8proj/actions)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+<p align="center">
+  <a href="https://github.com/alanbld/utf8proj/actions"><img src="https://github.com/alanbld/utf8proj/actions/workflows/ci.yml/badge.svg" alt="Build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"></a>
+  <a href="https://alanbld.github.io/utf8proj/"><img src="https://img.shields.io/badge/demo-try%20now-brightgreen.svg" alt="Demo"></a>
+</p>
 
-utf8proj is a **deterministic, explainable project scheduling engine** that transforms plain text project definitions into auditable schedules. Built on CPM (Critical Path Method) with calendar awareness, it provides transparency where traditional tools offer only black-box optimization.
+<p align="center">
+  <strong><a href="https://alanbld.github.io/utf8proj/">🚀 Try the Interactive Demo</a></strong> — no install, runs in your browser
+</p>
 
-**[Try the Interactive Demo](https://alanbld.github.io/utf8proj/)** - No installation required, runs in your browser via WebAssembly.
+<p align="center">
+  <a href="https://youtu.be/rp5juOZq1J0?si=cG9Q81jB3y7hFusB">
+    <img src="https://img.youtube.com/vi/rp5juOZq1J0/maxresdefault.jpg" alt="utf8proj demo video" width="600">
+  </a>
+  <br>
+  <sub>▶️ Watch: 3-minute overview (AI-generated with NotebookLM)</sub>
+</p>
+
+---
 
 ## Why utf8proj?
 
-| Traditional Tools | utf8proj |
-|-------------------|----------|
-| "The schedule changed" | Every change has a **traceable reason** |
-| Black-box optimization | **Deterministic** CPM + explicit leveling |
-| Binary formats | **Git-friendly** text files (`.proj`) |
-| Silent auto-correction | **Diagnostics explain**, don't fix |
-| Methodology enforcement | **Philosophy neutral** — describe reality |
+- **Explainable** — Every scheduling decision has a traceable diagnostic code. No black boxes.
+- **Deterministic** — Same input always produces the same output. Perfect for CI/CD and audits.
+- **Git-friendly** — Plain text `.proj` files you can diff, review, and version control.
 
-### Core Philosophy
+---
 
-utf8proj follows a **"describe, don't prescribe"** approach. It explains *why* schedules look the way they do, without enforcing specific project management methodologies or silently "fixing" your model.
+## Quick Start (60 seconds)
 
-Read our [Explainability Manifesto](docs/EXPLAINABILITY.md) for the full philosophy.
-
-## Key Capabilities
-
-### Scheduling & Analysis
-- **CPM Scheduling** — Critical path calculation with FS/SS/FF/SF dependencies and lag
-- **Deterministic Resource Leveling** — Opt-in conflict resolution with complete audit trail
-- **Calendar-Aware** — Working days, weekends, holidays with impact quantification
-- **Progress-Aware Scheduling** — Status date resolution, remaining duration calculation, forecasts
-- **Earned Value Analysis** — Variance detection (SPI), baseline vs forecast comparison
-- **Hierarchical Tasks** — Nested task structures with automatic container date derivation
-
-### Explainability & Diagnostics
-- **40+ Diagnostic Codes** across multiple categories:
-  - **E***: Errors (circular dependencies, infeasible constraints)
-  - **W***: Warnings (overallocation, wide cost ranges)
-  - **H***: Hints (unused profiles, unconstrained tasks)
-  - **I***: Info (utilization summaries, project status, earned value)
-  - **C***: Calendar issues (C001-C023)
-  - **L***: Leveling decisions (L001-L004)
-  - **P***: Progress tracking (P005-P006 remaining vs complete conflicts)
-- **CalendarImpact Analysis** — Working days vs calendar days per task
-- **Diagnostic→Task Linking** — Trace every diagnostic to affected tasks
-
-### Tooling & Integration
-- **LSP Support** — IDE integration with hover explanations, go-to-definition, find-references
-- **WASM Playground** — Interactive browser scheduling with live Gantt preview
-- **Excel Export** — Formula-driven workbooks with auto-fit, dependency cascading, Calendar Analysis
-- **Focus View** — Filter Gantt charts by task prefix with configurable context depth
-- **Multiple Formats** — HTML, SVG, Mermaid, PlantUML, XLSX
-
-## Quick Start
-
-### Installation
-
-```bash
-# From source
-git clone https://github.com/alanbld/utf8proj.git
-cd utf8proj
-cargo install --path crates/utf8proj-cli
-```
-
-### Create a Project File
+**1. Create `example.proj`:**
 
 ```proj
-# project.proj
+project "Sprint 1" { start: 2025-02-01 }
 
-project "Website Redesign" {
-    start: 2025-02-01
-    currency: USD
-}
+resource dev "Developer" { rate: 850/day }
 
-calendar "standard" {
-    working_days: mon-fri
-    working_hours: 09:00-17:00
-}
-
-resource designer "UI Designer" { rate: 750/day }
-resource developer "Developer" { rate: 850/day }
-
-task design "Design Phase" {
-    task wireframes "Wireframes" { effort: 3d, assign: designer }
-    task mockups "Mockups" { effort: 5d, assign: designer, depends: wireframes }
-}
-
-task development "Development" {
-    depends: design
-
-    task frontend "Frontend" { effort: 10d, assign: developer }
-    task backend "Backend" { effort: 8d, assign: developer }
-}
-
-milestone launch "Launch" {
-    depends: development
-}
+task design "Design" { effort: 3d, assign: dev }
+task build "Build" { effort: 5d, assign: dev, depends: design }
+milestone done "Done" { depends: build }
 ```
 
-### Generate Schedule
+**2. Install and run:**
 
 ```bash
-# Validate project (fast, no scheduling)
-utf8proj check project.proj
-utf8proj check --strict project.proj    # Warnings become errors
-
-# Compute and display schedule
-utf8proj schedule project.proj
-utf8proj schedule -l project.proj       # Enable resource leveling
-utf8proj schedule -V project.proj       # Verbose: show [task_id] Display Name
-utf8proj schedule --as-of 2025-03-15    # Progress-aware scheduling from status date
-
-# Generate Gantt chart
-utf8proj gantt project.proj -o timeline.svg           # SVG (default)
-utf8proj gantt project.proj -o timeline.html -f html  # Interactive HTML
-utf8proj gantt project.proj -o chart.xlsx -f xlsx     # Excel workbook
-utf8proj gantt project.proj -o chart.xlsx -f xlsx --include-calendar --include-diagnostics
-
-# Focus view (filter by task prefix)
-utf8proj gantt project.proj -o impl.html -f html --focus="impl" --context-depth=1
-
-# Fix MS Project import issues
-utf8proj fix container-deps project.proj -o fixed.proj
+cargo install --path crates/utf8proj-cli
+utf8proj schedule example.proj
 ```
+
+**3. Or try instantly in the browser:** [alanbld.github.io/utf8proj](https://alanbld.github.io/utf8proj/)
+
+---
+
+## What You Get
+
+| Component | Purpose |
+|-----------|---------|
+| `utf8proj` CLI | Schedule, validate, render Gantt charts |
+| `utf8proj-lsp` | IDE support: hover, go-to-definition, diagnostics |
+| WASM Playground | Browser-based scheduling with live preview |
+| Renderers | HTML, SVG, Mermaid, PlantUML, Excel (XLSX) |
+
+### Scheduling & Analysis
+- **CPM Scheduling** — Critical path with FS/SS/FF/SF dependencies and lag
+- **Resource Leveling** — Deterministic conflict resolution with audit trail
+- **Calendar-Aware** — Working days, weekends, holidays with impact analysis
+- **Progress Tracking** — Status date, remaining duration, earned value (SPI)
+- **Focus View** — Filter large Gantt charts by task prefix
+
+### 40+ Diagnostic Codes
+Every decision is explained:
+- **E***: Errors (circular deps, infeasible constraints)
+- **W***: Warnings (overallocation, wide cost ranges)
+- **L***: Leveling decisions (L001-L004)
+- **C***: Calendar impact (C001-C023)
+- **P***: Progress tracking (P005-P006)
+
+---
+
+## CLI Examples
+
+```bash
+# Validate (fast, CI-friendly)
+utf8proj check project.proj --strict
+
+# Schedule with leveling
+utf8proj schedule -l project.proj
+
+# Interactive HTML Gantt
+utf8proj gantt project.proj -o timeline.html -f html
+
+# Excel workbook with calendar analysis
+utf8proj gantt project.proj -o report.xlsx -f xlsx --include-calendar
+
+# Focus on specific tasks
+utf8proj gantt project.proj -o backend.html -f html --focus="backend"
+```
+
+---
 
 ## Library Usage
 
@@ -137,99 +114,44 @@ utf8proj fix container-deps project.proj -o fixed.proj
 use utf8proj_core::{Project, Task, Resource, Duration, Scheduler};
 use utf8proj_solver::CpmSolver;
 
-// Build a project programmatically
 let mut project = Project::new("My Project");
 project.start = chrono::NaiveDate::from_ymd_opt(2025, 2, 1).unwrap();
-project.resources = vec![Resource::new("dev").capacity(1.0)];
 project.tasks = vec![
     Task::new("design").effort(Duration::days(5)),
-    Task::new("implement")
-        .effort(Duration::days(10))
-        .depends_on("design")
-        .assign("dev"),
+    Task::new("build").effort(Duration::days(10)).depends_on("design"),
 ];
 
-// Schedule
-let solver = CpmSolver::new();
-let schedule = solver.schedule(&project)?;
-
-println!("Project ends: {}", schedule.project_end);
-println!("Critical path: {:?}", schedule.critical_path);
-
-// With resource leveling
 let solver = CpmSolver::with_leveling();
 let schedule = solver.schedule(&project)?;
+println!("Critical path: {:?}", schedule.critical_path);
 ```
+
+---
 
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
 | [Quick Reference](QUICK_REFERENCE.md) | DSL syntax cheat sheet |
-| [Grammar Specification](docs/GRAMMAR.md) | Complete `.proj` file syntax |
-| [Diagnostics Reference](docs/DIAGNOSTICS.md) | All diagnostic codes and meanings |
-| [Explainability Manifesto](docs/EXPLAINABILITY.md) | Core philosophy and design principles |
-| [Design Philosophy](docs/DESIGN_PHILOSOPHY.md) | Architectural decisions |
-| [Editor Setup](docs/EDITOR_SETUP.md) | VS Code, Neovim, Vim, Zed, Sublime Text |
-| [Tutorial](docs/tutorial.md) | Getting started guide |
+| [Grammar Spec](docs/GRAMMAR.md) | Complete `.proj` syntax |
+| [Diagnostics](docs/DIAGNOSTICS.md) | All diagnostic codes |
+| [Editor Setup](docs/EDITOR_SETUP.md) | VS Code, Neovim, Vim, Zed |
+| [Explainability Manifesto](docs/EXPLAINABILITY.md) | Design philosophy |
+
+---
 
 ## Comparison
 
 | Feature | utf8proj | TaskJuggler | MS Project |
 |---------|----------|-------------|------------|
-| **File Format** | Text (.proj) | Text (.tjp) | Binary (.mpp) |
-| **Version Control** | Excellent | Good | Poor |
-| **Explainability** | First-class | Limited | None |
-| **Resource Leveling** | Deterministic | Optimizer | Black box |
-| **Calendar Diagnostics** | 23 codes | None | None |
-| **License** | MIT/Apache-2.0 | GPL-2.0 | Commercial |
-| **Single Binary** | Yes | No (Ruby) | No |
+| File Format | Text (.proj) | Text (.tjp) | Binary (.mpp) |
+| Version Control | Excellent | Good | Poor |
+| Explainability | First-class | Limited | None |
+| Resource Leveling | Deterministic | Optimizer | Black box |
+| License | MIT/Apache-2.0 | GPL-2.0 | Commercial |
+| Single Binary | Yes | No (Ruby) | No |
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│                .proj Files                  │
-│          (Plain Text, Git-Friendly)         │
-└─────────────────────────────────────────────┘
-                     │
-┌─────────────────────────────────────────────┐
-│           utf8proj-parser                   │
-│      (pest grammar → Project model)         │
-└─────────────────────────────────────────────┘
-                     │
-┌─────────────────────────────────────────────┐
-│           utf8proj-solver                   │
-│  (CPM scheduling, leveling, diagnostics)    │
-└─────────────────────────────────────────────┘
-                     │
-┌─────────────────────────────────────────────┐
-│         utf8proj-render + core              │
-│   (Excel, SVG, Mermaid, CalendarImpact)     │
-└─────────────────────────────────────────────┘
-                     │
-     ┌───────────────┼───────────────┐
-     │               │               │
-┌────▼─────┐   ┌────▼─────┐   ┌─────▼────┐
-│   CLI    │   │   LSP    │   │  WASM    │
-│          │   │ (Editor) │   │(Browser) │
-└──────────┘   └──────────┘   └──────────┘
-```
-
-## Companion Tools
-
-### MS Project Converter
-
-Convert Microsoft Project (`.mpp`) files to utf8proj's native format:
-
-```bash
-cd tools/mpp_to_proj
-./setup_companion.sh
-source .venv/bin/activate
-python mpp_to_proj.py project.mpp
-```
-
-See [tools/mpp_to_proj/README.md](tools/mpp_to_proj/README.md) for details.
+---
 
 ## Development
 
@@ -238,23 +160,13 @@ git clone https://github.com/alanbld/utf8proj
 cd utf8proj
 cargo build --workspace
 cargo test --workspace
-
-# Run coverage
-cargo tarpaulin --workspace --out Stdout
 ```
+
+---
 
 ## License
 
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
-
-## Acknowledgments
-
-utf8proj is inspired by [TaskJuggler](https://taskjuggler.org/), a pioneering text-based project management tool. utf8proj is a clean-room implementation focused on **explainability** — making scheduling decisions transparent and auditable.
+Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 
 ---
 
