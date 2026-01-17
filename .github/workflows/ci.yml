@@ -23,6 +23,9 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          # Prefix cache key to invalidate stale caches when lint config changes
+          prefix-key: "v2-rust"
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -51,6 +54,8 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust"
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
