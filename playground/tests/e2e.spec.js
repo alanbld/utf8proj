@@ -280,6 +280,57 @@ test.describe('Example Loading', () => {
         const status = await getStatusMessage(page);
         expect(status).toContain('Scheduled successfully');
     });
+
+    test('can load focus view example', async ({ page }) => {
+        await page.selectOption('#example-select', 'focus');
+        await page.waitForTimeout(500);
+
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        const status = await getStatusMessage(page);
+        expect(status).toContain('Scheduled successfully');
+    });
+
+    test('focus example filters tasks when pattern applied', async ({ page }) => {
+        // Load the focus example (large project with multiple streams)
+        await page.selectOption('#example-select', 'focus');
+        // Wait for editor to update with the focus example content
+        await page.waitForFunction(() => {
+            const models = window.monaco?.editor?.getModels();
+            return models && models[0]?.getValue().includes('Enterprise Platform');
+        }, { timeout: 5000 });
+
+        // Schedule without focus
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Verify unfiltered view shows both backend and frontend tasks
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const unfilteredHtml = await iframe.locator('body').innerHTML();
+        expect(unfilteredHtml).toContain('Backend'); // Has backend tasks
+        expect(unfilteredHtml).toContain('Frontend'); // Has frontend tasks
+
+        // Count text elements (task labels) in unfiltered view
+        const unfilteredLabels = (unfilteredHtml.match(/<text/g) || []).length;
+
+        // Apply focus pattern to filter to backend tasks only
+        await page.fill('#focus-input', 'backend');
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await waitForGantt(page);
+
+        // Verify filtered view has fewer task labels
+        const filteredHtml = await iframe.locator('body').innerHTML();
+        const filteredLabels = (filteredHtml.match(/<text/g) || []).length;
+
+        // Focus should reduce the number of visible task labels
+        expect(filteredLabels).toBeLessThan(unfilteredLabels);
+        // But should still show some content (not empty)
+        expect(filteredLabels).toBeGreaterThan(0);
+    });
 });
 
 test.describe('Resource Leveling', () => {

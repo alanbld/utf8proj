@@ -266,3 +266,52 @@ milestone golive "Go Live" {
     await hideSubtitle(page);
     await page.waitForTimeout(1000);
 });
+
+(skipDemo ? test.skip : test)('Focus View Demo', async ({ page }) => {
+    await page.goto('/');
+    await waitForWasm(page);
+    await waitForEditor(page);
+    await injectSubtitleOverlay(page);
+
+    // SCENE 1: Introduction - Large project problem
+    await showSubtitle(page, 'Focus View: Cut Through the Noise (RFC-0006)', 3000);
+    await hideSubtitle(page);
+    await page.waitForTimeout(500);
+
+    // SCENE 2: Load large project
+    await showSubtitle(page, 'Large project with 20+ tasks across 4 streams', 2500);
+    await page.selectOption('#example-select', 'focus');
+    await page.waitForTimeout(500);
+    await hideSubtitle(page);
+    await page.waitForTimeout(500);
+
+    // SCENE 3: Show overwhelming Gantt
+    await clickSchedule(page);
+    await waitForSchedule(page);
+    await clickGanttTab(page);
+    await waitForGantt(page);
+
+    await showSubtitle(page, 'Full Gantt: hard to find what you need', 2500);
+    await hideSubtitle(page);
+    await page.waitForTimeout(1500);
+
+    // SCENE 4: Apply focus filter
+    await showSubtitle(page, 'Enter "backend" in the Focus field', 2000);
+    await page.fill('#focus-input', 'backend');
+    await hideSubtitle(page);
+    await page.waitForTimeout(500);
+
+    // SCENE 5: Re-schedule with focus
+    await clickSchedule(page);
+    await waitForSchedule(page);
+    await page.waitForTimeout(500);
+
+    await showSubtitle(page, 'Now showing only backend-related tasks', 2500);
+    await hideSubtitle(page);
+    await page.waitForTimeout(2000);
+
+    // SCENE 6: Finale
+    await showSubtitle(page, 'Focus on what matters, hide the rest', 2500);
+    await hideSubtitle(page);
+    await page.waitForTimeout(1000);
+});
