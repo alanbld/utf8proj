@@ -701,6 +701,16 @@ fn date_to_working_days(project_start: NaiveDate, target: NaiveDate, calendar: &
     working_days
 }
 
+/// Advance a date to the next working day if it falls on a non-working day.
+/// Used for "no earlier than" constraints where we need to round forward.
+fn advance_to_working_day(date: NaiveDate, calendar: &Calendar) -> NaiveDate {
+    let mut current = date;
+    while !calendar.is_working_day(current) {
+        current = current + TimeDelta::days(1);
+    }
+    current
+}
+
 /// Result of topological sort including precomputed successor map
 struct TopoSortResult {
     /// Tasks in topological order
@@ -2830,16 +2840,36 @@ impl Scheduler for CpmSolver {
                         let mut min_finish: Option<i64> = None;
                         for constraint in &task.constraints {
                             match constraint {
-                                TaskConstraint::MustStartOn(date)
-                                | TaskConstraint::StartNoEarlierThan(date) => {
+                                TaskConstraint::MustStartOn(date) => {
+                                    // MustStartOn pins to exact date (or next working day if non-working)
+                                    let effective_date = advance_to_working_day(*date, &calendar);
                                     let constraint_days =
-                                        date_to_working_days(project.start, *date, &calendar);
+                                        date_to_working_days(project.start, effective_date, &calendar);
                                     es = es.max(constraint_days);
                                 }
-                                TaskConstraint::MustFinishOn(date)
-                                | TaskConstraint::FinishNoEarlierThan(date) => {
+                                TaskConstraint::StartNoEarlierThan(date) => {
+                                    // SNET: if constraint date is non-working, round FORWARD to next working day
+                                    // Example: SNET=Sunday → task starts Monday (not Friday)
+                                    let effective_date = advance_to_working_day(*date, &calendar);
                                     let constraint_days =
-                                        date_to_working_days(project.start, *date, &calendar);
+                                        date_to_working_days(project.start, effective_date, &calendar);
+                                    es = es.max(constraint_days);
+                                }
+                                TaskConstraint::MustFinishOn(date) => {
+                                    // MustFinishOn pins to exact date (or next working day if non-working)
+                                    let effective_date = advance_to_working_day(*date, &calendar);
+                                    let constraint_days =
+                                        date_to_working_days(project.start, effective_date, &calendar);
+                                    let exclusive_ef = constraint_days + 1;
+                                    min_finish = Some(
+                                        min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                    );
+                                }
+                                TaskConstraint::FinishNoEarlierThan(date) => {
+                                    // FNET: if constraint date is non-working, round FORWARD to next working day
+                                    let effective_date = advance_to_working_day(*date, &calendar);
+                                    let constraint_days =
+                                        date_to_working_days(project.start, effective_date, &calendar);
                                     let exclusive_ef = constraint_days + 1;
                                     min_finish = Some(
                                         min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),

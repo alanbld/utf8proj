@@ -364,3 +364,94 @@ fn feasible_window_fits() {
     assert_eq!(schedule.tasks["bounded"].finish, date(2025, 1, 17));
     assert_eq!(schedule.tasks["bounded"].slack, Duration::zero());
 }
+
+// =============================================================================
+// Non-Working Day Constraint Tests
+// =============================================================================
+
+#[test]
+fn snet_on_sunday_rounds_forward_to_monday() {
+    // Bug reproduction: SNET constraint on a non-working day should round FORWARD
+    // to the next working day, not backward to the previous working day.
+    //
+    // Example: SNET = 2025-01-12 (Sunday)
+    // Expected: task starts on 2025-01-13 (Monday)
+    // Bug: task was starting on 2025-01-10 (Friday)
+    let mut project = Project::new("SNET Sunday Test");
+    project.start = date(2025, 1, 6); // Monday
+
+    let mut task = Task::new("constrained").effort(Duration::days(5));
+    task.constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 12))); // Sunday!
+    project.tasks.push(task);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Task should start on Monday 2025-01-13 (next working day after Sunday)
+    // NOT Friday 2025-01-10 (previous working day)
+    assert_eq!(
+        schedule.tasks["constrained"].start,
+        date(2025, 1, 13),
+        "SNET on Sunday should round forward to Monday, not backward to Friday"
+    );
+}
+
+#[test]
+fn snet_milestone_on_weekend_rounds_forward() {
+    // Same bug for milestones (which have zero duration)
+    let mut project = Project::new("SNET Milestone Weekend");
+    project.start = date(2025, 1, 6); // Monday
+
+    let mut milestone = Task::new("milestone");
+    milestone.milestone = true;
+    milestone
+        .constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 11))); // Saturday!
+    project.tasks.push(milestone);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Milestone should be on Monday 2025-01-13 (next working day after weekend)
+    assert_eq!(
+        schedule.tasks["milestone"].start,
+        date(2025, 1, 13),
+        "SNET milestone on Saturday should round forward to Monday"
+    );
+}
+
+#[test]
+fn nested_milestone_snet_on_weekend() {
+    // Reproduce the exact bug from CTL PIII: nested milestone with SNET on weekend
+    let mut project = Project::new("Nested SNET");
+    project.start = date(2025, 1, 6); // Monday
+
+    // Container with a nested milestone
+    let mut container = Task::new("container");
+    container.name = "Container".to_string();
+
+    let mut child = Task::new("child").effort(Duration::days(3));
+    child.name = "Child".to_string();
+
+    let mut milestone = Task::new("release");
+    milestone.name = "Release".to_string();
+    milestone.milestone = true;
+    milestone
+        .constraints
+        .push(TaskConstraint::StartNoEarlierThan(date(2025, 1, 19))); // Sunday!
+
+    container.children.push(child);
+    container.children.push(milestone);
+    project.tasks.push(container);
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Nested milestone should be on Monday 2025-01-20 (next working day)
+    assert_eq!(
+        schedule.tasks["container.release"].start,
+        date(2025, 1, 20),
+        "Nested milestone SNET on Sunday should round forward to Monday"
+    );
+}
