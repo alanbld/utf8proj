@@ -253,11 +253,123 @@ Milestones that previously snapped to working days will now schedule on their ac
 
 ---
 
-## 11. Open Questions
+## 11. Phase 2 Design Decisions (Finalized)
 
-* Should regimes be visualized explicitly in reports?
-* Should dependencies be validated across incompatible regimes?
-* When to expose user-defined regimes?
+The following decisions are **authoritative** for Phase 2 implementation.
+
+### 11.1 Grammar Design — `regime:` as Task Attribute
+
+**Decision:** `regime:` MUST be a task attribute, not a declaration modifier.
+
+```proj
+task "Release v1.0" {
+    regime: event
+    start_no_earlier_than: 2024-06-03
+}
+```
+
+**Rationale:**
+- Consistency with `duration:`, `depends:`, `milestone:`
+- Orthogonality: regime describes *temporal semantics*, not *task kind*
+- Parser simplicity: no grammar explosion
+- No redundancy: avoids `task event milestone "X"` confusion
+
+**Default resolution:**
+- `milestone: true` ⇒ implicit `event`
+- otherwise ⇒ implicit `work`
+
+### 11.2 Validation Strategy — Informative, Not Punitive
+
+**Decision:** Use diagnostics (Info/Warning), not hard errors.
+
+| Situation | Diagnostic | Severity | Code |
+|-----------|------------|----------|------|
+| Event regime + non-zero duration | "Event tasks are typically point-in-time" | Info | R001 |
+| Work regime + constraint on non-working day | "Will round to next working day" | Info | R002 |
+| Deadline regime without deadline constraint | "Deadline regime without deadline" | Warning | R003 |
+| Milestone without explicit regime | "Implicit Event regime applied" | Info | R004 |
+
+**Explicitly allowed:**
+- Multi-day events (conferences, audits)
+- Work tasks constrained on weekends (floor semantics)
+
+> **Principle:** utf8proj should **teach**, not forbid.
+
+### 11.3 Mixed-Regime Dependencies — Silent by Default
+
+**Decision:** Correct behavior is silent; diagnostics are opt-in.
+
+When a `work` task depends on an `event` task on Sunday, the work task starts Monday.
+This is **correct and intuitive** — no diagnostic needed by default.
+
+**Diagnostic emitted only when:**
+- `--explain` or `--verbose` flag is set
+- Date shift is materially significant
+
+```
+info[R005]: Work task scheduled after Event dependency
+  Approval (Event): Sunday 2024-06-02
+  Implementation (Work): Monday 2024-06-03
+```
+
+### 11.4 Structural Scope — Regimes Are Leaf-Semantic
+
+**Decision:** Regimes apply to leaf tasks only. Containers MUST NOT declare regimes.
+
+| Case | Behavior |
+|------|----------|
+| Container with no regime | Valid (normal case) |
+| Container with explicit regime | ❌ Error |
+| Children with mixed regimes | Valid |
+| Milestone container | Allowed (summary event) |
+
+**Rationale:**
+- Containers aggregate heterogeneous temporal semantics
+- Containers have no intrinsic duration semantics
+- Allowing regimes on containers creates contradictions
+
+### 11.5 Extensibility — Designed, Not Exposed
+
+**Decision:** No user-defined regimes in Phase 2. Internal design allows future extension.
+
+```rust
+pub enum TemporalRegime {
+    Work,
+    Event,
+    Deadline,
+    // Reserved for future: Custom(String)
+}
+```
+
+Work / Event / Deadline covers ~95% of real projects. Custom regimes deferred until real demand.
+
+### 11.6 Phase 2 Implementation Checklist
+
+#### Grammar (utf8proj-parser)
+- [ ] Add `regime_attr` to grammar: `regime: work | event | deadline`
+- [ ] Parse regime in task block
+- [ ] Update serializer for round-trip
+
+#### Core Types (utf8proj-core)
+- [ ] Add `TemporalRegime` enum
+- [ ] Add `Task.regime: Option<TemporalRegime>`
+- [ ] Add `Task.effective_regime()` method (resolves implicit)
+- [ ] Add diagnostic codes R001-R005
+
+#### Solver (utf8proj-solver)
+- [ ] Refactor constraint handling to use `effective_regime()`
+- [ ] Remove `is_milestone` special-casing (use regime instead)
+- [ ] Emit R001-R005 diagnostics in `analyze_project()`
+
+#### CLI (utf8proj-cli)
+- [ ] Add `--explain` flag for verbose regime diagnostics
+
+#### Tests
+- [ ] Explicit `regime: event` on non-milestone task
+- [ ] Explicit `regime: work` on milestone (override)
+- [ ] Mixed-regime dependency chain
+- [ ] Container with explicit regime (error)
+- [ ] Deadline regime basics
 
 ---
 
@@ -270,7 +382,20 @@ They resolve real bugs, clarify semantics, simplify the solver, and position utf
 > *Calendars describe when we can work.*
 > *Regimes describe what time means.*
 
+This is not a scheduling tweak — it is a **conceptual correction** that crosses utf8proj from "tool" into **language**.
+
 ---
 
-**Recommendation:**
-Approve Phase 1 for immediate inclusion, with Phase 2 targeted for 0.10.
+## 13. Status
+
+| Phase | Status | Version |
+|-------|--------|---------|
+| Phase 1: Implicit regimes | ✅ Implemented | v0.9.4 |
+| Phase 2: Explicit `regime:` syntax | 📝 Design Finalized | v0.10+ |
+
+**Next steps:**
+1. Implement Phase 2 grammar and parser
+2. Add `TemporalRegime` enum to core types
+3. Refactor solver to use `effective_regime()`
+4. Add R001-R005 diagnostics
+5. Write acceptance tests
