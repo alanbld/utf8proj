@@ -3105,9 +3105,10 @@ impl Scheduler for CpmSolver {
             .map(|(i, id)| (id, i))
             .collect();
 
+        // Critical path includes all tasks with zero slack (including milestones)
         let mut critical_path: Vec<TaskId> = nodes
             .iter()
-            .filter(|(_, node)| node.slack == 0 && node.duration_days > 0)
+            .filter(|(_, node)| node.slack == 0)
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -3233,7 +3234,7 @@ impl Scheduler for CpmSolver {
                     duration: Duration::days(node.original_duration_days),
                     assignments,
                     slack: Duration::days(node.slack),
-                    is_critical: node.slack == 0 && node.duration_days > 0,
+                    is_critical: node.slack == 0, // Milestones can be critical too
                     early_start: working_day_cache.get(node.early_start),
                     early_finish: if node.duration_days > 0 {
                         working_day_cache.get(node.early_finish - 1)
@@ -3839,6 +3840,34 @@ mod tests {
 
         assert_eq!(schedule.tasks["done"].duration, Duration::zero());
         assert_eq!(schedule.tasks["done"].start, schedule.tasks["done"].finish);
+    }
+
+    #[test]
+    fn milestone_can_be_critical() {
+        // Regression test: milestones with zero slack should be marked critical
+        // Previously, milestones were excluded from critical path due to duration_days > 0 check
+        let mut project = Project::new("Milestone Critical Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.tasks = vec![
+            Task::new("work").effort(Duration::days(5)),
+            Task::new("release").milestone().depends_on("work"),
+        ];
+
+        let solver = CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+
+        // Both tasks should be critical (linear chain)
+        assert!(schedule.tasks["work"].is_critical, "work should be critical");
+        assert!(
+            schedule.tasks["release"].is_critical,
+            "milestone should be critical when it has zero slack"
+        );
+
+        // Critical path should include milestone
+        assert!(
+            schedule.critical_path.contains(&"release".to_string()),
+            "critical_path should include the milestone"
+        );
     }
 
     #[test]
