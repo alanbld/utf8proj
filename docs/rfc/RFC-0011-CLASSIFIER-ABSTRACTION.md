@@ -121,28 +121,28 @@ crates/utf8proj-cli/src/
 ## Implementation Plan
 
 ### Day 1
-- [ ] Create RFC document
-- [ ] Add `classifier.rs` to utf8proj-core
-- [ ] Implement `Classifier` trait
-- [ ] Implement `group_by` function
-- [ ] Write 10+ unit tests
+- [x] Create RFC document
+- [x] Add `classifier.rs` to utf8proj-core (inline in lib.rs)
+- [x] Implement `Classifier` trait
+- [x] Implement `group_by` function
+- [x] Write 10+ unit tests
 
 ### Day 2
-- [ ] Implement `StatusClassifier`
-- [ ] Add CLI `classify` command
-- [ ] Integration tests with example files
+- [x] Implement `StatusClassifier`
+- [x] Add CLI `classify` command
+- [x] Integration tests with example files
 
 ### Day 3
-- [ ] Documentation
-- [ ] Performance verification
-- [ ] Mark RFC as Implemented
+- [x] Documentation
+- [x] Performance verification
+- [x] Mark RFC as Implemented
 
 ## Success Criteria
 
-- [ ] 12+ tests passing
-- [ ] No regression in existing 813 tests
-- [ ] CLI command works with example projects
-- [ ] New classifier implementable in <30 minutes
+- [x] 12+ tests passing (18 tests)
+- [x] No regression in existing tests
+- [x] CLI command works with example projects
+- [x] New classifier implementable in <30 minutes
 
 ## Future Extensions (Explicitly Deferred)
 
