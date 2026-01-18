@@ -17,15 +17,15 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 | [RFC-0009](RFC-0009-EXCEL-WASM-EXPORT.md) | Excel WASM Export | 📝 Draft | 2026-01-16 |
 | [RFC-0010](RFC-0010-AUTOMATED-TESTING-AND-DEMOS.md) | Automated Testing and Demos | ⚠️ Partial | 2026-01-16 |
 | [RFC-0011](RFC-0011-CLASSIFIER-ABSTRACTION.md) | Classifier Abstraction | ✅ Implemented | 2026-01-16 |
-| [RFC-0012](RFC-0012-TEMPORAL-REGIMES.md) | Temporal Regimes | 📝 Draft | 2026-01-18 |
+| [RFC-0012](RFC-0012-TEMPORAL-REGIMES.md) | Temporal Regimes | ⚠️ Phase 1 | 2026-01-18 |
 
 ## Implementation Summary
 
 | Category | Count | RFCs |
 |----------|-------|------|
 | ✅ Fully Implemented | 7 | 0001, 0002, 0003, 0004, 0006, 0008, 0011 |
-| ⚠️ Partially Implemented | 2 | 0005 (Phase 1), 0010 (videos only) |
-| 📝 Design Only | 3 | 0007, 0009, 0012 |
+| ⚠️ Partially Implemented | 3 | 0005 (Phase 1), 0010 (videos only), 0012 (Phase 1) |
+| 📝 Design Only | 2 | 0007, 0009 |
 
 ## Status Definitions
 

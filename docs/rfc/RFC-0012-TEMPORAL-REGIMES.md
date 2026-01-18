@@ -1,6 +1,6 @@
 # RFC 0012 — Temporal Regimes: Explicit Time Semantics for Tasks and Events
 
-**Status:** Draft
+**Status:** Phase 1 Implemented (v0.9.4)
 **Author:** utf8proj core team
 **Created:** 2026-01-18
 **Target Version:** ≥ 0.10
