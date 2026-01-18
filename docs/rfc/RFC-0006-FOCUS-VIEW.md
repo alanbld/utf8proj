@@ -158,9 +158,9 @@ utf8proj gantt m2c.proj --focus="6.3.2" --context-depth=0
 
 ## Acceptance Criteria
 
-- [ ] `--focus` pattern correctly identifies tasks to expand
-- [ ] Non-focused containers render as collapsed bars
-- [ ] Collapsed bars span min(start) to max(finish) of children
-- [ ] Visual distinction between collapsed and expanded states
-- [ ] Ancestors of focused tasks are visible (to show hierarchy context)
-- [ ] Works with SVG, HTML, and Mermaid output formats
+- [x] `--focus` pattern correctly identifies tasks to expand
+- [x] Non-focused containers render as collapsed bars
+- [x] Collapsed bars span min(start) to max(finish) of children
+- [x] Visual distinction between collapsed and expanded states
+- [x] Ancestors of focused tasks are visible (to show hierarchy context)
+- [x] Works with HTML output format (SVG/Mermaid deferred)

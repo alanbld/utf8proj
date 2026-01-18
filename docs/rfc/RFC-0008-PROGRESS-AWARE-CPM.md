@@ -208,50 +208,50 @@ All acceptance tests are in `crates/utf8proj-solver/tests/progress_aware_cpm.rs`
 
 ### Phase A: Core Types (utf8proj-core)
 
-- [ ] Add `Project.status_date: Option<NaiveDate>`
-- [ ] Add `Task.explicit_remaining: Option<Duration>`
-- [ ] Add `DiagnosticCode::P005RemainingCompleteConflict`
-- [ ] Add `DiagnosticCode::P006ContainerCompleteOverride`
-- [ ] Update `Project::new()` defaults
-- [ ] Update `Task::new()` defaults
+- [x] Add `Project.status_date: Option<NaiveDate>`
+- [x] Add `Task.explicit_remaining: Option<Duration>`
+- [x] Add `DiagnosticCode::P005RemainingCompleteConflict`
+- [x] Add `DiagnosticCode::P006ContainerCompleteOverride`
+- [x] Update `Project::new()` defaults
+- [x] Update `Task::new()` defaults
 
 ### Phase B: Solver (utf8proj-solver)
 
-- [ ] Add `CpmSolver.status_date_override: Option<NaiveDate>`
-- [ ] Add `CpmSolver::with_status_date()` constructor
-- [ ] Add `effective_status_date()` method
-- [ ] Implement Rule 1: completed task locking
-- [ ] Implement Rule 2: in-progress scheduling from status_date
-- [ ] Ensure Rule 3: future tasks unchanged
-- [ ] Add P005 emission in `analyze_project()`
-- [ ] Add P006 emission in `analyze_project()`
+- [x] Add `CpmSolver.status_date_override: Option<NaiveDate>`
+- [x] Add `CpmSolver::with_status_date()` constructor
+- [x] Add `effective_status_date()` method
+- [x] Implement Rule 1: completed task locking
+- [x] Implement Rule 2: in-progress scheduling from status_date
+- [x] Ensure Rule 3: future tasks unchanged
+- [x] Add P005 emission in `analyze_project()`
+- [x] Add P006 emission in `analyze_project()`
 
 ### Phase C: Parser (utf8proj-parser)
 
-- [ ] Add `status_date_attr` to grammar
-- [ ] Add `remaining_attr` to grammar
-- [ ] Parse status_date in project block
-- [ ] Parse remaining in task block
-- [ ] Update serializer for round-trip
+- [x] Add `status_date_attr` to grammar
+- [x] Add `remaining_attr` to grammar
+- [x] Parse status_date in project block
+- [x] Parse remaining in task block
+- [x] Update serializer for round-trip
 
 ### Phase D: CLI (utf8proj-cli)
 
-- [ ] Add `--as-of` flag to schedule command
-- [ ] Add `--as-of` flag to gantt command
-- [ ] Add `--as-of` flag to check command
-- [ ] Pass status_date to solver
+- [x] Add `--as-of` flag to schedule command
+- [x] Add `--as-of` flag to gantt command
+- [x] Add `--as-of` flag to check command
+- [x] Pass status_date to solver
 
 ### Phase E: Test Enablement
 
-- [ ] Enable test_02 (partial progress)
-- [ ] Enable test_02b (explicit remaining)
-- [ ] Enable test_03 (future tasks)
-- [ ] Enable test_04 (dependency chain)
-- [ ] Enable test_06 (status_date field)
-- [ ] Enable test_06b (CLI override)
-- [ ] Enable test_07 (P005)
-- [ ] Enable test_08 (P006)
-- [ ] Enable test_08b (threshold)
+- [x] Enable test_02 (partial progress)
+- [x] Enable test_02b (explicit remaining)
+- [x] Enable test_03 (future tasks)
+- [x] Enable test_04 (dependency chain)
+- [x] Enable test_06 (status_date field)
+- [x] Enable test_06b (CLI override)
+- [x] Enable test_07 (P005)
+- [x] Enable test_08 (P006)
+- [x] Enable test_08b (threshold)
 
 ---
 

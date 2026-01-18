@@ -1,8 +1,8 @@
 # RFC-0010: Automated Testing and Demo Recording
 
-**Status:** Implemented
+**Status:** Partial (Demo Videos Only)
 **Created:** 2026-01-16
-**Implemented:** 2026-01-16
+**Implemented:** 2026-01-16 (videos only, E2E tests deferred)
 **Author:** Claude + Human collaboration
 
 ## Summary
@@ -381,11 +381,11 @@ milestone launch "Launch" { depends: build }
 
 ## Success Criteria
 
-- [ ] 39 E2E tests passing on CI
-- [ ] 5 demo videos recorded (total ~20 minutes)
-- [ ] Demo videos linked from README
-- [ ] HTML test report published on failures
-- [ ] <5% test flakiness rate
+- [ ] 39 E2E tests passing on CI (deferred)
+- [x] 2 demo videos recorded (~15 minutes total)
+- [x] Demo videos linked from README
+- [ ] HTML test report published on failures (deferred)
+- [ ] <5% test flakiness rate (deferred)
 
 ## Risks
 
