@@ -9,7 +9,8 @@ use std::str::FromStr;
 
 use utf8proj_core::{
     Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, RateRange, Resource,
-    ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus, TimeRange, Trait,
+    ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus, TemporalRegime,
+    TimeRange, Trait,
 };
 
 use crate::ParseError;
@@ -210,6 +211,15 @@ fn parse_status(pair: Pair<Rule>) -> TaskStatus {
         "at_risk" => TaskStatus::AtRisk,
         "on_hold" => TaskStatus::OnHold,
         _ => TaskStatus::NotStarted, // Default
+    }
+}
+
+fn parse_regime(pair: Pair<Rule>) -> TemporalRegime {
+    match pair.as_str() {
+        "work" => TemporalRegime::Work,
+        "event" => TemporalRegime::Event,
+        "deadline" => TemporalRegime::Deadline,
+        _ => TemporalRegime::Work, // Default
     }
 }
 
@@ -798,6 +808,10 @@ fn parse_milestone_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseEr
             task.attributes
                 .insert("payment".to_string(), num_pair.as_str().to_string());
         }
+        Rule::task_regime => {
+            let regime_pair = inner.into_inner().next().unwrap();
+            task.regime = Some(parse_regime(regime_pair));
+        }
         _ => {}
     }
     Ok(())
@@ -902,6 +916,10 @@ fn parse_task_attr(pair: Pair<Rule>, task: &mut Task) -> Result<(), ParseError> 
         Rule::task_status => {
             let status_pair = inner.into_inner().next().unwrap();
             task.status = Some(parse_status(status_pair));
+        }
+        Rule::task_regime => {
+            let regime_pair = inner.into_inner().next().unwrap();
+            task.regime = Some(parse_regime(regime_pair));
         }
         _ => {}
     }
@@ -2207,5 +2225,67 @@ resource_profile intern {
         } else {
             panic!("Expected rate range");
         }
+    }
+
+    #[test]
+    fn parse_task_with_regime() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+task work "Development" {
+    effort: 10d
+    regime: work
+}
+
+task review "Go-Live Approval" {
+    duration: 0d
+    milestone: true
+    regime: event
+}
+
+task deadline_task "Contract Deadline" {
+    duration: 1d
+    regime: deadline
+}
+"#;
+        let project = parse(input).expect("Failed to parse task with regime");
+        assert_eq!(project.tasks.len(), 3);
+
+        // Work regime (explicit)
+        assert_eq!(project.tasks[0].regime, Some(TemporalRegime::Work));
+
+        // Event regime (explicit)
+        assert_eq!(project.tasks[1].regime, Some(TemporalRegime::Event));
+        assert!(project.tasks[1].milestone);
+
+        // Deadline regime
+        assert_eq!(project.tasks[2].regime, Some(TemporalRegime::Deadline));
+    }
+
+    #[test]
+    fn parse_milestone_with_regime() {
+        let input = r#"
+project "Test" { start: 2025-01-01 }
+
+milestone release "Release v1.0" {
+    depends: dev
+    regime: event
+}
+
+milestone work_milestone "Checkpoint" {
+    depends: review
+    regime: work
+}
+"#;
+        let project = parse(input).expect("Failed to parse milestone with regime");
+        assert_eq!(project.tasks.len(), 2);
+
+        // Milestone with event regime (default for milestones)
+        assert!(project.tasks[0].milestone);
+        assert_eq!(project.tasks[0].regime, Some(TemporalRegime::Event));
+
+        // Milestone explicitly set to work regime (override)
+        assert!(project.tasks[1].milestone);
+        assert_eq!(project.tasks[1].regime, Some(TemporalRegime::Work));
     }
 }

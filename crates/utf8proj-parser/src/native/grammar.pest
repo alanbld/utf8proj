@@ -207,6 +207,7 @@ task_attr = {
     task_actual_finish |
     task_remaining |
     task_status |
+    task_regime |
     task_note |
     task_tag |
     task_cost |
@@ -216,6 +217,7 @@ task_attr = {
 milestone_attr = {
     task_summary |
     task_depends |
+    task_regime |
     task_note |
     task_payment
 }
@@ -232,6 +234,7 @@ task_actual_start = { "actual_start" ~ ":" ~ date }
 task_actual_finish = { "actual_finish" ~ ":" ~ date }
 task_remaining = { "remaining" ~ ":" ~ duration }
 task_status = { "status" ~ ":" ~ status_keyword }
+task_regime = { "regime" ~ ":" ~ regime_keyword }
 task_note = { "note" ~ ":" ~ string }
 task_tag = { "tag" ~ ":" ~ identifier_list }
 task_cost = { "cost" ~ ":" ~ number }
@@ -245,6 +248,13 @@ status_keyword = {
     "blocked" |
     "at_risk" |
     "on_hold"
+}
+
+// Temporal regime keywords (RFC-0012)
+regime_keyword = {
+    "work" |
+    "event" |
+    "deadline"
 }
 
 // Dependencies

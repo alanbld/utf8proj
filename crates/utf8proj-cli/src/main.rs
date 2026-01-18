@@ -55,6 +55,10 @@ enum Commands {
         /// Show only calendar diagnostics (C001-C023)
         #[arg(long)]
         calendars: bool,
+
+        /// Show detailed explanations for each diagnostic code
+        #[arg(long)]
+        explain: bool,
     },
 
     /// Schedule a project
@@ -111,6 +115,10 @@ enum Commands {
         /// Format: YYYY-MM-DD. Overrides project.status_date.
         #[arg(long, value_name = "DATE")]
         as_of: Option<String>,
+
+        /// Show detailed explanations for each diagnostic code
+        #[arg(long)]
+        explain: bool,
     },
 
     /// Generate a Gantt chart
@@ -279,7 +287,8 @@ fn main() -> Result<()> {
             strict,
             quiet,
             calendars,
-        }) => cmd_check(&file, &format, strict, quiet, calendars),
+            explain,
+        }) => cmd_check(&file, &format, strict, quiet, calendars, explain),
         Some(Commands::Schedule {
             file,
             format,
@@ -294,6 +303,7 @@ fn main() -> Result<()> {
             width,
             calendars,
             as_of,
+            explain,
         }) => cmd_schedule(
             &file,
             &format,
@@ -308,6 +318,7 @@ fn main() -> Result<()> {
             width,
             calendars,
             as_of.as_deref(),
+            explain,
         ),
         Some(Commands::Gantt {
             file,
@@ -392,6 +403,7 @@ fn cmd_check(
     strict: bool,
     quiet: bool,
     calendars: bool,
+    explain: bool,
 ) -> Result<()> {
     // Parse the file
     let project =
@@ -434,6 +446,7 @@ fn cmd_check(
         strict,
         quiet,
         base_path: file.parent().map(|p| p.to_path_buf()),
+        explain,
     };
 
     // Filter diagnostics if --calendars flag is set (clone to get owned Diagnostics)
@@ -517,6 +530,7 @@ fn cmd_schedule(
     width: usize,
     calendars: bool,
     as_of: Option<&str>,
+    explain: bool,
 ) -> Result<()> {
     // Parse the file
     let project =
@@ -552,6 +566,7 @@ fn cmd_schedule(
             strict,
             quiet,
             base_path: file.parent().map(|p| p.to_path_buf()),
+            explain,
         };
         let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config.clone());
 
@@ -623,6 +638,7 @@ fn cmd_schedule(
                 strict,
                 quiet,
                 base_path: file.parent().map(|p| p.to_path_buf()),
+                explain,
             };
             let mut term_emitter = TerminalEmitter::new(std::io::stderr(), diag_config);
             for diag in collector.sorted() {
@@ -719,6 +735,7 @@ fn cmd_schedule(
         strict,
         quiet,
         base_path: file.parent().map(|p| p.to_path_buf()),
+        explain,
     };
 
     // Filter diagnostics if --calendars flag is set (clone to get owned Diagnostics)
@@ -1876,6 +1893,11 @@ fn serialize_task(output: &mut String, task: &utf8proj_core::Task, indent: usize
     // Payment (from attributes)
     if let Some(payment) = task.attributes.get("payment") {
         output.push_str(&format!("{}payment: {}\n", inner_indent, payment));
+    }
+
+    // Temporal Regime (RFC-0012) - only serialize if explicitly set
+    if let Some(ref regime) = task.regime {
+        output.push_str(&format!("{}regime: {}\n", inner_indent, regime));
     }
 
     // Children (recursive)

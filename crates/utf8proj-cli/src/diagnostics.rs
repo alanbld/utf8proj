@@ -107,6 +107,8 @@ pub struct DiagnosticConfig {
     pub quiet: bool,
     /// Base path to strip from file paths (for reproducible output)
     pub base_path: Option<PathBuf>,
+    /// Show detailed explanations for each diagnostic code
+    pub explain: bool,
 }
 
 impl Default for DiagnosticConfig {
@@ -115,6 +117,7 @@ impl Default for DiagnosticConfig {
             strict: false,
             quiet: false,
             base_path: None,
+            explain: false,
         }
     }
 }
@@ -269,6 +272,12 @@ impl<W: Write> TerminalEmitter<W> {
         // Hints
         for hint in &diagnostic.hints {
             writeln!(self.writer, "   = hint: {}", hint)?;
+        }
+
+        // Explanation (--explain flag)
+        if self.config.explain {
+            writeln!(self.writer, "   |")?;
+            writeln!(self.writer, "   = explain: {}", diagnostic.code.explain())?;
         }
 
         // Trailing newline for readability
@@ -647,6 +656,7 @@ mod tests {
             strict: true,
             quiet: true,
             base_path: None,
+            explain: false,
         };
         let mut emitter = TerminalEmitter::new(&mut output, config);
 

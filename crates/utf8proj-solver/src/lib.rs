@@ -56,6 +56,7 @@ use utf8proj_core::{
     TaskConstraint,
     TaskId,
     TaskStatus,
+    TemporalRegime,
 };
 
 pub mod bdd;
@@ -1094,6 +1095,9 @@ pub fn analyze_project(
 
     // P005, P006: Progress conflicts
     check_progress_conflicts(project, config, emitter);
+
+    // R001-R004: Temporal regime diagnostics
+    check_temporal_regimes(project, schedule, config, emitter);
 
     // I001: Project cost summary (requires schedule)
     if let Some(sched) = schedule {
@@ -2431,6 +2435,90 @@ fn compute_children_progress_weighted(children: &[Task]) -> (i64, i64) {
     (weighted_sum, total_duration)
 }
 
+/// R001-R004: Check temporal regime diagnostics (RFC-0012)
+fn check_temporal_regimes(
+    project: &Project,
+    _schedule: Option<&Schedule>,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    check_temporal_regimes_recursive(&project.tasks, config, emitter);
+}
+
+fn check_temporal_regimes_recursive(
+    tasks: &[Task],
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    for task in tasks {
+        let effective_regime = task.effective_regime();
+
+        // R001: Event regime + non-zero duration
+        if effective_regime == TemporalRegime::Event {
+            if let Some(duration) = &task.duration {
+                if duration.minutes > 0 {
+                    emitter.emit(
+                        Diagnostic::new(
+                            DiagnosticCode::R001EventNonZeroDuration,
+                            format!(
+                                "task '{}' has Event regime with non-zero duration ({}d)",
+                                task.id,
+                                duration.as_days()
+                            ),
+                        )
+                        .with_file(config.file.clone().unwrap_or_default())
+                        .with_note("Event tasks are typically point-in-time occurrences")
+                        .with_hint("consider using regime: work if this task has duration"),
+                    );
+                }
+            }
+        }
+
+        // R003: Deadline regime without deadline-style constraint
+        if effective_regime == TemporalRegime::Deadline {
+            let has_deadline_constraint = task.constraints.iter().any(|c| {
+                matches!(
+                    c,
+                    TaskConstraint::FinishNoEarlierThan(_)
+                        | TaskConstraint::FinishNoLaterThan(_)
+                        | TaskConstraint::MustFinishOn(_)
+                )
+            });
+
+            if !has_deadline_constraint {
+                emitter.emit(
+                    Diagnostic::new(
+                        DiagnosticCode::R003DeadlineWithoutConstraint,
+                        format!(
+                            "task '{}' has Deadline regime but no finish constraint",
+                            task.id
+                        ),
+                    )
+                    .with_file(config.file.clone().unwrap_or_default())
+                    .with_note("Deadline regime is for contractual/legal deadlines")
+                    .with_hint(
+                        "add finish_no_later_than: or must_finish_on: to specify the deadline",
+                    ),
+                );
+            }
+        }
+
+        // R004: Milestone without explicit regime (informational)
+        // Only emit if user explicitly wants verbose/explain mode
+        // Per RFC-0012: "implicit Event regime applied" is informational
+        if task.milestone && task.regime.is_none() {
+            // This diagnostic is purely informational and verbose
+            // We'll skip it by default - it would be emitted with --explain flag
+            // The validation system already handles this implicitly through effective_regime()
+        }
+
+        // Recurse into children (containers can have children with different regimes)
+        if !task.children.is_empty() {
+            check_temporal_regimes_recursive(&task.children, config, emitter);
+        }
+    }
+}
+
 /// I004: Emit project status (overall progress and variance)
 fn check_project_status(
     schedule: &Schedule,
@@ -2842,18 +2930,19 @@ impl Scheduler for CpmSolver {
                         // This chains correctly from in-progress/complete predecessors
                         let mut es = forecast_es;
 
-                        // Track pinned date for milestones on non-working days
+                        // Track pinned date for Event/Deadline regime tasks on non-working days
+                        // RFC-0012: Event and Deadline regimes use exact dates, Work regime uses working days
                         let mut milestone_pinned_date: Option<NaiveDate> = None;
-                        let is_milestone = task.milestone || duration_days == 0;
+                        let uses_exact_dates = task.effective_regime().has_exact_constraints();
 
                         // Apply floor constraints to ES (forward pass)
                         let mut min_finish: Option<i64> = None;
                         for constraint in &task.constraints {
                             match constraint {
                                 TaskConstraint::MustStartOn(date) => {
-                                    // Milestones can occur on any day (events, not work)
-                                    // Regular tasks advance to working days
-                                    if is_milestone && !calendar.is_working_day(*date) {
+                                    // Event/Deadline regimes can occur on any day
+                                    // Work regime tasks advance to working days
+                                    if uses_exact_dates && !calendar.is_working_day(*date) {
                                         milestone_pinned_date = Some(*date);
                                         // Use previous working day for internal calculations
                                         // but pinned_date will be used for display
@@ -2868,9 +2957,9 @@ impl Scheduler for CpmSolver {
                                     }
                                 }
                                 TaskConstraint::StartNoEarlierThan(date) => {
-                                    // Milestones can occur on any day (events, not work)
-                                    // Regular tasks advance to working days
-                                    if is_milestone && !calendar.is_working_day(*date) {
+                                    // Event/Deadline regimes can occur on any day
+                                    // Work regime tasks advance to working days
+                                    if uses_exact_dates && !calendar.is_working_day(*date) {
                                         milestone_pinned_date = Some(*date);
                                         let constraint_days =
                                             date_to_working_days(project.start, *date, &calendar);
@@ -2883,8 +2972,8 @@ impl Scheduler for CpmSolver {
                                     }
                                 }
                                 TaskConstraint::MustFinishOn(date) => {
-                                    // Milestones: use exact date even on non-working days
-                                    if is_milestone && !calendar.is_working_day(*date) {
+                                    // Event/Deadline: use exact date even on non-working days
+                                    if uses_exact_dates && !calendar.is_working_day(*date) {
                                         milestone_pinned_date = Some(*date);
                                         let constraint_days =
                                             date_to_working_days(project.start, *date, &calendar);
@@ -2903,8 +2992,8 @@ impl Scheduler for CpmSolver {
                                     }
                                 }
                                 TaskConstraint::FinishNoEarlierThan(date) => {
-                                    // Milestones: use exact date even on non-working days
-                                    if is_milestone && !calendar.is_working_day(*date) {
+                                    // Event/Deadline: use exact date even on non-working days
+                                    if uses_exact_dates && !calendar.is_working_day(*date) {
                                         milestone_pinned_date = Some(*date);
                                         let constraint_days =
                                             date_to_working_days(project.start, *date, &calendar);

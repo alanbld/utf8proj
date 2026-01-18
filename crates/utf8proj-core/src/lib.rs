@@ -654,6 +654,9 @@ pub struct Task {
     pub explicit_remaining: Option<Duration>,
     /// Task status for progress tracking
     pub status: Option<TaskStatus>,
+    /// Explicit temporal regime (RFC-0012)
+    /// When None, derived from `milestone` field: milestone → Event, otherwise → Work
+    pub regime: Option<TemporalRegime>,
     /// Custom attributes
     pub attributes: HashMap<String, String>,
 }
@@ -679,6 +682,7 @@ impl Task {
             actual_finish: None,
             explicit_remaining: None,
             status: None,
+            regime: None,
             attributes: HashMap::new(),
         }
     }
@@ -930,6 +934,51 @@ impl Task {
         self.status = Some(status);
         self
     }
+
+    // ========================================================================
+    // Temporal Regime Methods (RFC-0012)
+    // ========================================================================
+
+    /// Set the temporal regime (builder pattern)
+    pub fn with_regime(mut self, regime: TemporalRegime) -> Self {
+        self.regime = Some(regime);
+        self
+    }
+
+    /// Get the effective temporal regime for this task.
+    ///
+    /// Resolution order:
+    /// 1. Explicit `regime` field (if set)
+    /// 2. Implicit derivation: milestone → Event, otherwise → Work
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use utf8proj_core::{Task, TemporalRegime};
+    ///
+    /// // Default task → Work regime
+    /// let task = Task::new("implement");
+    /// assert_eq!(task.effective_regime(), TemporalRegime::Work);
+    ///
+    /// // Milestone → Event regime
+    /// let milestone = Task::new("release").milestone();
+    /// assert_eq!(milestone.effective_regime(), TemporalRegime::Event);
+    ///
+    /// // Explicit regime overrides
+    /// let work_milestone = Task::new("effort_milestone")
+    ///     .milestone()
+    ///     .with_regime(TemporalRegime::Work);
+    /// assert_eq!(work_milestone.effective_regime(), TemporalRegime::Work);
+    /// ```
+    pub fn effective_regime(&self) -> TemporalRegime {
+        self.regime.unwrap_or_else(|| {
+            if self.milestone {
+                TemporalRegime::Event
+            } else {
+                TemporalRegime::Work
+            }
+        })
+    }
 }
 
 /// Task dependency with type and lag
@@ -1077,6 +1126,77 @@ pub enum TaskConstraint {
     FinishNoEarlierThan(NaiveDate),
     /// Task must finish by this date
     FinishNoLaterThan(NaiveDate),
+}
+
+// ============================================================================
+// Temporal Regimes (RFC-0012)
+// ============================================================================
+
+/// Temporal Regime defines how time behaves for a task (RFC-0012).
+///
+/// A regime determines:
+/// - Which days advance time (working days vs calendar days)
+/// - How constraints round (or don't)
+/// - How durations are interpreted
+///
+/// Tasks operate under exactly one regime, intrinsic to their nature.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TemporalRegime {
+    /// Work regime (default): effort-bearing tasks.
+    /// - Advances on working days only
+    /// - Floor constraints (SNET, FNET) round forward to next working day
+    /// - Ceiling constraints (SNLT, FNLT) round backward to previous working day
+    /// - Duration means effort days
+    #[default]
+    Work,
+
+    /// Event regime: point-in-time occurrences.
+    /// - Advances on all calendar days
+    /// - Constraints are honored exactly (no rounding)
+    /// - Duration is typically zero (but non-zero allowed for multi-day events)
+    /// - Default for milestones
+    Event,
+
+    /// Deadline regime: exact-date obligations.
+    /// - Advances on calendar days
+    /// - Constraints are honored exactly (no rounding)
+    /// - Duration means calendar days
+    Deadline,
+}
+
+impl TemporalRegime {
+    /// Returns true if this regime uses working days for time advancement
+    pub fn uses_working_days(&self) -> bool {
+        matches!(self, TemporalRegime::Work)
+    }
+
+    /// Returns true if constraints should be honored exactly (no rounding)
+    pub fn has_exact_constraints(&self) -> bool {
+        matches!(self, TemporalRegime::Event | TemporalRegime::Deadline)
+    }
+}
+
+impl std::fmt::Display for TemporalRegime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TemporalRegime::Work => write!(f, "work"),
+            TemporalRegime::Event => write!(f, "event"),
+            TemporalRegime::Deadline => write!(f, "deadline"),
+        }
+    }
+}
+
+impl std::str::FromStr for TemporalRegime {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "work" => Ok(TemporalRegime::Work),
+            "event" => Ok(TemporalRegime::Event),
+            "deadline" => Ok(TemporalRegime::Deadline),
+            _ => Err(format!("unknown regime: '{}' (expected: work, event, deadline)", s)),
+        }
+    }
 }
 
 // ============================================================================
@@ -1799,6 +1919,18 @@ pub enum DiagnosticCode {
     P005RemainingCompleteConflict,
     /// Container's explicit progress conflicts with weighted children average
     P006ContainerProgressMismatch,
+
+    // Temporal Regimes (R) - RFC-0012 diagnostics
+    /// Event regime task has non-zero duration (events are typically point-in-time)
+    R001EventNonZeroDuration,
+    /// Work regime task has constraint on non-working day (will round to working day)
+    R002WorkConstraintOnNonWorkingDay,
+    /// Deadline regime without deadline-style constraint (FNET/FNLT)
+    R003DeadlineWithoutConstraint,
+    /// Milestone using implicit Event regime (informational)
+    R004ImplicitEventRegime,
+    /// Work task scheduled after Event dependency on non-working day
+    R005MixedRegimeDependency,
 }
 
 impl DiagnosticCode {
@@ -1842,6 +1974,11 @@ impl DiagnosticCode {
             DiagnosticCode::L004MilestoneDelayed => "L004",
             DiagnosticCode::P005RemainingCompleteConflict => "P005",
             DiagnosticCode::P006ContainerProgressMismatch => "P006",
+            DiagnosticCode::R001EventNonZeroDuration => "R001",
+            DiagnosticCode::R002WorkConstraintOnNonWorkingDay => "R002",
+            DiagnosticCode::R003DeadlineWithoutConstraint => "R003",
+            DiagnosticCode::R004ImplicitEventRegime => "R004",
+            DiagnosticCode::R005MixedRegimeDependency => "R005",
         }
     }
 
@@ -1887,6 +2024,12 @@ impl DiagnosticCode {
             // Progress diagnostics (P005-P006)
             DiagnosticCode::P005RemainingCompleteConflict => Severity::Warning,
             DiagnosticCode::P006ContainerProgressMismatch => Severity::Warning,
+            // Temporal Regimes diagnostics (R001-R005)
+            DiagnosticCode::R001EventNonZeroDuration => Severity::Info,
+            DiagnosticCode::R002WorkConstraintOnNonWorkingDay => Severity::Info,
+            DiagnosticCode::R003DeadlineWithoutConstraint => Severity::Warning,
+            DiagnosticCode::R004ImplicitEventRegime => Severity::Info,
+            DiagnosticCode::R005MixedRegimeDependency => Severity::Info,
         }
     }
 
@@ -1946,6 +2089,148 @@ impl DiagnosticCode {
             // Progress diagnostics (grouped with schedule variance)
             DiagnosticCode::P005RemainingCompleteConflict => 17,
             DiagnosticCode::P006ContainerProgressMismatch => 18,
+            // Temporal Regimes diagnostics (after leveling, grouped together)
+            DiagnosticCode::R001EventNonZeroDuration => 55,
+            DiagnosticCode::R002WorkConstraintOnNonWorkingDay => 56,
+            DiagnosticCode::R003DeadlineWithoutConstraint => 57,
+            DiagnosticCode::R004ImplicitEventRegime => 58,
+            DiagnosticCode::R005MixedRegimeDependency => 59,
+        }
+    }
+
+    /// Returns a detailed explanation for this diagnostic code.
+    /// Used by `--explain` flag to help users understand diagnostics.
+    pub fn explain(&self) -> &'static str {
+        match self {
+            // Errors
+            DiagnosticCode::E001CircularSpecialization =>
+                "Profile inheritance forms a cycle (A specializes B, B specializes A). \
+                 Break the cycle by removing one specialization or restructuring the hierarchy.",
+            DiagnosticCode::E002ProfileWithoutRate =>
+                "A profile used in cost-bearing assignments has no rate defined. \
+                 Add a rate to the profile or use a concrete resource with a rate.",
+            DiagnosticCode::E003InfeasibleConstraint =>
+                "The task's constraint cannot be satisfied given its dependencies. \
+                 Early start (ES) > Late start (LS) indicates scheduling conflict.",
+
+            // Rate/Profile errors
+            DiagnosticCode::R102InvertedRateRange =>
+                "Rate range has min > max. Swap the values or correct the range definition.",
+            DiagnosticCode::R104UnknownProfile =>
+                "Profile references a parent that doesn't exist. Check the specializes: declaration.",
+
+            // Calendar errors
+            DiagnosticCode::C001ZeroWorkingHours =>
+                "Calendar defines no working hours. Add working_hours to the calendar definition.",
+            DiagnosticCode::C002NoWorkingDays =>
+                "Calendar has no working days. Add at least one working day (1-5 for Mon-Fri).",
+
+            // Warnings
+            DiagnosticCode::W001AbstractAssignment =>
+                "Task is assigned to an abstract profile instead of a concrete resource. \
+                 Consider assigning to a specific resource for accurate scheduling.",
+            DiagnosticCode::W002WideCostRange =>
+                "Task cost estimate has high uncertainty (>100% spread between min/max). \
+                 Review resource assignments or rate ranges.",
+            DiagnosticCode::W003UnknownTrait =>
+                "Profile references a trait that is not defined. Add the trait definition or remove the reference.",
+            DiagnosticCode::R012TraitMultiplierStack =>
+                "Combined trait multipliers exceed 2.0x. This may indicate excessive rate inflation.",
+            DiagnosticCode::W004ApproximateLeveling =>
+                "Resource leveling could not fully resolve all conflicts. \
+                 Some over-allocations may remain. Consider reducing task concurrency.",
+            DiagnosticCode::W005ConstraintZeroSlack =>
+                "Constraint reduces task slack to zero, placing it on the critical path. \
+                 Any delay to this task will delay the project.",
+            DiagnosticCode::W006ScheduleVariance =>
+                "Task is slipping beyond acceptable threshold. \
+                 Current forecast exceeds baseline by more than configured limit.",
+            DiagnosticCode::W007UnresolvedDependency =>
+                "Task depends on a task that does not exist. Check the depends: reference for typos.",
+            DiagnosticCode::W014ContainerDependency =>
+                "Container task has dependencies but its children don't inherit them. \
+                 Consider moving dependencies to leaf tasks for MS Project compatibility.",
+
+            // Calendar warnings
+            DiagnosticCode::C010NonWorkingDay =>
+                "Task is scheduled on a non-working day (weekend or holiday). \
+                 Use Event regime for tasks that can occur on any day.",
+            DiagnosticCode::C011CalendarMismatch =>
+                "Task and its assigned resource use different calendars. \
+                 This may cause scheduling inconsistencies.",
+
+            // Hints
+            DiagnosticCode::H001MixedAbstraction =>
+                "Task has both abstract (profile) and concrete (resource) assignments. \
+                 This is valid but may complicate cost estimation.",
+            DiagnosticCode::H002UnusedProfile =>
+                "Profile is defined but never assigned to any task. Consider removing it.",
+            DiagnosticCode::H003UnusedTrait =>
+                "Trait is defined but not used by any profile. Consider removing it.",
+            DiagnosticCode::H004TaskUnconstrained =>
+                "Task has no constraints or dependencies, allowing maximum flexibility. \
+                 Consider adding constraints if a specific schedule is required.",
+
+            // Calendar hints
+            DiagnosticCode::C020LowAvailability =>
+                "Calendar has very limited working hours. This may extend task durations significantly.",
+            DiagnosticCode::C021MissingCommonHoliday =>
+                "Calendar does not include common holidays. Consider adding them for accurate scheduling.",
+            DiagnosticCode::C022SuspiciousHours =>
+                "Calendar working hours seem unusual (e.g., >12h/day). Verify this is intentional.",
+            DiagnosticCode::C023RedundantHoliday =>
+                "Holiday falls on a non-working day (already excluded). This has no scheduling effect.",
+
+            // Info
+            DiagnosticCode::I001ProjectCostSummary =>
+                "Project cost summary showing total cost across all resources and tasks.",
+            DiagnosticCode::I002RefinementProgress =>
+                "Progress on resource refinement (abstract profiles resolved to concrete resources).",
+            DiagnosticCode::I003ResourceUtilization =>
+                "Resource utilization report showing how efficiently resources are allocated.",
+            DiagnosticCode::I004ProjectStatus =>
+                "Project progress status showing completion percentage and variance.",
+            DiagnosticCode::I005EarnedValueSummary =>
+                "Earned value summary with Schedule Performance Index (SPI).",
+
+            // Leveling diagnostics
+            DiagnosticCode::L001OverallocationResolved =>
+                "A resource over-allocation was resolved by shifting a task. \
+                 The task was moved to a time when the resource is available.",
+            DiagnosticCode::L002UnresolvableConflict =>
+                "Resource conflict could not be resolved without violating constraints. \
+                 Consider adding resources or relaxing constraints.",
+            DiagnosticCode::L003DurationIncreased =>
+                "Resource leveling extended the project duration. \
+                 This is normal when resources are constrained.",
+            DiagnosticCode::L004MilestoneDelayed =>
+                "A milestone was delayed due to resource leveling. \
+                 Review resource allocation for predecessor tasks.",
+
+            // Progress diagnostics
+            DiagnosticCode::P005RemainingCompleteConflict =>
+                "Remaining duration conflicts with completion percentage. \
+                 Either remaining > 0 with 100% complete, or remaining = 0 with < 100% complete.",
+            DiagnosticCode::P006ContainerProgressMismatch =>
+                "Container's explicit complete% differs from calculated child rollup by >10%. \
+                 Update the container's complete% or check child task progress.",
+
+            // Temporal Regime diagnostics
+            DiagnosticCode::R001EventNonZeroDuration =>
+                "Event regime task has non-zero duration. Events are typically point-in-time \
+                 (zero duration). Use Work regime for effort-bearing tasks, or set duration: 0d.",
+            DiagnosticCode::R002WorkConstraintOnNonWorkingDay =>
+                "Work regime task has a constraint on a non-working day. \
+                 The constraint will be rounded to the next working day.",
+            DiagnosticCode::R003DeadlineWithoutConstraint =>
+                "Deadline regime task has no finish constraint (FNLT). \
+                 Deadlines should have an explicit finish_no_later_than constraint.",
+            DiagnosticCode::R004ImplicitEventRegime =>
+                "Milestone is using implicit Event regime. Consider adding explicit regime: event \
+                 for clarity, especially if the milestone should follow different rules.",
+            DiagnosticCode::R005MixedRegimeDependency =>
+                "Task depends on another task with a different temporal regime. \
+                 This is valid but may cause unexpected date interactions at regime boundaries.",
         }
     }
 }

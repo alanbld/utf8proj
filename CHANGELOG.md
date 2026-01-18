@@ -5,6 +5,70 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-01-18
+
+### Added
+- **RFC-0012: Temporal Regimes** — Explicit time semantics for tasks
+  - Three regimes: `Work` (effort-bearing), `Event` (point-in-time), `Deadline` (contractual)
+  - New `regime:` task attribute: `regime: work`, `regime: event`, `regime: deadline`
+  - `Task.effective_regime()` method derives regime from explicit setting or milestone flag
+  - New diagnostics: R001-R005 for regime validation
+  - `--explain` CLI flag shows detailed explanations for all diagnostic codes
+  - Full RFC in `docs/rfc/RFC-0012-TEMPORAL-REGIMES.md`
+
+### Changed
+- Milestones are now treated as events with exact dates (Event regime)
+- Solver no longer special-cases milestones — uses `effective_regime()` instead
+- Constraint rounding is regime-driven, not calendar-driven
+
+### Migration Notes (0.9.x → 0.10.0)
+
+**Backward Compatible:** Existing projects work without changes.
+
+The new Temporal Regimes feature is **opt-in**. If you don't specify `regime:`, the system uses:
+- `Event` for milestones (zero-duration tasks)
+- `Work` for all other tasks
+
+**Key behavioral improvements:**
+- Milestones constrained to weekends/holidays now stay on those dates (Event regime)
+- Previously, milestones would round to the nearest working day
+
+**New `regime:` syntax (optional):**
+```proj
+# Explicit Work regime (default for non-milestones)
+task dev "Development" {
+    effort: 5d
+    regime: work
+}
+
+# Explicit Event regime (default for milestones)
+milestone release "Release v2.0" {
+    regime: event
+    start_no_earlier_than: 2025-01-12  # Sunday - stays on Sunday
+}
+
+# Deadline regime (external constraints)
+task contract "Contract Deadline" {
+    duration: 1d
+    regime: deadline
+    finish_no_later_than: 2025-01-31
+}
+```
+
+**New diagnostics:**
+| Code | Severity | Meaning |
+|------|----------|---------|
+| R001 | Info | Event regime task has non-zero duration |
+| R002 | Info | Work regime constraint falls on non-working day |
+| R003 | Warning | Deadline regime without finish constraint |
+| R004 | Info | Implicit Event regime applied to milestone |
+| R005 | Info | Mixed regime dependency (informational) |
+
+**Use `--explain` for detailed guidance:**
+```bash
+utf8proj check --explain project.proj
+```
+
 ## [0.9.1] - 2026-01-16
 
 ### Fixed

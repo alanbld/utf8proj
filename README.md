@@ -54,28 +54,28 @@
 
 **Linux:**
 ```bash
-curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-unknown-linux-gnu.tar.gz
-tar xzf utf8proj-v0.9.1-x86_64-unknown-linux-gnu.tar.gz
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.10.0-x86_64-unknown-linux-gnu.tar.gz
+tar xzf utf8proj-v0.10.0-x86_64-unknown-linux-gnu.tar.gz
 sudo mv utf8proj /usr/local/bin/
 ```
 
 **macOS (Apple Silicon):**
 ```bash
-curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-aarch64-apple-darwin.tar.gz
-tar xzf utf8proj-v0.9.1-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.10.0-aarch64-apple-darwin.tar.gz
+tar xzf utf8proj-v0.10.0-aarch64-apple-darwin.tar.gz
 sudo mv utf8proj /usr/local/bin/
 ```
 
 **macOS (Intel):**
 ```bash
-curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-apple-darwin.tar.gz
-tar xzf utf8proj-v0.9.1-x86_64-apple-darwin.tar.gz
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.10.0-x86_64-apple-darwin.tar.gz
+tar xzf utf8proj-v0.10.0-x86_64-apple-darwin.tar.gz
 sudo mv utf8proj /usr/local/bin/
 ```
 
 **Windows (PowerShell):**
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-pc-windows-msvc.zip" -OutFile utf8proj.zip
+Invoke-WebRequest -Uri "https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.10.0-x86_64-pc-windows-msvc.zip" -OutFile utf8proj.zip
 Expand-Archive utf8proj.zip -DestinationPath .
 ```
 
@@ -89,7 +89,7 @@ cargo install utf8proj-cli
 
 ```bash
 utf8proj --version
-# utf8proj 0.9.1
+# utf8proj 0.10.0
 ```
 
 ---
@@ -131,6 +131,7 @@ utf8proj schedule example.proj
 - **CPM Scheduling** — Critical path with FS/SS/FF/SF dependencies and lag
 - **Resource Leveling** — Deterministic conflict resolution with audit trail
 - **Calendar-Aware** — Working days, weekends, holidays with impact analysis
+- **Temporal Regimes** — Work, Event, Deadline modes control date handling
 - **Progress Tracking** — Status date, remaining duration, earned value (SPI)
 - **Focus View** — Filter large Gantt charts by task prefix
 
@@ -141,6 +142,7 @@ Every decision is explained:
 - **L***: Leveling decisions (L001-L004)
 - **C***: Calendar impact (C001-C023)
 - **P***: Progress tracking (P005-P006)
+- **R***: Temporal regimes (R001-R005)
 
 ---
 
@@ -192,6 +194,7 @@ println!("Critical path: {:?}", schedule.critical_path);
 | [Quick Reference](QUICK_REFERENCE.md) | DSL syntax cheat sheet |
 | [Grammar Spec](docs/GRAMMAR.md) | Complete `.proj` syntax |
 | [Diagnostics](docs/DIAGNOSTICS.md) | All diagnostic codes |
+| [Temporal Regimes](docs/rfc/RFC-0012-TEMPORAL-REGIMES.md) | Work/Event/Deadline scheduling modes |
 | [Editor Setup](docs/EDITOR_SETUP.md) | VS Code, Neovim, Vim, Zed |
 | [Explainability Manifesto](docs/EXPLAINABILITY.md) | Design philosophy |
 
