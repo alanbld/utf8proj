@@ -19,6 +19,9 @@ Thumbs.db
 # Personal projects
 /personal/
 
+# Drafts (social media, blog posts, etc.)
+/drafts/
+
 # Scratch/reference files
 test.tjp
 utf8proj-system-instructions.md
