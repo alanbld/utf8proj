@@ -189,7 +189,7 @@
 </head>
 <body>
     <header>
-        <h1>utf8proj Syntax Reference <span class="version">v0.2.0</span></h1>
+        <h1>utf8proj Syntax Reference <span class="version">v0.10.0</span></h1>
         <p>Native DSL grammar for project scheduling. File extension: <code>.proj</code></p>
         <p><a href="index.html">&larr; Back to Playground</a> | <a href="https://github.com/alanbld/utf8proj">GitHub Repository</a></p>
     </header>
@@ -203,6 +203,8 @@
             <li><a href="#task">Task</a></li>
             <li><a href="#dependencies">Dependencies</a></li>
             <li><a href="#milestone">Milestone</a></li>
+            <li><a href="#constraints">Constraints</a></li>
+            <li><a href="#regimes">Temporal Regimes</a></li>
             <li><a href="#duration">Duration &amp; Dates</a></li>
         </ul>
     </nav>
@@ -278,6 +280,7 @@
     <span class="keyword">priority:</span> <span class="number">800</span>             <span class="comment"># higher = scheduled first</span>
     <span class="keyword">complete:</span> <span class="number">50</span>%             <span class="comment"># progress tracking</span>
     <span class="keyword">remaining:</span> <span class="number">3d</span>             <span class="comment"># explicit remaining work</span>
+    <span class="keyword">regime:</span> work              <span class="comment"># temporal regime (work/event/deadline)</span>
     <span class="keyword">summary:</span> <span class="string">"Impl"</span>           <span class="comment"># short display name</span>
     <span class="keyword">note:</span> <span class="string">"Detailed notes"</span>
     <span class="keyword">tag:</span> backend, critical
@@ -332,10 +335,74 @@
         <p>Zero-duration markers for key dates.</p>
         <pre><span class="keyword">milestone</span> go_live <span class="string">"Go-Live Date"</span> {
     <span class="keyword">depends:</span> testing, documentation
+    <span class="keyword">regime:</span> event                      <span class="comment"># can be scheduled on any day</span>
+    <span class="keyword">start_no_earlier_than:</span> <span class="number">2026-06-01</span>  <span class="comment"># date constraint</span>
     <span class="keyword">payment:</span> <span class="number">50000</span>
     <span class="keyword">note:</span> <span class="string">"Production deployment"</span>
 }</pre>
         <p>Alternatively, set <code>milestone: true</code> on any task.</p>
+        <table>
+            <tr><th>Attribute</th><th>Description</th></tr>
+            <tr><td><code>depends</code></td><td>Dependencies on tasks or milestones</td></tr>
+            <tr><td><code>regime</code></td><td>Temporal regime: <code>work</code>, <code>event</code>, or <code>deadline</code></td></tr>
+            <tr><td><code>start_no_earlier_than</code></td><td>Earliest date the milestone can occur</td></tr>
+            <tr><td><code>finish_no_later_than</code></td><td>Latest date the milestone can occur</td></tr>
+            <tr><td><code>payment</code></td><td>Payment amount triggered by milestone</td></tr>
+            <tr><td><code>note</code></td><td>Description or notes</td></tr>
+        </table>
+    </section>
+
+    <section id="constraints">
+        <h2>Task Constraints</h2>
+        <p>Constrain when tasks can be scheduled.</p>
+        <pre><span class="keyword">task</span> deploy <span class="string">"Deployment"</span> {
+    <span class="keyword">effort:</span> <span class="number">2d</span>
+    <span class="keyword">start_no_earlier_than:</span> <span class="number">2026-03-01</span>
+    <span class="keyword">finish_no_later_than:</span> <span class="number">2026-03-15</span>
+}</pre>
+        <table>
+            <tr><th>Constraint</th><th>Meaning</th></tr>
+            <tr><td><code>must_start_on</code></td><td>Task must start on exact date</td></tr>
+            <tr><td><code>must_finish_on</code></td><td>Task must finish on exact date</td></tr>
+            <tr><td><code>start_no_earlier_than</code></td><td>Task cannot start before date</td></tr>
+            <tr><td><code>start_no_later_than</code></td><td>Task must start by date</td></tr>
+            <tr><td><code>finish_no_earlier_than</code></td><td>Task cannot finish before date</td></tr>
+            <tr><td><code>finish_no_later_than</code></td><td>Task must finish by date</td></tr>
+        </table>
+    </section>
+
+    <section id="regimes">
+        <h2>Temporal Regimes</h2>
+        <p>Control how tasks interact with calendars (RFC-0012).</p>
+        <pre><span class="comment"># Effort-bearing task: respects working days</span>
+<span class="keyword">task</span> develop <span class="string">"Development"</span> {
+    <span class="keyword">regime:</span> work
+    <span class="keyword">effort:</span> <span class="number">10d</span>
+    <span class="keyword">assign:</span> dev
+}
+
+<span class="comment"># Event: can occur on any calendar day (including weekends)</span>
+<span class="keyword">milestone</span> release <span class="string">"Product Release"</span> {
+    <span class="keyword">regime:</span> event
+    <span class="keyword">depends:</span> develop
+    <span class="keyword">start_no_earlier_than:</span> <span class="number">2026-06-15</span>
+}
+
+<span class="comment"># Deadline: contractual/regulatory date</span>
+<span class="keyword">milestone</span> compliance <span class="string">"Compliance Deadline"</span> {
+    <span class="keyword">regime:</span> deadline
+    <span class="keyword">finish_no_later_than:</span> <span class="number">2026-06-30</span>
+}</pre>
+        <table>
+            <tr><th>Regime</th><th>Calendar Behavior</th><th>Use Case</th></tr>
+            <tr><td><code>work</code></td><td>Respects working days</td><td>Effort-bearing tasks (default)</td></tr>
+            <tr><td><code>event</code></td><td>Any calendar day</td><td>Releases, launches, go-lives</td></tr>
+            <tr><td><code>deadline</code></td><td>Exact date required</td><td>Contractual, regulatory dates</td></tr>
+        </table>
+        <div class="note">
+            <strong>Default:</strong> All tasks and milestones use <code>regime: work</code> unless specified.<br>
+            <strong>Event regime</strong> allows scheduling on weekends/holidays when constraints require it.
+        </div>
     </section>
 
     <section id="duration">
