@@ -971,12 +971,10 @@ impl Task {
     /// assert_eq!(work_milestone.effective_regime(), TemporalRegime::Work);
     /// ```
     pub fn effective_regime(&self) -> TemporalRegime {
-        self.regime.unwrap_or_else(|| {
-            if self.milestone {
-                TemporalRegime::Event
-            } else {
-                TemporalRegime::Work
-            }
+        self.regime.unwrap_or(if self.milestone {
+            TemporalRegime::Event
+        } else {
+            TemporalRegime::Work
         })
     }
 }
