@@ -3463,12 +3463,13 @@ impl Scheduler for CpmSolver {
         let total_cost_range = aggregate_cost_ranges(&all_task_cost_ranges);
 
         // Step 10: Build final schedule
-        // project_end is the last working day of the project
-        let project_end_date = if project_end_days > 0 {
-            working_day_cache.get(project_end_days - 1)
-        } else {
-            project.start
-        };
+        // project_end is the maximum finish date of all scheduled tasks
+        // (accounts for Event regime milestones on non-working days)
+        let project_end_date = scheduled_tasks
+            .values()
+            .map(|st| st.finish)
+            .max()
+            .unwrap_or(project.start);
 
         // Step 10b: Compute project-level progress and variance (I004)
         // Progress: weighted average of leaf task progress, weighted by duration

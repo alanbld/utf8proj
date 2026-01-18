@@ -606,6 +606,32 @@ impl HtmlGanttRenderer {
             current += chrono::Duration::days(interval_days);
         }
 
+        // Add final label for project end if not already labeled
+        // (ensures the end date is always visible on the timeline)
+        let last_labeled = current - chrono::Duration::days(interval_days);
+        let days_from_last = (project_end - last_labeled).num_days();
+        // Add end label if it's at least 3 days from last label (avoid overlap)
+        if project_end > last_labeled && days_from_last >= 3 {
+            let x = self.date_to_x(project_end, project_start, px_per_day);
+            svg.push_str(&format!(
+                r#"                <line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" stroke="{color}" stroke-width="1"/>"#,
+                x = x,
+                y1 = self.padding + self.header_height - 10,
+                y2 = self.padding + self.header_height,
+                color = self.theme.text_color
+            ));
+            svg.push('\n');
+            let label = project_end.format("%b %d").to_string();
+            svg.push_str(&format!(
+                r#"                <text x="{x}" y="{y}" font-size="11" fill="{color}" text-anchor="middle">{label}</text>"#,
+                x = x,
+                y = self.padding + self.header_height - 15,
+                color = self.theme.text_color,
+                label = label
+            ));
+            svg.push('\n');
+        }
+
         // Month/year label
         let month_label = project_start.format("%B %Y").to_string();
         svg.push_str(&format!(

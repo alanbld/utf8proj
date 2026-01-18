@@ -604,3 +604,53 @@ task a "Task" {
         expect(status.toLowerCase()).toMatch(/error|syntax|expected/);
     });
 });
+
+test.describe('RFC-0012: Temporal Regimes', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('schedules project with regime: work/event/deadline', async ({ page }) => {
+        await typeProject(page, SAMPLE_PROJECTS.temporalRegimes);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        // Should schedule successfully
+        const json = await getJsonOutput(page);
+        expect(json).toBeDefined();
+        expect(json.project).toBeDefined();
+        expect(json.tasks).toBeDefined();
+        expect(json.tasks.length).toBeGreaterThanOrEqual(3);
+    });
+
+    test('loads Temporal Regimes example from dropdown', async ({ page }) => {
+        // Select the temporal example from dropdown
+        await page.selectOption('#example-select', 'temporal');
+        await page.waitForTimeout(500);
+
+        // Schedule it
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        // Should schedule successfully
+        const json = await getJsonOutput(page);
+        expect(json).toBeDefined();
+        expect(json.project.name).toContain('Release');
+    });
+
+    test('renders Gantt with temporal regimes', async ({ page }) => {
+        await typeProject(page, SAMPLE_PROJECTS.temporalRegimes);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Gantt should contain SVG with task elements
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const svg = iframe.locator('svg');
+        await expect(svg).toBeVisible();
+    });
+});

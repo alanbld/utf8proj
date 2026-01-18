@@ -643,6 +643,11 @@ impl Playground {
     pub fn get_example_focus() -> String {
         EXAMPLE_FOCUS.to_string()
     }
+
+    /// Get temporal regimes example demonstrating work/event/deadline modes (RFC-0012)
+    pub fn get_example_temporal_regimes() -> String {
+        EXAMPLE_TEMPORAL_REGIMES.to_string()
+    }
 }
 
 impl Default for Playground {
@@ -1066,6 +1071,74 @@ task deployment "Deployment Phase" {
 
 milestone launch "Platform Launch" {
     depends: deployment.production
+}
+"#;
+
+const EXAMPLE_TEMPORAL_REGIMES: &str = r#"# Temporal Regimes Example (RFC-0012)
+# Demonstrates Work, Event, and Deadline regimes
+#
+# Three kinds of time in projects:
+# - Work: Effort-bearing tasks (coding, construction)
+# - Event: Exact calendar dates (releases, approvals)
+# - Deadline: External contractual deadlines
+
+project "Product Release" {
+    start: 2026-01-06
+}
+
+resource dev "Developer" {
+    rate: 100/hour
+    capacity: 1.0
+}
+
+# Work regime (default) - advances on working days only
+task development "Development Sprint" {
+    regime: work                    # Can be omitted (default)
+    task coding "Feature Coding" {
+        effort: 10d
+        assign: dev
+    }
+    task code_review "Code Review" {
+        effort: 2d
+        depends: coding
+        assign: dev
+    }
+}
+
+# Event regime - exact dates, even on weekends
+# Milestones implicitly use Event regime
+milestone approval "Stakeholder Approval" {
+    regime: event                   # Explicit (milestone implies this)
+    depends: development.code_review
+    start_no_earlier_than: 2026-01-25  # Saturday? Stays on Saturday!
+}
+
+# Events with constraints on specific dates
+task release "Release Weekend" {
+    regime: event                   # Stays on weekend if scheduled there
+    duration: 0d
+    depends: approval
+    start_no_earlier_than: 2026-02-01  # Sunday release - exact date
+}
+
+# Work resumes on Monday after weekend event
+task post_release "Post-Release Support" {
+    regime: work                    # Starts Monday after Sunday release
+    effort: 5d
+    depends: release
+    assign: dev
+}
+
+# Deadline regime - external contractual dates
+task contract_deadline "Contract Delivery" {
+    regime: deadline               # Must finish by this date
+    duration: 0d
+    depends: post_release
+    finish_no_later_than: 2026-02-15  # Even if it's a holiday
+}
+
+milestone delivered "Contract Complete" {
+    depends: contract_deadline
 }
 "#;
 

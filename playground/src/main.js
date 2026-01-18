@@ -51,6 +51,8 @@ const nativeDslLanguage = {
         'remaining', 'status_date',
         // RFC-0004: Progressive resource refinement
         'profile', 'trait', 'specializes', 'skills',
+        // RFC-0012: Temporal Regimes
+        'regime',
         // Extended task/resource attributes
         'tag', 'note', 'cost', 'payment', 'leave', 'role', 'email',
         'currency', 'timezone', 'summary', 'constraint'
@@ -514,6 +516,10 @@ function setupEventListeners() {
                 break;
             case 'focus':
                 code = wasmModule ? wasmModule.Playground.get_example_focus() : '';
+                format = 'native';
+                break;
+            case 'temporal':
+                code = wasmModule ? wasmModule.Playground.get_example_temporal_regimes() : '';
                 format = 'native';
                 break;
             default:

@@ -289,4 +289,35 @@ task phase2 "Phase 2" {
     }
 }
 `,
+
+    temporalRegimes: `project "Temporal Regimes Test" {
+    start: 2025-02-01
+}
+
+resource dev "Developer" {
+    rate: 850/day
+}
+
+# Work regime (default)
+task work_task "Work Task" {
+    regime: work
+    effort: 5d
+    assign: dev
+}
+
+# Event regime - can be on weekends
+milestone release "Release" {
+    regime: event
+    depends: work_task
+    start_no_earlier_than: 2025-02-15
+}
+
+# Deadline regime
+task deadline_task "Deadline Task" {
+    regime: deadline
+    duration: 0d
+    depends: release
+    finish_no_later_than: 2025-02-28
+}
+`,
 };
