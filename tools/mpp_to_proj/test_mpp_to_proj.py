@@ -443,6 +443,66 @@ class TestUTF8ProjWriter:
         writer.write_task_recursive(task, 0)
         assert any('assign: bob' in line for line in writer.lines)
 
+    def test_write_task_recursive_manually_scheduled(self, writer):
+        """Test that manually scheduled tasks get must_start_on constraint."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 70
+        task.getName.return_value = "Manually Scheduled Milestone"
+        task.getWBS.return_value = "3.1"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = True
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getNotes.return_value = None
+
+        # No explicit constraint
+        task.getConstraintType.return_value = MagicMock(getValue=lambda: 0)
+        task.getConstraintDate.return_value = None
+
+        # Task is manually scheduled
+        task_mode = MagicMock()
+        task_mode.__str__ = lambda self: "MANUALLY_SCHEDULED"
+        task.getTaskMode.return_value = task_mode
+
+        # Has a specific start date
+        task.getStart.return_value = "2025-06-15"
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'must_start_on: 2025-06-15' in output
+
+    def test_write_task_recursive_auto_scheduled_no_constraint(self, writer):
+        """Test that auto-scheduled tasks without constraints don't get must_start_on."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 71
+        task.getName.return_value = "Auto Scheduled Task"
+        task.getWBS.return_value = "3.2"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getNotes.return_value = None
+
+        duration = MagicMock()
+        duration.getDuration.return_value = 5.0
+        task.getDuration.return_value = duration
+        task.getWork.return_value = None
+
+        # No explicit constraint
+        task.getConstraintType.return_value = MagicMock(getValue=lambda: 0)
+        task.getConstraintDate.return_value = None
+
+        # Task is auto-scheduled
+        task_mode = MagicMock()
+        task_mode.__str__ = lambda self: "AUTO_SCHEDULED"
+        task.getTaskMode.return_value = task_mode
+
+        task.getStart.return_value = "2025-06-15"
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'must_start_on' not in output
+
     def test_write_task_recursive_all_constraints(self, writer):
         for cv, expected_keyword in [
             (2, 'must_start_on'),

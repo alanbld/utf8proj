@@ -197,17 +197,27 @@ class UTF8ProjWriter:
             if res_ids:
                 self.add_line(f'assign: {", ".join(res_ids)}', indent + 1)
         
+        # Handle manually scheduled tasks: these have fixed dates in MS Project
+        # MPXJ TaskMode: MANUALLY_SCHEDULED or AUTO_SCHEDULED
+        task_mode = task.getTaskMode()
+        is_manually_scheduled = task_mode is not None and str(task_mode) == "MANUALLY_SCHEDULED"
+
         c_obj = task.getConstraintType()
         c_date = self.format_date(task.getConstraintDate())
         if c_obj and int(c_obj.getValue()) != 0:
             cv = int(c_obj.getValue())
             if not c_date:
                 c_date = self.format_date(task.getStart()) if cv in [2,4,5] else self.format_date(task.getFinish())
-            
+
             mapping = {2: 'must_start_on', 4: 'start_no_earlier_than', 5: 'start_no_later_than',
                        3: 'must_finish_on', 6: 'finish_no_earlier_than', 7: 'finish_no_later_than'}
             if cv in mapping and c_date:
                 self.add_line(f'{mapping[cv]}: {c_date}', indent + 1)
+        elif is_manually_scheduled and not is_container:
+            # Manually scheduled tasks without explicit constraints get must_start_on
+            start_date = self.format_date(task.getStart())
+            if start_date:
+                self.add_line(f'must_start_on: {start_date}', indent + 1)
 
         notes = str(task.getNotes()) if task.getNotes() else ""
         if notes:
