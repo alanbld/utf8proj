@@ -48,6 +48,52 @@
 
 ---
 
+## Installation
+
+### Download Binary (Recommended)
+
+**Linux:**
+```bash
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-unknown-linux-gnu.tar.gz
+tar xzf utf8proj-v0.9.1-x86_64-unknown-linux-gnu.tar.gz
+sudo mv utf8proj /usr/local/bin/
+```
+
+**macOS (Apple Silicon):**
+```bash
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-aarch64-apple-darwin.tar.gz
+tar xzf utf8proj-v0.9.1-aarch64-apple-darwin.tar.gz
+sudo mv utf8proj /usr/local/bin/
+```
+
+**macOS (Intel):**
+```bash
+curl -LO https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-apple-darwin.tar.gz
+tar xzf utf8proj-v0.9.1-x86_64-apple-darwin.tar.gz
+sudo mv utf8proj /usr/local/bin/
+```
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/alanbld/utf8proj/releases/latest/download/utf8proj-v0.9.1-x86_64-pc-windows-msvc.zip" -OutFile utf8proj.zip
+Expand-Archive utf8proj.zip -DestinationPath .
+```
+
+### Build from Source (Rust users)
+
+```bash
+cargo install utf8proj-cli
+```
+
+### Verify Installation
+
+```bash
+utf8proj --version
+# utf8proj 0.9.1
+```
+
+---
+
 ## Quick Start (60 seconds)
 
 **1. Create `example.proj`:**
@@ -62,10 +108,9 @@ task build "Build" { effort: 5d, assign: dev, depends: design }
 milestone done "Done" { depends: build }
 ```
 
-**2. Install and run:**
+**2. Run:**
 
 ```bash
-cargo install --path crates/utf8proj-cli
 utf8proj schedule example.proj
 ```
 

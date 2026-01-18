@@ -232,6 +232,17 @@ enum Commands {
         #[command(subcommand)]
         fix_command: FixCommands,
     },
+
+    /// Initialize a new project file with a working example
+    Init {
+        /// Project name (default: "my-project")
+        #[arg(value_name = "NAME", default_value = "my-project")]
+        name: String,
+
+        /// Output directory (default: current directory)
+        #[arg(short, long)]
+        output: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -350,12 +361,14 @@ fn main() -> Result<()> {
                 in_place,
             } => cmd_fix_container_deps(&file, output.as_deref(), in_place),
         },
+        Some(Commands::Init { name, output }) => cmd_init(&name, output.as_deref()),
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
             println!("Usage: utf8proj <COMMAND>");
             println!();
             println!("Commands:");
+            println!("  init       Initialize a new project file");
             println!("  check      Parse and validate a project file");
             println!("  schedule   Schedule a project and output results");
             println!("  gantt      Generate a Gantt chart (SVG)");
@@ -2019,6 +2032,134 @@ fn cmd_classify(file: &std::path::Path, by: &str) -> Result<()> {
         }
         println!("  {}: {}", category, task_ids.join(", "));
     }
+
+    Ok(())
+}
+
+// ============================================================================
+// Init Command
+// ============================================================================
+
+/// Initialize a new project file with a working example
+fn cmd_init(name: &str, output_dir: Option<&std::path::Path>) -> Result<()> {
+    use chrono::Local;
+
+    // Determine output directory
+    let dir = output_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+
+    // Sanitize project name for filename (replace spaces/special chars with underscores)
+    let filename: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let filepath = dir.join(format!("{}.proj", filename));
+
+    // Check if file already exists
+    if filepath.exists() {
+        anyhow::bail!(
+            "File '{}' already exists. Use a different name or delete the existing file.",
+            filepath.display()
+        );
+    }
+
+    // Get today's date for the project start
+    let today = Local::now().format("%Y-%m-%d");
+
+    // Generate project template
+    let template = format!(
+        r#"# {name}
+#
+# This is a utf8proj project file. Edit this file to define your project schedule.
+#
+# Quick reference:
+#   - Tasks have duration (calendar time) or effort (work time)
+#   - Dependencies: FS (finish-to-start, default), SS, FF, SF
+#   - Lag: +2d (delay), -1d (lead)
+#   - Resources: assign tasks to named resources
+#
+# Commands:
+#   utf8proj schedule {filename}.proj       # Show schedule
+#   utf8proj gantt {filename}.proj -o gantt.html -f html  # Visual Gantt chart
+#   utf8proj check {filename}.proj          # Validate only
+#
+# Docs: https://github.com/alanbld/utf8proj
+
+project "{name}" {{
+    start: {today}
+}}
+
+# Define your resources
+resource dev "Developer" {{
+    rate: 800/day
+}}
+
+resource design "Designer" {{
+    rate: 600/day
+}}
+
+# Define your tasks
+# Tip: Tasks with 'depends:' create a schedule chain
+
+task planning "Planning" {{
+    duration: 3d
+    assign: dev
+}}
+
+task design "Design Phase" {{
+    duration: 5d
+    depends: planning
+    assign: design
+}}
+
+task development "Development" {{
+    duration: 10d
+    depends: design
+    assign: dev
+}}
+
+task testing "Testing" {{
+    duration: 3d
+    depends: development
+    assign: dev
+}}
+
+milestone launch "Project Launch" {{
+    depends: testing
+}}
+
+# Next steps:
+# 1. Edit the tasks above to match your project
+# 2. Run: utf8proj schedule {filename}.proj
+# 3. Generate Gantt: utf8proj gantt {filename}.proj -o gantt.html -f html
+"#,
+        name = name,
+        filename = filename,
+        today = today
+    );
+
+    // Create parent directory if needed
+    if let Some(parent) = filepath.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory '{}'", parent.display()))?;
+        }
+    }
+
+    // Write the file
+    fs::write(&filepath, &template)
+        .with_context(|| format!("Failed to write '{}'", filepath.display()))?;
+
+    println!("Created: {}", filepath.display());
+    println!();
+    println!("Next steps:");
+    println!("  1. Edit {} to define your project", filepath.display());
+    println!("  2. Run: utf8proj schedule {}", filepath.display());
+    println!(
+        "  3. Generate Gantt: utf8proj gantt {} -o gantt.html -f html",
+        filepath.display()
+    );
 
     Ok(())
 }
