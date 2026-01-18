@@ -398,8 +398,9 @@ fn snet_on_sunday_rounds_forward_to_monday() {
 }
 
 #[test]
-fn snet_milestone_on_weekend_rounds_forward() {
-    // Same bug for milestones (which have zero duration)
+fn snet_milestone_on_weekend_stays_on_weekend() {
+    // Milestones are events, not work - they can occur on any day
+    // A release milestone on Saturday should stay on Saturday
     let mut project = Project::new("SNET Milestone Weekend");
     project.start = date(2025, 1, 6); // Monday
 
@@ -413,17 +414,19 @@ fn snet_milestone_on_weekend_rounds_forward() {
     let solver = CpmSolver::new();
     let schedule = solver.schedule(&project).unwrap();
 
-    // Milestone should be on Monday 2025-01-13 (next working day after weekend)
+    // Milestone should be on Saturday 2025-01-11 (exact constraint date)
+    // Milestones ignore working day rules - they are events, not work
     assert_eq!(
         schedule.tasks["milestone"].start,
-        date(2025, 1, 13),
-        "SNET milestone on Saturday should round forward to Monday"
+        date(2025, 1, 11),
+        "SNET milestone on Saturday should stay on Saturday (events can occur any day)"
     );
 }
 
 #[test]
-fn nested_milestone_snet_on_weekend() {
-    // Reproduce the exact bug from CTL PIII: nested milestone with SNET on weekend
+fn nested_milestone_snet_on_weekend_stays_on_weekend() {
+    // Milestones are events, not work - they can occur on any day
+    // A nested milestone (e.g., Sunday release) should stay on Sunday
     let mut project = Project::new("Nested SNET");
     project.start = date(2025, 1, 6); // Monday
 
@@ -448,10 +451,11 @@ fn nested_milestone_snet_on_weekend() {
     let solver = CpmSolver::new();
     let schedule = solver.schedule(&project).unwrap();
 
-    // Nested milestone should be on Monday 2025-01-20 (next working day)
+    // Nested milestone should be on Sunday 2025-01-19 (exact constraint date)
+    // Milestones ignore working day rules - they are events, not work
     assert_eq!(
         schedule.tasks["container.release"].start,
-        date(2025, 1, 20),
-        "Nested milestone SNET on Sunday should round forward to Monday"
+        date(2025, 1, 19),
+        "Nested milestone SNET on Sunday should stay on Sunday (events can occur any day)"
     );
 }

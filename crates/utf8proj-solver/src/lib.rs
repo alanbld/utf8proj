@@ -400,6 +400,11 @@ struct TaskNode<'a> {
     baseline_start_days: i64,
     /// Baseline finish (original plan, ignoring progress) (RFC-0004)
     baseline_finish_days: i64,
+    /// Pinned date for milestones on non-working days
+    /// Milestones are events, not work, so they can occur on any day.
+    /// When a milestone has a constraint on a non-working day (e.g., Sunday release),
+    /// this stores the exact date rather than advancing to the next working day.
+    pinned_date: Option<NaiveDate>,
 }
 
 // =============================================================================
@@ -2658,6 +2663,7 @@ impl Scheduler for CpmSolver {
                     remaining_days: duration_days, // Default: full duration (updated in forward pass)
                     baseline_start_days: 0,        // Computed in forward pass
                     baseline_finish_days: 0,       // Computed in forward pass
+                    pinned_date: None,             // Set for milestones on non-working days
                 },
             );
         }
@@ -2836,44 +2842,85 @@ impl Scheduler for CpmSolver {
                         // This chains correctly from in-progress/complete predecessors
                         let mut es = forecast_es;
 
+                        // Track pinned date for milestones on non-working days
+                        let mut milestone_pinned_date: Option<NaiveDate> = None;
+                        let is_milestone = task.milestone || duration_days == 0;
+
                         // Apply floor constraints to ES (forward pass)
                         let mut min_finish: Option<i64> = None;
                         for constraint in &task.constraints {
                             match constraint {
                                 TaskConstraint::MustStartOn(date) => {
-                                    // MustStartOn pins to exact date (or next working day if non-working)
-                                    let effective_date = advance_to_working_day(*date, &calendar);
-                                    let constraint_days =
-                                        date_to_working_days(project.start, effective_date, &calendar);
-                                    es = es.max(constraint_days);
+                                    // Milestones can occur on any day (events, not work)
+                                    // Regular tasks advance to working days
+                                    if is_milestone && !calendar.is_working_day(*date) {
+                                        milestone_pinned_date = Some(*date);
+                                        // Use previous working day for internal calculations
+                                        // but pinned_date will be used for display
+                                        let constraint_days =
+                                            date_to_working_days(project.start, *date, &calendar);
+                                        es = es.max(constraint_days);
+                                    } else {
+                                        let effective_date = advance_to_working_day(*date, &calendar);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        es = es.max(constraint_days);
+                                    }
                                 }
                                 TaskConstraint::StartNoEarlierThan(date) => {
-                                    // SNET: if constraint date is non-working, round FORWARD to next working day
-                                    // Example: SNET=Sunday → task starts Monday (not Friday)
-                                    let effective_date = advance_to_working_day(*date, &calendar);
-                                    let constraint_days =
-                                        date_to_working_days(project.start, effective_date, &calendar);
-                                    es = es.max(constraint_days);
+                                    // Milestones can occur on any day (events, not work)
+                                    // Regular tasks advance to working days
+                                    if is_milestone && !calendar.is_working_day(*date) {
+                                        milestone_pinned_date = Some(*date);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, *date, &calendar);
+                                        es = es.max(constraint_days);
+                                    } else {
+                                        let effective_date = advance_to_working_day(*date, &calendar);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        es = es.max(constraint_days);
+                                    }
                                 }
                                 TaskConstraint::MustFinishOn(date) => {
-                                    // MustFinishOn pins to exact date (or next working day if non-working)
-                                    let effective_date = advance_to_working_day(*date, &calendar);
-                                    let constraint_days =
-                                        date_to_working_days(project.start, effective_date, &calendar);
-                                    let exclusive_ef = constraint_days + 1;
-                                    min_finish = Some(
-                                        min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
-                                    );
+                                    // Milestones: use exact date even on non-working days
+                                    if is_milestone && !calendar.is_working_day(*date) {
+                                        milestone_pinned_date = Some(*date);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, *date, &calendar);
+                                        let exclusive_ef = constraint_days + 1;
+                                        min_finish = Some(
+                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                        );
+                                    } else {
+                                        let effective_date = advance_to_working_day(*date, &calendar);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let exclusive_ef = constraint_days + 1;
+                                        min_finish = Some(
+                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                        );
+                                    }
                                 }
                                 TaskConstraint::FinishNoEarlierThan(date) => {
-                                    // FNET: if constraint date is non-working, round FORWARD to next working day
-                                    let effective_date = advance_to_working_day(*date, &calendar);
-                                    let constraint_days =
-                                        date_to_working_days(project.start, effective_date, &calendar);
-                                    let exclusive_ef = constraint_days + 1;
-                                    min_finish = Some(
-                                        min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
-                                    );
+                                    // Milestones: use exact date even on non-working days
+                                    if is_milestone && !calendar.is_working_day(*date) {
+                                        milestone_pinned_date = Some(*date);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, *date, &calendar);
+                                        let exclusive_ef = constraint_days + 1;
+                                        min_finish = Some(
+                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                        );
+                                    } else {
+                                        let effective_date = advance_to_working_day(*date, &calendar);
+                                        let constraint_days =
+                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let exclusive_ef = constraint_days + 1;
+                                        min_finish = Some(
+                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                        );
+                                    }
                                 }
                                 _ => {} // Ceiling constraints handled in backward pass
                             }
@@ -2888,6 +2935,11 @@ impl Scheduler for CpmSolver {
                                 ef = mf;
                                 es = ef - duration_days;
                             }
+                        }
+
+                        // Store pinned date for milestones on non-working days
+                        if let Some(node) = nodes.get_mut(id) {
+                            node.pinned_date = milestone_pinned_date;
                         }
 
                         // Not started: remaining = full duration
@@ -3119,14 +3171,22 @@ impl Scheduler for CpmSolver {
         let mut scheduled_tasks: HashMap<TaskId, ScheduledTask> = HashMap::new();
 
         for (id, node) in &nodes {
-            let start_date = working_day_cache.get(node.early_start);
-            // Finish date is the last day of work, not the day after
-            // So for a 20-day task starting Feb 03, finish is Feb 28 (day 20), not Mar 03
-            let finish_date = if node.duration_days > 0 {
-                // early_finish - 1 because finish is inclusive (last day of work)
-                working_day_cache.get(node.early_finish - 1)
+            // For milestones with pinned dates on non-working days, use the pinned date
+            // Otherwise, calculate from working day cache as usual
+            let (start_date, finish_date) = if let Some(pinned) = node.pinned_date {
+                // Milestone pinned to a specific non-working day
+                (pinned, pinned)
             } else {
-                start_date // Milestone
+                let start = working_day_cache.get(node.early_start);
+                // Finish date is the last day of work, not the day after
+                // So for a 20-day task starting Feb 03, finish is Feb 28 (day 20), not Mar 03
+                let finish = if node.duration_days > 0 {
+                    // early_finish - 1 because finish is inclusive (last day of work)
+                    working_day_cache.get(node.early_finish - 1)
+                } else {
+                    start // Milestone
+                };
+                (start, finish)
             };
 
             // Build assignments with RFC-0001 cost calculation
@@ -3225,6 +3285,34 @@ impl Scheduler for CpmSolver {
             let start_variance_days = (forecast_start - baseline_start_date).num_days();
             let finish_variance_days = (forecast_finish - baseline_finish_date).num_days();
 
+            // For milestones with pinned dates, use that date for all temporal fields
+            let (es_date, ef_date, ls_date, lf_date, bs_date, bf_date) =
+                if let Some(pinned) = node.pinned_date {
+                    // All dates collapse to the pinned date for milestones on non-working days
+                    (pinned, pinned, pinned, pinned, pinned, pinned)
+                } else {
+                    (
+                        working_day_cache.get(node.early_start),
+                        if node.duration_days > 0 {
+                            working_day_cache.get(node.early_finish - 1)
+                        } else {
+                            working_day_cache.get(node.early_finish)
+                        },
+                        working_day_cache.get(node.late_start),
+                        if node.duration_days > 0 {
+                            working_day_cache.get(node.late_finish - 1)
+                        } else {
+                            working_day_cache.get(node.late_finish)
+                        },
+                        working_day_cache.get(node.baseline_start_days),
+                        if node.original_duration_days > 0 {
+                            working_day_cache.get(node.baseline_finish_days - 1)
+                        } else {
+                            working_day_cache.get(node.baseline_finish_days)
+                        },
+                    )
+                };
+
             scheduled_tasks.insert(
                 id.clone(),
                 ScheduledTask {
@@ -3235,18 +3323,10 @@ impl Scheduler for CpmSolver {
                     assignments,
                     slack: Duration::days(node.slack),
                     is_critical: node.slack == 0, // Milestones can be critical too
-                    early_start: working_day_cache.get(node.early_start),
-                    early_finish: if node.duration_days > 0 {
-                        working_day_cache.get(node.early_finish - 1)
-                    } else {
-                        working_day_cache.get(node.early_finish)
-                    },
-                    late_start: working_day_cache.get(node.late_start),
-                    late_finish: if node.duration_days > 0 {
-                        working_day_cache.get(node.late_finish - 1)
-                    } else {
-                        working_day_cache.get(node.late_finish)
-                    },
+                    early_start: es_date,
+                    early_finish: ef_date,
+                    late_start: ls_date,
+                    late_finish: lf_date,
                     // Progress tracking fields
                     forecast_start,
                     forecast_finish,
@@ -3255,12 +3335,8 @@ impl Scheduler for CpmSolver {
                     status,
                     // Variance fields (baseline vs forecast)
                     // Baseline uses original plan (from baseline_start/finish_days)
-                    baseline_start: working_day_cache.get(node.baseline_start_days),
-                    baseline_finish: if node.original_duration_days > 0 {
-                        working_day_cache.get(node.baseline_finish_days - 1)
-                    } else {
-                        working_day_cache.get(node.baseline_finish_days)
-                    },
+                    baseline_start: bs_date,
+                    baseline_finish: bf_date,
                     start_variance_days,
                     finish_variance_days,
                     // RFC-0001: Cost range fields
