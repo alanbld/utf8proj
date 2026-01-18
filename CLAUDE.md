@@ -68,7 +68,7 @@ tools/mpp_to_proj/      # MS Project companion tool (Python, 99% coverage)
 - **Calendars**: Working days, working hours, holidays (single-date and range)
 - **Resources**: Rate, capacity, efficiency, calendar, email, role, leave
 - **Task attributes**: Priority, complete %, constraints, note, tag, cost, payment
-- **Milestones**: Dedicated `milestone` declaration syntax
+- **Milestones**: Dedicated `milestone` declaration syntax; ignore working day rules (can occur on weekends/holidays)
 - **Constraints**: Declarative constraint blocks for what-if analysis
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
@@ -82,7 +82,7 @@ tools/mpp_to_proj/      # MS Project companion tool (Python, 99% coverage)
 
 ## Test Coverage
 
-~830 tests, ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
+~850 tests, ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
 
 ## Diagnostic System (Compiler-Grade)
 
