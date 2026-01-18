@@ -1194,7 +1194,10 @@ impl std::str::FromStr for TemporalRegime {
             "work" => Ok(TemporalRegime::Work),
             "event" => Ok(TemporalRegime::Event),
             "deadline" => Ok(TemporalRegime::Deadline),
-            _ => Err(format!("unknown regime: '{}' (expected: work, event, deadline)", s)),
+            _ => Err(format!(
+                "unknown regime: '{}' (expected: work, event, deadline)",
+                s
+            )),
         }
     }
 }

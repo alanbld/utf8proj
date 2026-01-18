@@ -58,7 +58,10 @@ fn event_regime_on_non_milestone_task() {
         .diagnostics
         .iter()
         .any(|d| d.code == DiagnosticCode::R001EventNonZeroDuration);
-    assert!(has_r001, "Expected R001 diagnostic for Event task with duration");
+    assert!(
+        has_r001,
+        "Expected R001 diagnostic for Event task with duration"
+    );
 }
 
 // =============================================================================
@@ -325,7 +328,10 @@ fn no_r001_for_zero_duration_event() {
         .diagnostics
         .iter()
         .any(|d| d.code == DiagnosticCode::R001EventNonZeroDuration);
-    assert!(!has_r001, "Should not emit R001 for zero-duration Event task");
+    assert!(
+        !has_r001,
+        "Should not emit R001 for zero-duration Event task"
+    );
 }
 
 // =============================================================================

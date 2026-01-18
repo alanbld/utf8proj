@@ -2074,7 +2074,13 @@ fn cmd_init(name: &str, output_dir: Option<&std::path::Path>) -> Result<()> {
     // Sanitize project name for filename (replace spaces/special chars with underscores)
     let filename: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let filepath = dir.join(format!("{}.proj", filename));
 

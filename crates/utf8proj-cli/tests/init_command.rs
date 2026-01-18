@@ -28,10 +28,7 @@ fn init_creates_project_file() {
     assert!(output.status.success(), "Command should succeed");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created:"), "Should show 'Created:'");
-    assert!(
-        stdout.contains("test-project.proj"),
-        "Should show filename"
-    );
+    assert!(stdout.contains("test-project.proj"), "Should show filename");
     assert!(expected_file.exists(), "File should be created");
 
     // Verify content has expected structure
@@ -110,7 +107,10 @@ fn init_generated_file_schedules() {
 
     assert!(output.status.success(), "schedule should succeed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Critical Path:"), "Should show critical path");
+    assert!(
+        stdout.contains("Critical Path:"),
+        "Should show critical path"
+    );
 }
 
 #[test]

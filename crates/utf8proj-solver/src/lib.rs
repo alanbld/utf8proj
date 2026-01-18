@@ -2950,9 +2950,13 @@ impl Scheduler for CpmSolver {
                                             date_to_working_days(project.start, *date, &calendar);
                                         es = es.max(constraint_days);
                                     } else {
-                                        let effective_date = advance_to_working_day(*date, &calendar);
-                                        let constraint_days =
-                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let effective_date =
+                                            advance_to_working_day(*date, &calendar);
+                                        let constraint_days = date_to_working_days(
+                                            project.start,
+                                            effective_date,
+                                            &calendar,
+                                        );
                                         es = es.max(constraint_days);
                                     }
                                 }
@@ -2965,9 +2969,13 @@ impl Scheduler for CpmSolver {
                                             date_to_working_days(project.start, *date, &calendar);
                                         es = es.max(constraint_days);
                                     } else {
-                                        let effective_date = advance_to_working_day(*date, &calendar);
-                                        let constraint_days =
-                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let effective_date =
+                                            advance_to_working_day(*date, &calendar);
+                                        let constraint_days = date_to_working_days(
+                                            project.start,
+                                            effective_date,
+                                            &calendar,
+                                        );
                                         es = es.max(constraint_days);
                                     }
                                 }
@@ -2979,15 +2987,21 @@ impl Scheduler for CpmSolver {
                                             date_to_working_days(project.start, *date, &calendar);
                                         let exclusive_ef = constraint_days + 1;
                                         min_finish = Some(
-                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                            min_finish
+                                                .map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
                                         );
                                     } else {
-                                        let effective_date = advance_to_working_day(*date, &calendar);
-                                        let constraint_days =
-                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let effective_date =
+                                            advance_to_working_day(*date, &calendar);
+                                        let constraint_days = date_to_working_days(
+                                            project.start,
+                                            effective_date,
+                                            &calendar,
+                                        );
                                         let exclusive_ef = constraint_days + 1;
                                         min_finish = Some(
-                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                            min_finish
+                                                .map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
                                         );
                                     }
                                 }
@@ -2999,15 +3013,21 @@ impl Scheduler for CpmSolver {
                                             date_to_working_days(project.start, *date, &calendar);
                                         let exclusive_ef = constraint_days + 1;
                                         min_finish = Some(
-                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                            min_finish
+                                                .map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
                                         );
                                     } else {
-                                        let effective_date = advance_to_working_day(*date, &calendar);
-                                        let constraint_days =
-                                            date_to_working_days(project.start, effective_date, &calendar);
+                                        let effective_date =
+                                            advance_to_working_day(*date, &calendar);
+                                        let constraint_days = date_to_working_days(
+                                            project.start,
+                                            effective_date,
+                                            &calendar,
+                                        );
                                         let exclusive_ef = constraint_days + 1;
                                         min_finish = Some(
-                                            min_finish.map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
+                                            min_finish
+                                                .map_or(exclusive_ef, |mf| mf.max(exclusive_ef)),
                                         );
                                     }
                                 }
@@ -4022,7 +4042,10 @@ mod tests {
         let schedule = solver.schedule(&project).unwrap();
 
         // Both tasks should be critical (linear chain)
-        assert!(schedule.tasks["work"].is_critical, "work should be critical");
+        assert!(
+            schedule.tasks["work"].is_critical,
+            "work should be critical"
+        );
         assert!(
             schedule.tasks["release"].is_critical,
             "milestone should be critical when it has zero slack"
