@@ -21,7 +21,7 @@ This project follows **Semantic Versioning** (SemVer):
 
 Version is set in `Cargo.toml` under `[workspace.package]`:
 ```toml
-version = "0.9.1"
+version = "0.10.0"
 ```
 
 All crates inherit this version via `version.workspace = true`.
@@ -57,7 +57,8 @@ crates/
 
 playground/             # Browser-based playground (Monaco editor, WASM)
 syntax/                 # Editor syntax highlighting (TextMate, Vim)
-tools/mpp_to_proj/      # MS Project companion tool (Python, 99% coverage)
+tools/mpp_to_proj/      # MS Project companion tool (Python, handles Manually Scheduled tasks)
+docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.md, RFCs)
 .github/workflows/      # Release workflow (cross-platform binaries)
 ```
 
@@ -74,6 +75,7 @@ tools/mpp_to_proj/      # MS Project companion tool (Python, 99% coverage)
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: RFC-0003 deterministic leveling with full audit trail (L001-L004 diagnostics)
 - **Progress-aware scheduling**: RFC-0008 status date resolution, remaining duration calculation, P005/P006 diagnostics
+- **Temporal regimes**: RFC-0012 work/event/deadline modes for calendar interaction (`regime: event` allows weekend scheduling)
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
@@ -165,6 +167,24 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 - `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
 - `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
 - `docs/SCHEDULING_ANALYSIS.md` - PMI/PERT/CPM compliance analysis
+- `docs/MS_PROJECT_COMPARISON.md` - Feature comparison with MS Project
+
+## MS Project Compatibility
+
+The `tools/mpp_to_proj/` companion tool converts MS Project files (.mpp) to utf8proj format:
+
+```bash
+python3 tools/mpp_to_proj/mpp_to_proj.py project.mpp project.proj
+utf8proj fix container-deps project.proj -o project_fixed.proj  # Optional: inherit container deps
+utf8proj schedule project_fixed.proj
+```
+
+**Validated conversions** produce identical schedules to MS Project. Key handling:
+- Manually Scheduled tasks → `must_start_on:` constraints
+- All dependency types (FS, SS, FF, SF) with lag
+- Container dependency inheritance via `fix container-deps`
+
+See `docs/MS_PROJECT_COMPARISON.md` for full feature comparison.
 
 ## Example Projects
 
@@ -271,6 +291,7 @@ task impl_api "Implement Backend API" {   # Quoted string = display name
 - `milestone: true` or dedicated `milestone id "name" { }` syntax
 - `complete: 75%` (progress tracking)
 - `remaining: 5d` (explicit remaining duration, overrides calculated)
+- `regime: work | event | deadline` (temporal regime for calendar interaction)
 
 **Dependency syntax:**
 - `depends: a` (FS - Finish-to-Start, default)
@@ -283,6 +304,13 @@ task impl_api "Implement Backend API" {   # Quoted string = display name
 **Holidays:**
 - Single date: `holiday "Easter" 2026-04-06`
 - Date range: `holiday "Christmas" 2025-12-25..2025-12-26`
+
+**Temporal Regimes (RFC-0012):**
+```proj
+task work_task "Work Task" { regime: work }      # Default: respects working days
+milestone release "Release" { regime: event }    # Can occur on weekends/holidays
+milestone deadline "Deadline" { regime: deadline } # Exact date required
+```
 
 **Constraints (declarative blocks):**
 ```proj
