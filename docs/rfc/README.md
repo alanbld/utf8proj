@@ -14,14 +14,18 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 | [RFC-0006](RFC-0006-FOCUS-VIEW.md) | Focus View for Gantt Charts | ✅ Implemented | 2026-01-15 |
 | [RFC-0007](RFC-0007-WASM-PLAYGROUND-AI-INTEGRATION.md) | WASM Playground with AI-Assisted Editing | 📝 Draft | 2026-01-15 |
 | [RFC-0008](RFC-0008-PROGRESS-AWARE-CPM.md) | Progress-Aware CPM | ✅ Implemented | 2026-01-15 |
+| [RFC-0009](RFC-0009-EXCEL-WASM-EXPORT.md) | Excel WASM Export | 📝 Draft | 2026-01-16 |
+| [RFC-0010](RFC-0010-AUTOMATED-TESTING-AND-DEMOS.md) | Automated Testing and Demos | ⚠️ Partial | 2026-01-16 |
+| [RFC-0011](RFC-0011-CLASSIFIER-ABSTRACTION.md) | Classifier Abstraction | ✅ Implemented | 2026-01-16 |
+| [RFC-0012](RFC-0012-TEMPORAL-REGIMES.md) | Temporal Regimes | 📝 Draft | 2026-01-18 |
 
 ## Implementation Summary
 
 | Category | Count | RFCs |
 |----------|-------|------|
-| ✅ Fully Implemented | 6 | 0001, 0002, 0003, 0004, 0006, 0008 |
-| ⚠️ Partially Implemented | 1 | 0005 (Phase 1) |
-| 📝 Design Only | 1 | 0007 |
+| ✅ Fully Implemented | 7 | 0001, 0002, 0003, 0004, 0006, 0008, 0011 |
+| ⚠️ Partially Implemented | 2 | 0005 (Phase 1), 0010 (videos only) |
+| 📝 Design Only | 3 | 0007, 0009, 0012 |
 
 ## Status Definitions
 
@@ -42,7 +46,7 @@ This directory contains all Request for Comments (RFC) documents for utf8proj.
 
 ## Creating a New RFC
 
-1. Use the next available number (currently RFC-0009)
+1. Use the next available number (currently RFC-0013)
 2. Follow the naming convention: `RFC-NNNN-SHORT-TITLE.md`
 3. Include standard header fields (RFC Number, Status, Created, Related)
 4. Update this README with the new RFC entry
