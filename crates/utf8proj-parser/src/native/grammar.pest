@@ -218,6 +218,7 @@ milestone_attr = {
     task_summary |
     task_depends |
     task_regime |
+    task_constraint |
     task_note |
     task_payment
 }
