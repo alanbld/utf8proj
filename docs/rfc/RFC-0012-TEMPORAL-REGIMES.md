@@ -1,6 +1,6 @@
 # RFC 0012 — Temporal Regimes: Explicit Time Semantics for Tasks and Events
 
-**Status:** Phase 1 Implemented (v0.9.4)
+**Status:** Phase 2 Implemented (v0.10.0)
 **Author:** utf8proj core team
 **Created:** 2026-01-18
 **Target Version:** ≥ 0.10
@@ -346,30 +346,30 @@ Work / Event / Deadline covers ~95% of real projects. Custom regimes deferred un
 ### 11.6 Phase 2 Implementation Checklist
 
 #### Grammar (utf8proj-parser)
-- [ ] Add `regime_attr` to grammar: `regime: work | event | deadline`
-- [ ] Parse regime in task block
-- [ ] Update serializer for round-trip
+- [x] Add `regime_attr` to grammar: `regime: work | event | deadline`
+- [x] Parse regime in task block
+- [x] Update serializer for round-trip
 
 #### Core Types (utf8proj-core)
-- [ ] Add `TemporalRegime` enum
-- [ ] Add `Task.regime: Option<TemporalRegime>`
-- [ ] Add `Task.effective_regime()` method (resolves implicit)
-- [ ] Add diagnostic codes R001-R005
+- [x] Add `TemporalRegime` enum
+- [x] Add `Task.regime: Option<TemporalRegime>`
+- [x] Add `Task.effective_regime()` method (resolves implicit)
+- [ ] Add diagnostic codes R001-R005 (deferred)
 
 #### Solver (utf8proj-solver)
-- [ ] Refactor constraint handling to use `effective_regime()`
-- [ ] Remove `is_milestone` special-casing (use regime instead)
-- [ ] Emit R001-R005 diagnostics in `analyze_project()`
+- [x] Refactor constraint handling to use `effective_regime()`
+- [x] Remove `is_milestone` special-casing (use regime instead)
+- [ ] Emit R001-R005 diagnostics in `analyze_project()` (deferred)
 
 #### CLI (utf8proj-cli)
-- [ ] Add `--explain` flag for verbose regime diagnostics
+- [ ] Add `--explain` flag for verbose regime diagnostics (deferred)
 
 #### Tests
-- [ ] Explicit `regime: event` on non-milestone task
-- [ ] Explicit `regime: work` on milestone (override)
-- [ ] Mixed-regime dependency chain
-- [ ] Container with explicit regime (error)
-- [ ] Deadline regime basics
+- [x] Explicit `regime: event` on non-milestone task
+- [x] Explicit `regime: work` on milestone (override)
+- [x] Mixed-regime dependency chain
+- [x] Container with explicit regime (error)
+- [x] Deadline regime basics
 
 ---
 
@@ -391,11 +391,15 @@ This is not a scheduling tweak — it is a **conceptual correction** that crosse
 | Phase | Status | Version |
 |-------|--------|---------|
 | Phase 1: Implicit regimes | ✅ Implemented | v0.9.4 |
-| Phase 2: Explicit `regime:` syntax | 📝 Design Finalized | v0.10+ |
+| Phase 2: Explicit `regime:` syntax | ✅ Implemented | v0.10.0 |
 
-**Next steps:**
-1. Implement Phase 2 grammar and parser
-2. Add `TemporalRegime` enum to core types
-3. Refactor solver to use `effective_regime()`
-4. Add R001-R005 diagnostics
-5. Write acceptance tests
+**Completed in v0.10.0:**
+- Grammar: `regime: work | event | deadline` parsed
+- Core: `TemporalRegime` enum with `effective_regime()` resolution
+- Solver: Constraint handling uses regime, not `is_milestone`
+- Tests: Unit and E2E tests for all regime types
+- Playground: Syntax highlighting and example project
+
+**Deferred (low priority):**
+- R001-R005 diagnostic codes (informative, not blocking)
+- `--explain` CLI flag for verbose regime diagnostics
