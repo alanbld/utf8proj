@@ -79,6 +79,7 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
 - **BDD conflict analysis**: Binary Decision Diagram-based conflict detection (experimental)
 - **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
+- **Baseline management**: RFC-0013 schedule snapshots with variance analysis (`baseline save/list/compare`)
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
@@ -124,6 +125,14 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 | L001-L004 | Info/Warning | Leveling decisions (resolved, unresolvable, duration increase, milestone delay) |
 | P005-P006 | Warning | Progress conflicts (remaining vs complete%, container mismatch) |
 | C001-C023 | Various | Calendar impact (working days vs calendar days) |
+| B001 | Info | Baseline saved successfully |
+| B002 | Warning | Task lacks explicit ID (using inferred) |
+| B003 | Error | Baseline already exists |
+| B004 | Error | Baseline not found |
+| B005-B006 | Info | Task removed/added since baseline |
+| B007 | Warning | No baselines file found |
+| B008 | Warning | Container excluded from baseline |
+| B009 | Error | Cannot baseline: tasks have no ID |
 
 ## Language Server Protocol (LSP)
 
@@ -227,6 +236,14 @@ utf8proj gantt project.tjp -o chart.mmd -f mermaid   # MermaidJS
 utf8proj gantt project.tjp -o chart.puml -f plantuml # PlantUML
 utf8proj gantt project.tjp -o chart.xlsx -f xlsx     # Excel workbook
 utf8proj gantt project.tjp -o chart.xlsx --currency EUR --weeks 40
+
+# Baseline management (RFC-0013)
+utf8proj baseline save --name original project.proj   # Save baseline
+utf8proj baseline list project.proj                   # List baselines
+utf8proj baseline show --name original project.proj   # Show baseline details
+utf8proj baseline remove --name old project.proj      # Remove baseline
+utf8proj compare --baseline original project.proj     # Compare vs baseline
+utf8proj compare --baseline original --format json project.proj  # JSON output
 
 # Run benchmarks
 utf8proj benchmark -t chain -c 10000 --series

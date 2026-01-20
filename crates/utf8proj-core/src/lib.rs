@@ -34,6 +34,12 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 // ============================================================================
+// Modules
+// ============================================================================
+
+pub mod baseline;
+
+// ============================================================================
 // Type Aliases
 // ============================================================================
 
@@ -1932,6 +1938,26 @@ pub enum DiagnosticCode {
     R004ImplicitEventRegime,
     /// Work task scheduled after Event dependency on non-working day
     R005MixedRegimeDependency,
+
+    // Baseline (B) - RFC-0013 diagnostics
+    /// Baseline successfully saved
+    B001BaselineSaved,
+    /// Task lacks explicit ID, using inferred ID
+    B002TaskLacksId,
+    /// Baseline with this name already exists
+    B003BaselineExists,
+    /// Baseline not found
+    B004BaselineNotFound,
+    /// Task in baseline not found in current schedule (removed)
+    B005TaskRemoved,
+    /// Task not in baseline (added since baseline)
+    B006TaskAdded,
+    /// No baselines file found for this project
+    B007NoBaselinesFile,
+    /// Container task excluded from baseline (only leaf tasks baselined)
+    B008ContainerExcluded,
+    /// Cannot baseline: tasks have no ID
+    B009NoTaskIds,
 }
 
 impl DiagnosticCode {
@@ -1980,6 +2006,16 @@ impl DiagnosticCode {
             DiagnosticCode::R003DeadlineWithoutConstraint => "R003",
             DiagnosticCode::R004ImplicitEventRegime => "R004",
             DiagnosticCode::R005MixedRegimeDependency => "R005",
+            // Baseline (B) - RFC-0013
+            DiagnosticCode::B001BaselineSaved => "B001",
+            DiagnosticCode::B002TaskLacksId => "B002",
+            DiagnosticCode::B003BaselineExists => "B003",
+            DiagnosticCode::B004BaselineNotFound => "B004",
+            DiagnosticCode::B005TaskRemoved => "B005",
+            DiagnosticCode::B006TaskAdded => "B006",
+            DiagnosticCode::B007NoBaselinesFile => "B007",
+            DiagnosticCode::B008ContainerExcluded => "B008",
+            DiagnosticCode::B009NoTaskIds => "B009",
         }
     }
 
@@ -2031,6 +2067,16 @@ impl DiagnosticCode {
             DiagnosticCode::R003DeadlineWithoutConstraint => Severity::Warning,
             DiagnosticCode::R004ImplicitEventRegime => Severity::Info,
             DiagnosticCode::R005MixedRegimeDependency => Severity::Info,
+            // Baseline diagnostics (B001-B009) - RFC-0013
+            DiagnosticCode::B001BaselineSaved => Severity::Info,
+            DiagnosticCode::B002TaskLacksId => Severity::Warning,
+            DiagnosticCode::B003BaselineExists => Severity::Error,
+            DiagnosticCode::B004BaselineNotFound => Severity::Error,
+            DiagnosticCode::B005TaskRemoved => Severity::Info,
+            DiagnosticCode::B006TaskAdded => Severity::Info,
+            DiagnosticCode::B007NoBaselinesFile => Severity::Warning,
+            DiagnosticCode::B008ContainerExcluded => Severity::Warning,
+            DiagnosticCode::B009NoTaskIds => Severity::Error,
         }
     }
 
@@ -2096,6 +2142,16 @@ impl DiagnosticCode {
             DiagnosticCode::R003DeadlineWithoutConstraint => 57,
             DiagnosticCode::R004ImplicitEventRegime => 58,
             DiagnosticCode::R005MixedRegimeDependency => 59,
+            // Baseline diagnostics (B001-B009) - RFC-0013
+            DiagnosticCode::B001BaselineSaved => 45, // Info level, after cost summary
+            DiagnosticCode::B002TaskLacksId => 22,   // Warning level, with other warnings
+            DiagnosticCode::B003BaselineExists => 7, // Error level
+            DiagnosticCode::B004BaselineNotFound => 8, // Error level
+            DiagnosticCode::B005TaskRemoved => 46,   // Info level
+            DiagnosticCode::B006TaskAdded => 47,     // Info level
+            DiagnosticCode::B007NoBaselinesFile => 23, // Warning level
+            DiagnosticCode::B008ContainerExcluded => 24, // Warning level
+            DiagnosticCode::B009NoTaskIds => 9,      // Error level
         }
     }
 
@@ -2232,6 +2288,35 @@ impl DiagnosticCode {
             DiagnosticCode::R005MixedRegimeDependency =>
                 "Task depends on another task with a different temporal regime. \
                  This is valid but may cause unexpected date interactions at regime boundaries.",
+
+            // Baseline diagnostics (B001-B009) - RFC-0013
+            DiagnosticCode::B001BaselineSaved =>
+                "Baseline was successfully saved. The snapshot captures early start/finish dates \
+                 for all leaf tasks at this point in time.",
+            DiagnosticCode::B002TaskLacksId =>
+                "Task does not have an explicit ID attribute. The inferred ID from the task name \
+                 is being used. Consider adding an explicit id: attribute for stable baseline matching.",
+            DiagnosticCode::B003BaselineExists =>
+                "A baseline with this name already exists. Baselines are immutable. \
+                 To replace, first remove the existing baseline: `utf8proj baseline remove --name <name>`.",
+            DiagnosticCode::B004BaselineNotFound =>
+                "No baseline with this name was found. Use `utf8proj baseline list` to see \
+                 available baselines for this project.",
+            DiagnosticCode::B005TaskRemoved =>
+                "Task exists in the baseline but not in the current schedule. \
+                 This represents scope reduction since the baseline was captured.",
+            DiagnosticCode::B006TaskAdded =>
+                "Task exists in current schedule but not in the baseline. \
+                 This represents scope addition since the baseline was captured.",
+            DiagnosticCode::B007NoBaselinesFile =>
+                "No baselines file found for this project. Use `utf8proj baseline save --name <name>` \
+                 to create the first baseline.",
+            DiagnosticCode::B008ContainerExcluded =>
+                "Container task excluded from baseline (only leaf tasks are baselined). \
+                 Container dates are derived from children and would cause double-counting.",
+            DiagnosticCode::B009NoTaskIds =>
+                "Cannot create baseline: one or more tasks have no ID. \
+                 Tasks must have stable identifiers for reliable baseline matching.",
         }
     }
 }

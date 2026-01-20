@@ -5,6 +5,88 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-01-20
+
+### Added
+- **RFC-0013: Baseline Management** — Schedule snapshots for variance analysis
+  - Capture frozen schedule snapshots to answer "Compared to what?"
+  - Two-file architecture: `project.proj` + `project.proj.baselines` (sidecar)
+  - Only leaf tasks are baselined (containers excluded to prevent double-counting)
+  - Immutable baselines (no `--force` flag — delete and recreate instead)
+  - Fully-qualified task IDs (e.g., `phase1.design`) prevent collisions
+  - New CLI commands:
+    - `utf8proj baseline save --name <name>` — Save a baseline snapshot
+    - `utf8proj baseline list` — List all baselines for a project
+    - `utf8proj baseline show --name <name>` — Show baseline details
+    - `utf8proj baseline remove --name <name>` — Remove a baseline (with confirmation)
+    - `utf8proj compare --baseline <name>` — Compare current schedule vs baseline
+  - Output formats: text (default), CSV (`--format csv`), JSON (`--format json`)
+  - Filtering options: `--show-unchanged`, `--threshold <days>`
+  - New diagnostics: B001-B009 for baseline operations
+  - Full RFC in `docs/rfc/RFC-0013-baseline-management.md`
+
+### New Diagnostics
+
+| Code | Severity | Meaning |
+|------|----------|---------|
+| B001 | Info | Baseline saved successfully |
+| B002 | Warning | Task lacks explicit ID (using inferred) |
+| B003 | Error | Baseline already exists |
+| B004 | Error | Baseline not found |
+| B005 | Info | Task removed since baseline |
+| B006 | Info | Task added since baseline |
+| B007 | Warning | No baselines file found |
+| B008 | Warning | Container excluded from baseline |
+| B009 | Error | Cannot baseline: tasks have no ID |
+
+### Example Usage
+
+```bash
+# Save initial baseline
+utf8proj baseline save --name original --description "Initial plan" project.proj
+
+# Make changes to project, then compare
+utf8proj compare --baseline original project.proj
+
+# Output:
+# Schedule Variance vs "original" (saved 2026-01-15)
+#
+# Task                 Baseline Finish   Current Finish   Variance
+# design               2026-01-10        2026-01-12       +2d !!
+# build                2026-02-15        2026-02-20       +5d !!
+# [+] security_audit   -                 2026-02-28       (added)
+#
+# Summary:
+#   Compared: 2 tasks
+#   Delayed: 2
+#   Added: 1
+#   Project slip: +7 days
+
+# JSON output for CI integration
+utf8proj compare --baseline original --format json project.proj
+```
+
+### Baseline File Format
+
+```proj
+# project.proj.baselines
+baseline original {
+    saved: 2026-01-15T10:30:00Z
+    description: "Initial approved plan"
+
+    design: 2026-01-01 -> 2026-01-10
+    build: 2026-01-11 -> 2026-02-15
+}
+
+baseline change_order_1 {
+    saved: 2026-02-01T14:20:00Z
+    parent: original
+
+    design: 2026-01-01 -> 2026-01-12
+    build: 2026-01-13 -> 2026-02-20
+}
+```
+
 ## [0.10.0] - 2026-01-18
 
 ### Added

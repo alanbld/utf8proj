@@ -26,6 +26,7 @@
 //! assert_eq!(project.name, "My Project");
 //! ```
 
+pub mod baseline;
 pub mod native;
 pub mod tjp;
 

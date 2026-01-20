@@ -1,0 +1,88 @@
+// utf8proj Baseline File Grammar (RFC-0013)
+// File extension: .baselines (sidecar to .proj files)
+//
+// This grammar defines the syntax for baseline snapshot files.
+// Baseline files store frozen schedule snapshots for variance analysis.
+//
+// Example:
+//
+// baseline original {
+//     saved: 2026-01-15T10:30:00Z
+//     description: "Initial approved plan"
+//
+//     design: 2026-01-01 -> 2026-01-10
+//     build: 2026-01-11 -> 2026-02-15
+// }
+
+// ============================================================================
+// Top-Level Structure
+// ============================================================================
+
+baseline_file = {
+    SOI ~
+    baseline_block* ~
+    EOI
+}
+
+// ============================================================================
+// Baseline Block
+// ============================================================================
+
+baseline_block = {
+    "baseline" ~ identifier ~ "{" ~
+    baseline_meta ~
+    task_snapshot* ~
+    "}"
+}
+
+baseline_meta = {
+    saved_attr ~
+    description_attr? ~
+    parent_attr?
+}
+
+saved_attr = { "saved" ~ ":" ~ iso8601_datetime }
+description_attr = { "description" ~ ":" ~ string }
+parent_attr = { "parent" ~ ":" ~ identifier }
+
+// ============================================================================
+// Task Snapshot
+// ============================================================================
+
+// task_id: start_date -> finish_date
+task_snapshot = { qualified_id ~ ":" ~ date ~ "->" ~ date }
+
+// Qualified task ID (e.g., "phase1.design" or just "design")
+qualified_id = @{ identifier ~ ("." ~ identifier)* }
+
+// ============================================================================
+// Primitives
+// ============================================================================
+
+// ISO 8601 datetime with timezone: 2026-01-15T10:30:00Z
+iso8601_datetime = @{
+    ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} ~
+    "T" ~
+    ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2} ~
+    ("." ~ ASCII_DIGIT+)? ~
+    ("Z" | (("+" | "-") ~ ASCII_DIGIT{2} ~ ":" ~ ASCII_DIGIT{2}))
+}
+
+// Date: 2026-01-15
+date = @{ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
+
+// String: "quoted text"
+string = @{ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ (escape_seq | !("\"" | "\\") ~ ANY)* }
+escape_seq = @{ "\\" ~ ANY }
+
+// Identifier: alphanumeric with underscores and hyphens
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
+
+// ============================================================================
+// Comments and Whitespace
+// ============================================================================
+
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+NEWLINE = _{ "\r\n" | "\n" | "\r" }

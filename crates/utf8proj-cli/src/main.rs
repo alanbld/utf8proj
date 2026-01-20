@@ -11,7 +11,11 @@ use std::fs;
 use std::io::Write;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use utf8proj_core::baseline::{
+    compare_schedule_to_baseline, count_containers, extract_leaf_tasks, Baseline, VarianceStatus,
+};
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
+use utf8proj_parser::baseline::{baselines_path, load_baselines, save_baselines};
 use utf8proj_parser::parse_file;
 use utf8proj_solver::{
     analyze_project, calculate_utilization, level_resources_with_options, AnalysisConfig,
@@ -251,6 +255,94 @@ enum Commands {
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
     },
+
+    /// Manage project baselines (RFC-0013)
+    Baseline {
+        #[command(subcommand)]
+        command: BaselineCommands,
+    },
+
+    /// Compare current schedule against a baseline (RFC-0013)
+    Compare {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Baseline to compare against
+        #[arg(long, required = true)]
+        baseline: String,
+
+        /// Output format (text, csv, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+
+        /// Include tasks with zero variance
+        #[arg(long)]
+        show_unchanged: bool,
+
+        /// Minimum variance in days to show
+        #[arg(long)]
+        threshold: Option<i32>,
+    },
+}
+
+#[derive(Subcommand)]
+enum BaselineCommands {
+    /// Save a baseline snapshot of the current schedule
+    Save {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Baseline name (required, alphanumeric + underscore)
+        #[arg(long, required = true)]
+        name: String,
+
+        /// Description of this baseline
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Parent baseline (conceptual lineage only)
+        #[arg(long)]
+        parent: Option<String>,
+    },
+
+    /// List all baselines for a project
+    List {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+    },
+
+    /// Show details of a specific baseline
+    Show {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Baseline name
+        #[arg(long, required = true)]
+        name: String,
+
+        /// Show all tasks (default: first 10)
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Remove a baseline
+    Remove {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Baseline name
+        #[arg(long, required = true)]
+        name: String,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -373,6 +465,24 @@ fn main() -> Result<()> {
             } => cmd_fix_container_deps(&file, output.as_deref(), in_place),
         },
         Some(Commands::Init { name, output }) => cmd_init(&name, output.as_deref()),
+        Some(Commands::Baseline { command }) => match command {
+            BaselineCommands::Save {
+                file,
+                name,
+                description,
+                parent,
+            } => cmd_baseline_save(&file, &name, description.as_deref(), parent.as_deref()),
+            BaselineCommands::List { file } => cmd_baseline_list(&file),
+            BaselineCommands::Show { file, name, all } => cmd_baseline_show(&file, &name, all),
+            BaselineCommands::Remove { file, name, yes } => cmd_baseline_remove(&file, &name, yes),
+        },
+        Some(Commands::Compare {
+            file,
+            baseline,
+            format,
+            show_unchanged,
+            threshold,
+        }) => cmd_compare(&file, &baseline, &format, show_unchanged, threshold),
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
@@ -383,6 +493,8 @@ fn main() -> Result<()> {
             println!("  check      Parse and validate a project file");
             println!("  schedule   Schedule a project and output results");
             println!("  gantt      Generate a Gantt chart (SVG)");
+            println!("  baseline   Manage project baselines (RFC-0013)");
+            println!("  compare    Compare schedule against a baseline");
             println!("  classify   Classify tasks by categories (RFC-0011)");
             println!("  benchmark  Run performance benchmarks");
             println!();
@@ -2190,4 +2302,446 @@ milestone launch "Project Launch" {{
     );
 
     Ok(())
+}
+
+// ============================================================================
+// Baseline Commands (RFC-0013)
+// ============================================================================
+
+/// Save a baseline snapshot of the current schedule
+fn cmd_baseline_save(
+    file: &std::path::Path,
+    name: &str,
+    description: Option<&str>,
+    parent: Option<&str>,
+) -> Result<()> {
+    // Validate baseline name (alphanumeric + underscore)
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        anyhow::bail!(
+            "Invalid baseline name '{}'. Use only alphanumeric characters and underscores.",
+            name
+        );
+    }
+
+    // Parse and schedule the project
+    let project = parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let schedule = CpmSolver::new()
+        .schedule(&project)
+        .with_context(|| "Failed to schedule project")?;
+
+    // Load existing baselines
+    let mut store = load_baselines(file)
+        .with_context(|| "Failed to load existing baselines")?;
+
+    // Check if baseline already exists
+    if store.contains(name) {
+        eprintln!("error[B003]: Baseline \"{}\" already exists.", name);
+        eprintln!("  help: Baselines are immutable. To replace, first remove it:");
+        eprintln!("        utf8proj baseline remove --name {} {}", name, file.display());
+        std::process::exit(1);
+    }
+
+    // Extract leaf tasks
+    let container_count = count_containers(&project);
+    let leaf_tasks = extract_leaf_tasks(&schedule, &project);
+    let leaf_count = leaf_tasks.len();
+
+    // Create baseline
+    let mut baseline = Baseline::new(name);
+    if let Some(desc) = description {
+        baseline = baseline.description(desc);
+    }
+    if let Some(p) = parent {
+        baseline = baseline.parent(p);
+    }
+
+    // Add tasks
+    for (_, snapshot) in leaf_tasks {
+        baseline.add_task(snapshot);
+    }
+
+    // Add to store and save
+    store.baselines.insert(name.to_string(), baseline.clone());
+    save_baselines(file, &store)
+        .with_context(|| format!("Failed to save baselines to '{}'", baselines_path(file).display()))?;
+
+    // Output summary
+    println!("Baseline \"{}\" saved", name);
+    println!("  Leaf tasks: {}", leaf_count);
+    if container_count > 0 {
+        println!("  Containers excluded: {}", container_count);
+    }
+    println!("  Project finish: {}", baseline.project_finish);
+    println!("  File: {}", baselines_path(file).display());
+
+    Ok(())
+}
+
+/// List all baselines for a project
+fn cmd_baseline_list(file: &std::path::Path) -> Result<()> {
+    let baselines_file = baselines_path(file);
+
+    if !baselines_file.exists() {
+        eprintln!("warning[B007]: No baselines file found for this project.");
+        eprintln!("  help: Create a baseline with: utf8proj baseline save --name <name> {}", file.display());
+        return Ok(());
+    }
+
+    let store = load_baselines(file)
+        .with_context(|| "Failed to load baselines")?;
+
+    if store.is_empty() {
+        println!("No baselines found.");
+        return Ok(());
+    }
+
+    // Print header
+    println!(
+        "{:<20} {:<24} {:>6}   {}",
+        "Name", "Saved", "Tasks", "Project Finish"
+    );
+    println!("{}", "-".repeat(70));
+
+    // Print each baseline
+    for (_, baseline) in store.iter() {
+        let saved_str = baseline.saved.format("%Y-%m-%d %H:%M").to_string();
+        println!(
+            "{:<20} {:<24} {:>6}   {}",
+            baseline.name,
+            saved_str,
+            baseline.task_count(),
+            baseline.project_finish
+        );
+    }
+
+    Ok(())
+}
+
+/// Show details of a specific baseline
+fn cmd_baseline_show(file: &std::path::Path, name: &str, show_all: bool) -> Result<()> {
+    let store = load_baselines(file)
+        .with_context(|| "Failed to load baselines")?;
+
+    let baseline = match store.get(name) {
+        Some(b) => b,
+        None => {
+            eprintln!("error[B004]: Baseline \"{}\" not found.", name);
+            eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+            std::process::exit(1);
+        }
+    };
+
+    println!("Baseline: {}", baseline.name);
+    println!("  Saved: {}", baseline.saved.to_rfc3339());
+    if let Some(ref desc) = baseline.description {
+        println!("  Description: {}", desc);
+    }
+    if let Some(ref parent) = baseline.parent {
+        println!("  Parent: {}", parent);
+    }
+    println!("  Tasks: {}", baseline.task_count());
+    println!("  Project finish: {}", baseline.project_finish);
+    println!();
+
+    // Show tasks
+    let tasks: Vec<_> = baseline.tasks.values().collect();
+    let show_count = if show_all { tasks.len() } else { tasks.len().min(10) };
+
+    if !tasks.is_empty() {
+        println!("Tasks{}:", if show_all || tasks.len() <= 10 { "" } else { " (first 10)" });
+        for snapshot in tasks.iter().take(show_count) {
+            println!(
+                "  {}: {} -> {}",
+                snapshot.task_id, snapshot.start, snapshot.finish
+            );
+        }
+
+        if !show_all && tasks.len() > 10 {
+            println!("  ... and {} more (use --all to show all)", tasks.len() - 10);
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove a baseline
+fn cmd_baseline_remove(file: &std::path::Path, name: &str, skip_confirm: bool) -> Result<()> {
+    let mut store = load_baselines(file)
+        .with_context(|| "Failed to load baselines")?;
+
+    if !store.contains(name) {
+        eprintln!("error[B004]: Baseline \"{}\" not found.", name);
+        eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+        std::process::exit(1);
+    }
+
+    // Confirmation prompt
+    if !skip_confirm {
+        print!("Remove baseline \"{}\"? This cannot be undone. [y/N] ", name);
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    store.remove(name);
+    save_baselines(file, &store)
+        .with_context(|| "Failed to save baselines")?;
+
+    println!("Baseline \"{}\" removed.", name);
+
+    Ok(())
+}
+
+// ============================================================================
+// Compare Command (RFC-0013)
+// ============================================================================
+
+/// Compare current schedule against a baseline
+fn cmd_compare(
+    file: &std::path::Path,
+    baseline_name: &str,
+    format: &str,
+    show_unchanged: bool,
+    threshold: Option<i32>,
+) -> Result<()> {
+    // Parse and schedule the project
+    let project = parse_file(file)
+        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let schedule = CpmSolver::new()
+        .schedule(&project)
+        .with_context(|| "Failed to schedule project")?;
+
+    // Load baselines
+    let store = load_baselines(file)
+        .with_context(|| "Failed to load baselines")?;
+
+    let baseline = match store.get(baseline_name) {
+        Some(b) => b,
+        None => {
+            eprintln!("error[B004]: Baseline \"{}\" not found.", baseline_name);
+            eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+            std::process::exit(1);
+        }
+    };
+
+    // Compare
+    let comparison = compare_schedule_to_baseline(&schedule, baseline, &project);
+
+    // Filter tasks based on options
+    let filtered_tasks: Vec<_> = comparison
+        .tasks
+        .iter()
+        .filter(|v| {
+            // Always include non-zero variance
+            if v.status != VarianceStatus::OnSchedule {
+                // Apply threshold if specified
+                if let Some(thresh) = threshold {
+                    if let Some(variance) = v.finish_variance_days {
+                        return variance.abs() >= thresh;
+                    }
+                }
+                return true;
+            }
+            // Include on-schedule only if show_unchanged
+            show_unchanged
+        })
+        .collect();
+
+    match format.to_lowercase().as_str() {
+        "json" => output_comparison_json(&comparison, &filtered_tasks)?,
+        "csv" => output_comparison_csv(&comparison, &filtered_tasks)?,
+        "text" | _ => output_comparison_text(&comparison, &filtered_tasks, baseline)?,
+    }
+
+    Ok(())
+}
+
+fn output_comparison_text(
+    comparison: &utf8proj_core::baseline::ScheduleComparison,
+    filtered_tasks: &[&utf8proj_core::baseline::TaskVariance],
+    baseline: &Baseline,
+) -> Result<()> {
+    println!(
+        "Schedule Variance vs \"{}\" (saved {})",
+        comparison.baseline_name,
+        baseline.saved.format("%Y-%m-%d")
+    );
+    println!();
+
+    // Header
+    println!(
+        "{:<30} {:>16} {:>16} {:>10}",
+        "Task", "Baseline Finish", "Current Finish", "Variance"
+    );
+    println!("{}", "-".repeat(76));
+
+    // Tasks
+    for variance in filtered_tasks {
+        let baseline_finish = variance
+            .baseline_finish
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let current_finish = variance
+            .current_finish
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "-".to_string());
+
+        let variance_str = match variance.status {
+            VarianceStatus::OnSchedule => "0d".to_string(),
+            VarianceStatus::Delayed => {
+                format!("+{}d", variance.finish_variance_days.unwrap_or(0))
+            }
+            VarianceStatus::Ahead => {
+                format!("{}d", variance.finish_variance_days.unwrap_or(0))
+            }
+            VarianceStatus::Added => "(added)".to_string(),
+            VarianceStatus::Removed => "(removed)".to_string(),
+        };
+
+        let prefix = match variance.status {
+            VarianceStatus::Added => "[+] ",
+            VarianceStatus::Removed => "[-] ",
+            _ => "",
+        };
+
+        let status_marker = match variance.status {
+            VarianceStatus::Delayed => " !!",
+            VarianceStatus::Ahead => " ok",
+            VarianceStatus::OnSchedule => "",
+            VarianceStatus::Added => "",
+            VarianceStatus::Removed => "",
+        };
+
+        println!(
+            "{}{:<30} {:>16} {:>16} {:>10}{}",
+            prefix,
+            truncate_string(&variance.task_id, 30 - prefix.len()),
+            baseline_finish,
+            current_finish,
+            variance_str,
+            status_marker
+        );
+    }
+
+    // Summary
+    println!();
+    println!("Summary:");
+    println!("  Compared: {} tasks", comparison.summary.tasks_compared);
+    println!("  On schedule: {}", comparison.summary.tasks_on_schedule);
+    println!("  Delayed: {}", comparison.summary.tasks_delayed);
+    println!("  Ahead: {}", comparison.summary.tasks_ahead);
+    println!("  Added: {}", comparison.summary.tasks_added);
+    println!("  Removed: {}", comparison.summary.tasks_removed);
+
+    let slip_str = if comparison.summary.project_variance_days > 0 {
+        format!("+{} days", comparison.summary.project_variance_days)
+    } else if comparison.summary.project_variance_days < 0 {
+        format!("{} days", comparison.summary.project_variance_days)
+    } else {
+        "0 days".to_string()
+    };
+    println!("  Project slip: {}", slip_str);
+
+    Ok(())
+}
+
+fn output_comparison_json(
+    comparison: &utf8proj_core::baseline::ScheduleComparison,
+    filtered_tasks: &[&utf8proj_core::baseline::TaskVariance],
+) -> Result<()> {
+    use serde_json::json;
+
+    let tasks_json: Vec<_> = filtered_tasks
+        .iter()
+        .map(|v| {
+            json!({
+                "id": v.task_id,
+                "status": v.status.as_str(),
+                "baseline_finish": v.baseline_finish.map(|d| d.to_string()),
+                "current_finish": v.current_finish.map(|d| d.to_string()),
+                "variance_days": v.finish_variance_days
+            })
+        })
+        .collect();
+
+    let output = json!({
+        "baseline": comparison.baseline_name,
+        "baseline_saved": comparison.baseline_saved.to_rfc3339(),
+        "comparison_date": comparison.comparison_date.to_rfc3339(),
+        "tasks": tasks_json,
+        "summary": {
+            "compared": comparison.summary.tasks_compared,
+            "on_schedule": comparison.summary.tasks_on_schedule,
+            "delayed": comparison.summary.tasks_delayed,
+            "ahead": comparison.summary.tasks_ahead,
+            "added": comparison.summary.tasks_added,
+            "removed": comparison.summary.tasks_removed,
+            "project_variance_days": comparison.summary.project_variance_days
+        }
+    });
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+
+    Ok(())
+}
+
+fn output_comparison_csv(
+    comparison: &utf8proj_core::baseline::ScheduleComparison,
+    filtered_tasks: &[&utf8proj_core::baseline::TaskVariance],
+) -> Result<()> {
+    // Header
+    println!("task_id,status,baseline_finish,current_finish,variance_days");
+
+    // Tasks
+    for variance in filtered_tasks {
+        let baseline_finish = variance
+            .baseline_finish
+            .map(|d| d.to_string())
+            .unwrap_or_default();
+        let current_finish = variance
+            .current_finish
+            .map(|d| d.to_string())
+            .unwrap_or_default();
+        let variance_days = variance
+            .finish_variance_days
+            .map(|d| d.to_string())
+            .unwrap_or_default();
+
+        println!(
+            "{},{},{},{},{}",
+            variance.task_id,
+            variance.status.as_str(),
+            baseline_finish,
+            current_finish,
+            variance_days
+        );
+    }
+
+    // Add summary line with baseline name in comment-like prefix
+    eprintln!(
+        "# Baseline: {}, compared: {}, delayed: {}, ahead: {}, project_slip: {}",
+        comparison.baseline_name,
+        comparison.summary.tasks_compared,
+        comparison.summary.tasks_delayed,
+        comparison.summary.tasks_ahead,
+        comparison.summary.project_variance_days
+    );
+
+    Ok(())
+}
+
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else if max_len > 3 {
+        format!("{}...", &s[..max_len - 3])
+    } else {
+        s[..max_len].to_string()
+    }
 }
