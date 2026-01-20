@@ -1,6 +1,6 @@
 {
   "name": "utf8proj-playground",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Browser-based playground for utf8proj project scheduling",
   "type": "module",
   "scripts": {
