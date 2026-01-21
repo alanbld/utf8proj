@@ -228,17 +228,40 @@ impl ResourceTimeline {
         periods
     }
 
-    /// Find first available slot where a task can be scheduled without overallocation
+    /// Find first available slot where a task can be scheduled without overallocation.
+    ///
+    /// Returns `None` if no slot is found within `max_search_days` working days
+    /// (default: 2000 working days, approximately 8 years).
     pub fn find_available_slot(
         &self,
         duration_days: i64,
         units: f32,
         earliest_start: NaiveDate,
         calendar: &Calendar,
-    ) -> NaiveDate {
-        let mut candidate = earliest_start;
+    ) -> Option<NaiveDate> {
+        self.find_available_slot_with_limit(duration_days, units, earliest_start, calendar, 2000)
+    }
 
-        loop {
+    /// Find first available slot with a custom search limit.
+    ///
+    /// Returns `None` if no slot is found within `max_search_days` working days.
+    pub fn find_available_slot_with_limit(
+        &self,
+        duration_days: i64,
+        units: f32,
+        earliest_start: NaiveDate,
+        calendar: &Calendar,
+        max_search_days: i64,
+    ) -> Option<NaiveDate> {
+        // Early exit: if units exceed capacity, no slot will ever work
+        if units > self.capacity {
+            return None;
+        }
+
+        let mut candidate = earliest_start;
+        let mut working_days_searched: i64 = 0;
+
+        while working_days_searched < max_search_days {
             // Check if all days in this slot are available
             let mut all_clear = true;
             let mut check_date = candidate;
@@ -262,7 +285,7 @@ impl ResourceTimeline {
             }
 
             if all_clear {
-                return candidate;
+                return Some(candidate);
             }
 
             // Move to next working day
@@ -270,7 +293,11 @@ impl ResourceTimeline {
             while !calendar.is_working_day(candidate) {
                 candidate = candidate.succ_opt().unwrap_or(candidate);
             }
+            working_days_searched += 1;
         }
+
+        // No slot found within search limit
+        None
     }
 }
 
@@ -511,12 +538,48 @@ pub fn level_resources_with_options(
         // Remove current usage before finding new slot
         timeline.remove_usage(&candidate.task_id);
 
-        let new_start = timeline.find_available_slot(
+        let Some(new_start) = timeline.find_available_slot(
             duration_days,
             units,
             period.end.succ_opt().unwrap_or(period.end),
             calendar,
-        );
+        ) else {
+            // No available slot found within search limit - record as unresolved
+            unresolved_conflicts.push(UnresolvedConflict {
+                resource_id: resource_id.clone(),
+                period: period.clone(),
+                reason: format!(
+                    "No available slot found for '{}' (units={:.0}%, capacity={:.0}%)",
+                    candidate.task_id,
+                    units * 100.0,
+                    timeline.capacity * 100.0
+                ),
+            });
+
+            // Emit L002 diagnostic
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::L002UnresolvableConflict,
+                severity: Severity::Warning,
+                message: format!(
+                    "Cannot level '{}': no available slot within search horizon",
+                    candidate.task_id
+                ),
+                file: None,
+                span: None,
+                secondary_spans: vec![],
+                notes: vec![format!(
+                    "Resource '{}' cannot accommodate this task (demand={:.0}%, capacity={:.0}%)",
+                    resource_id,
+                    units * 100.0,
+                    timeline.capacity * 100.0
+                )],
+                hints: vec!["Consider adding more resources or reducing task effort".to_string()],
+            });
+
+            // Re-add the usage we removed (keep task at original position)
+            timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+            continue;
+        };
 
         // Shift the task
         let days_shifted = count_working_days(original_start, new_start, calendar);
@@ -1059,7 +1122,43 @@ mod tests {
         let slot = timeline.find_available_slot(3, 1.0, start, &calendar);
 
         // Should find slot starting after the blocked period
-        assert!(slot > finish);
+        assert!(slot.is_some());
+        assert!(slot.unwrap() > finish);
+    }
+
+    #[test]
+    fn find_available_slot_respects_limit() {
+        let timeline = ResourceTimeline::new("dev".into(), 1.0);
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+
+        // Request units exceeding capacity - should return None immediately
+        let slot = timeline.find_available_slot(3, 2.0, start, &calendar);
+        assert!(slot.is_none());
+    }
+
+    #[test]
+    fn find_available_slot_with_custom_limit() {
+        let mut timeline = ResourceTimeline::new("dev".into(), 1.0);
+        let calendar = make_test_calendar();
+        let start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+
+        // Block every working day for 50 calendar days (covers ~35 working days)
+        let mut day = start;
+        for i in 0..50 {
+            if calendar.is_working_day(day) {
+                timeline.add_usage(&format!("block_{}", i).into(), day, day, 1.0);
+            }
+            day = day.succ_opt().unwrap();
+        }
+
+        // With a small limit (5 working days), should not find a slot
+        let slot = timeline.find_available_slot_with_limit(1, 1.0, start, &calendar, 5);
+        assert!(slot.is_none());
+
+        // With a larger limit (100 working days), should find a slot after the blocked period
+        let slot = timeline.find_available_slot_with_limit(1, 1.0, start, &calendar, 100);
+        assert!(slot.is_some());
     }
 
     #[test]
