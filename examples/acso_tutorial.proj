@@ -1,0 +1,138 @@
+# Accounting Software - .proj equivalent of TaskJuggler tutorial.tjp
+# Tests utf8proj with a realistic medium-sized project
+
+project "Accounting Software" {
+    start: 2002-01-16
+    end: 2002-06-30
+    currency: USD
+    status_date: 2002-03-05
+}
+
+calendar "standard" {
+    working_days: mon-fri
+    working_hours: 09:00-12:00, 13:00-18:00
+    holiday "Good Friday" 2002-03-29
+}
+
+# Resources
+resource boss "Paul Henry Bullock" {
+    email: "phb@crappysoftware.com"
+    rate: 480/day
+    role: "Manager"
+}
+
+resource dev1 "Paul Smith" {
+    email: "paul@crappysoftware.com"
+    rate: 350/day
+    role: "Developer"
+}
+
+resource dev2 "Sébastien Bono" {
+    email: "SBono@crappysoftware.com"
+    rate: 390/day
+    role: "Developer"
+}
+
+resource dev3 "Klaus Müller" {
+    email: "Klaus.Mueller@crappysoftware.com"
+    rate: 390/day
+    role: "Developer"
+    leave: 2002-02-01..2002-02-05
+}
+
+resource test "Peter Murphy" {
+    email: "murphy@crappysoftware.com"
+    rate: 310/day
+    role: "Tester"
+    capacity: 0.8
+}
+
+resource doc "Dim Sung" {
+    email: "sung@crappysoftware.com"
+    rate: 300/day
+    role: "Documentation"
+    leave: 2002-03-11..2002-03-16
+}
+
+# Main project task hierarchy
+task acso "Accounting Software" {
+
+    task spec "Specification" {
+        effort: 20d
+        assign: dev1, dev2, dev3
+        depends: deliveries.start
+    }
+
+    task software "Software Development" {
+        priority: 1000
+
+        task database "Database coupling" {
+            effort: 20d
+            assign: dev1, dev2
+            depends: acso.spec
+            note: "Problems with the SQL Library - contacted vendor for advice"
+        }
+
+        task gui "Graphical User Interface" {
+            effort: 35d
+            assign: dev2@75%, dev3
+            depends: database, backend
+        }
+
+        task backend "Back-End Functions" {
+            effort: 30d
+            assign: dev1, dev2
+            depends: database
+            complete: 95%
+        }
+    }
+
+    task testing "Software testing" {
+
+        task alpha "Alpha Test" {
+            effort: 1w
+            assign: test, dev2
+            depends: acso.software
+            note: "Hopefully most bugs will be found and fixed here."
+        }
+
+        task beta "Beta Test" {
+            effort: 4w
+            assign: test, dev1
+            depends: alpha
+        }
+    }
+
+    task manual "Manual" {
+        effort: 10w
+        assign: doc, dev3
+        depends: deliveries.start
+        note: "User manual - doc writers did a great job to finish on time"
+    }
+
+    task deliveries "Milestones" {
+
+        milestone start "Project start" {
+            must_start_on: 2002-01-16
+            payment: 21000
+        }
+
+        milestone prev "Technology Preview" {
+            depends: acso.software.backend
+            payment: 31000
+            note: "All major features should be usable."
+        }
+
+        milestone beta_release "Beta version" {
+            depends: acso.testing.alpha
+            payment: 13000
+            note: "Fully functional, may contain bugs."
+        }
+
+        milestone done "Ship Product to Customer" {
+            depends: acso.testing.beta, acso.manual
+            payment: 33000
+            note: "All priority 1 and 2 bugs must be fixed."
+        }
+    }
+}
