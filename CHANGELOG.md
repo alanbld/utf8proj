@@ -5,6 +5,28 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-01-21
+
+### Fixed
+- **Resource leveling infinite loop** — `find_available_slot()` had an unbounded loop that would hang forever when no slot could be found (e.g., when task units exceed resource capacity). Real project files with resource assignments would hang while synthetic benchmarks worked.
+  - Added 2000 working day search limit to prevent infinite loops
+  - Function now returns `Option<NaiveDate>` to handle "no slot found" gracefully
+  - Early exit when `units > capacity` (impossible to schedule)
+  - Emits L002 diagnostic when slot cannot be found within search horizon
+
+### Added
+- **Stress test examples** for performance validation:
+  - `examples/acso_tutorial.proj` — TaskJuggler tutorial equivalent (15 tasks, 6 resources)
+  - `examples/enterprise_10k.proj` — Enterprise-scale project (10k tasks, 1k resources)
+  - `tools/generate_large_project.py` — Python generator for custom stress tests
+
+### Performance
+- Leveling now completes for real projects that previously hung:
+  - `acso_tutorial.proj` (15 tasks): hung → **0.3s**
+  - `crm_simple.proj` (28 tasks): hung → **0.1s**
+  - 1000 tasks with multi-assignment: hung → **0.4s**
+- Scheduling (without leveling) scales to 1M+ tasks
+
 ## [0.11.0] - 2026-01-20
 
 ### Added
