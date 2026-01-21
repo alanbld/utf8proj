@@ -628,6 +628,7 @@ fn cmd_check(
 }
 
 /// Schedule command: parse, schedule, and output results
+#[allow(clippy::cognitive_complexity)]
 fn cmd_schedule(
     file: &std::path::Path,
     format: &str,
@@ -2397,8 +2398,8 @@ fn cmd_baseline_list(file: &std::path::Path) -> Result<()> {
 
     // Print header
     println!(
-        "{:<20} {:<24} {:>6}   {}",
-        "Name", "Saved", "Tasks", "Project Finish"
+        "{:<20} {:<24} {:>6}   Project Finish",
+        "Name", "Saved", "Tasks"
     );
     println!("{}", "-".repeat(70));
 
