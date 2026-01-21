@@ -1083,6 +1083,7 @@ DEPENDENCIES: Minimal (single binary, few external crates)
 - BDD/SAT integration (if user demand)
 - Enhanced TJP compatibility (Tier 2 features)
 - WASM build for browser
+- Playground baseline support (save/load/compare in browser)
 - VS Code extension
 
 ### v1.2 (Months 4-6)

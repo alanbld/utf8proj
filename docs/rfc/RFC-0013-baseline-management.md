@@ -646,6 +646,7 @@ Note: Tasks added after baseline have PV=0 in that baseline context.
 - [ ] Visual Gantt overlay
 - [ ] Baseline diff (compare two baselines)
 - [ ] Multi-project coordination
+- [ ] Playground baseline support (WASM bindings for save/load/compare in browser)
 
 ---
 
