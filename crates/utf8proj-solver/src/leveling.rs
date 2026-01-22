@@ -11,7 +11,7 @@
 //! - L001-L004 diagnostics emitted for transparency
 
 use chrono::NaiveDate;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, BTreeMap, HashMap};
 use utf8proj_core::{
     Calendar, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule, ScheduledTask,
     Severity, TaskId,
@@ -127,8 +127,8 @@ pub struct DayUsage {
 pub struct ResourceTimeline {
     pub resource_id: ResourceId,
     pub capacity: f32,
-    /// Usage by date
-    pub usage: HashMap<NaiveDate, DayUsage>,
+    /// Usage by date (BTreeMap for sorted iteration - enables O(log n) gap finding)
+    pub usage: BTreeMap<NaiveDate, DayUsage>,
 }
 
 impl ResourceTimeline {
@@ -136,7 +136,7 @@ impl ResourceTimeline {
         Self {
             resource_id,
             capacity,
-            usage: HashMap::new(),
+            usage: BTreeMap::new(),
         }
     }
 
@@ -245,6 +245,8 @@ impl ResourceTimeline {
     /// Find first available slot with a custom search limit.
     ///
     /// Returns `None` if no slot is found within `max_search_days` working days.
+    ///
+    /// Optimized to skip over blocked periods using BTreeMap's sorted iteration.
     pub fn find_available_slot_with_limit(
         &self,
         duration_days: i64,
@@ -258,47 +260,112 @@ impl ResourceTimeline {
             return None;
         }
 
+        let available_capacity = self.capacity - units;
         let mut candidate = earliest_start;
         let mut working_days_searched: i64 = 0;
 
         while working_days_searched < max_search_days {
             // Check if all days in this slot are available
-            let mut all_clear = true;
-            let mut check_date = candidate;
-            let mut working_days_checked = 0;
+            let slot_result =
+                self.check_slot_available(candidate, duration_days, available_capacity, calendar);
 
-            while working_days_checked < duration_days {
-                if calendar.is_working_day(check_date) {
-                    let current_usage = self
-                        .usage
-                        .get(&check_date)
-                        .map(|d| d.total_units)
-                        .unwrap_or(0.0);
+            match slot_result {
+                SlotCheckResult::Available => return Some(candidate),
+                SlotCheckResult::BlockedUntil(blocked_end) => {
+                    // Count working days from candidate to blocked_end (inclusive)
+                    let days_skipped = count_working_days_between(candidate, blocked_end, calendar);
+                    working_days_searched += days_skipped.max(1);
 
-                    if current_usage + units > self.capacity {
-                        all_clear = false;
-                        break;
+                    // Skip to the day after the blocked period
+                    candidate = blocked_end.succ_opt().unwrap_or(blocked_end);
+                    // Skip non-working days
+                    while !calendar.is_working_day(candidate) {
+                        candidate = candidate.succ_opt().unwrap_or(candidate);
                     }
-                    working_days_checked += 1;
                 }
-                check_date = check_date.succ_opt().unwrap_or(check_date);
+                SlotCheckResult::NoCapacity => {
+                    // Move to next working day
+                    candidate = candidate.succ_opt().unwrap_or(candidate);
+                    while !calendar.is_working_day(candidate) {
+                        candidate = candidate.succ_opt().unwrap_or(candidate);
+                    }
+                    working_days_searched += 1;
+                }
             }
-
-            if all_clear {
-                return Some(candidate);
-            }
-
-            // Move to next working day
-            candidate = candidate.succ_opt().unwrap_or(candidate);
-            while !calendar.is_working_day(candidate) {
-                candidate = candidate.succ_opt().unwrap_or(candidate);
-            }
-            working_days_searched += 1;
         }
 
         // No slot found within search limit
         None
     }
+
+    /// Check if a slot starting at `start` with `duration_days` is available.
+    /// Returns the result indicating availability or when the blocking ends.
+    fn check_slot_available(
+        &self,
+        start: NaiveDate,
+        duration_days: i64,
+        available_capacity: f32,
+        calendar: &Calendar,
+    ) -> SlotCheckResult {
+        let mut check_date = start;
+        let mut working_days_checked = 0;
+        let mut latest_blocked_date: Option<NaiveDate> = None;
+
+        while working_days_checked < duration_days {
+            if calendar.is_working_day(check_date) {
+                let current_usage = self
+                    .usage
+                    .get(&check_date)
+                    .map(|d| d.total_units)
+                    .unwrap_or(0.0);
+
+                if current_usage > available_capacity {
+                    // This day is blocked - find the end of the blocked run
+                    latest_blocked_date = Some(self.find_blocked_run_end(check_date, available_capacity));
+                }
+                working_days_checked += 1;
+            }
+            check_date = check_date.succ_opt().unwrap_or(check_date);
+        }
+
+        match latest_blocked_date {
+            Some(end) => SlotCheckResult::BlockedUntil(end),
+            None => SlotCheckResult::Available,
+        }
+    }
+
+    /// Find the end of a contiguous blocked run starting from `start`.
+    /// Uses BTreeMap's range iteration for efficiency.
+    fn find_blocked_run_end(&self, start: NaiveDate, available_capacity: f32) -> NaiveDate {
+        let mut end = start;
+
+        // Iterate through usage entries from `start` forward
+        for (&date, day) in self.usage.range(start..) {
+            if day.total_units > available_capacity {
+                end = date;
+            } else {
+                // Found a day with available capacity - the blocked run ends before this
+                break;
+            }
+
+            // Safety limit: don't search more than 1000 days for the run end
+            if date > start + chrono::Duration::days(1000) {
+                break;
+            }
+        }
+
+        end
+    }
+}
+
+/// Result of checking a slot's availability
+enum SlotCheckResult {
+    /// Slot is available for scheduling
+    Available,
+    /// Slot is blocked; provides the end date of the blocking period
+    BlockedUntil(NaiveDate),
+    /// No capacity available (units > capacity)
+    NoCapacity,
 }
 
 /// A period of resource over-allocation
@@ -864,7 +931,7 @@ fn add_working_days(start: NaiveDate, days: i64, calendar: &Calendar) -> NaiveDa
     current
 }
 
-/// Count working days between two dates
+/// Count working days between two dates (exclusive of start)
 fn count_working_days(start: NaiveDate, end: NaiveDate, calendar: &Calendar) -> i64 {
     if end <= start {
         return 0;
@@ -878,6 +945,28 @@ fn count_working_days(start: NaiveDate, end: NaiveDate, calendar: &Calendar) -> 
         if calendar.is_working_day(current) {
             count += 1;
         }
+    }
+
+    count
+}
+
+/// Count working days from start to end (both inclusive)
+fn count_working_days_between(start: NaiveDate, end: NaiveDate, calendar: &Calendar) -> i64 {
+    if end < start {
+        return 0;
+    }
+
+    let mut current = start;
+    let mut count = 0;
+
+    while current <= end {
+        if calendar.is_working_day(current) {
+            count += 1;
+        }
+        current = match current.succ_opt() {
+            Some(d) => d,
+            None => break,
+        };
     }
 
     count

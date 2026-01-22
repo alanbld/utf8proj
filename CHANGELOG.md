@@ -5,6 +5,22 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-01-22
+
+### Changed
+- **Resource leveling optimization (RFC-0014 Phase 0)** — Improved slot-finding performance
+  - Changed `ResourceTimeline.usage` from `HashMap` to `BTreeMap` for sorted iteration
+  - Added skip-blocked-runs algorithm: when a slot is blocked, skip directly to the end of the blocked period instead of checking day-by-day
+  - Added `SlotCheckResult` enum and `find_blocked_run_end()` helper for efficient gap detection
+
+### Performance
+- Leveling performance improved for projects with heavy resource conflicts:
+  - 100 tasks (88 leveled): **0.16s**
+  - 500 tasks (492 leveled): **0.12s**
+  - 1000 tasks (986 leveled): **0.7s**
+  - 2000 tasks (1983 leveled): **5.4s**
+- Larger projects (5000+ tasks) still benefit from the 2000-day search limit but require Phase 1 (Hybrid BDD leveling) for sub-second performance
+
 ## [0.11.1] - 2026-01-21
 
 ### Fixed
