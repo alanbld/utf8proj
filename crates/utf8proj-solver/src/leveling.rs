@@ -1147,7 +1147,7 @@ mod tests {
         let mut day = start;
         for i in 0..50 {
             if calendar.is_working_day(day) {
-                timeline.add_usage(&format!("block_{}", i).into(), day, day, 1.0);
+                timeline.add_usage(&format!("block_{i}"), day, day, 1.0);
             }
             day = day.succ_opt().unwrap();
         }
