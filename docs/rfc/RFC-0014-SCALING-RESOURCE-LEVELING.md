@@ -363,14 +363,30 @@ pub fn level_parallel(project: &Project) -> Schedule {
 - [x] Benchmark: **4-5x speedup** achieved (500 tasks: 0.23s→0.05s, 2000 tasks: 5.35s→1.07s)
 - [x] Unit tests for hybrid leveling correctness and determinism
 
-### Phase 2: Performance Polish (v0.12.1)
+### Phase 2: Parallel Cluster Leveling (v0.12.1)
 
-**Week 5-6: Validation & Edge Cases**
-- [ ] Remove 2000-day search limit (superseded by BDD windows)
-- [ ] Benchmark hybrid vs interval-tree-only
-- [ ] Document leveling strategy selection heuristics
+**Target: 10,000 tasks in <30s**
 
-### Phase 3: Optional Optimal Leveling (v0.13.0+)
+Based on profiling (BDD is <1% of time, heuristic is bottleneck):
+
+- [ ] Add `rayon` for parallel processing
+- [ ] Level independent clusters concurrently
+- [ ] Expected speedup: ~Nx for N clusters (5x for typical 5-resource projects)
+- [ ] Benchmark: 5000 tasks should drop from 1.5min to ~20s
+
+### Phase 3: Interval Tree Slot Finding (v0.12.2)
+
+**Target: 10,000 tasks in <10s**
+
+Replace O(n) day-by-day slot search with O(log n) interval tree:
+
+- [ ] Add `intervaltree` or `nodit` crate
+- [ ] Implement interval-based `find_available_slot()`
+- [ ] Combined with parallel clusters: O(n log n / P) where P = parallelism
+
+### Phase 4: Optional Optimal Leveling (v0.13.0+)
+
+For cases where makespan optimization matters:
 
 - [ ] Add `pumpkin-solver` as optional dependency
 - [ ] Implement `level_optimal()` behind feature flag
@@ -378,19 +394,68 @@ pub fn level_parallel(project: &Project) -> Schedule {
 
 ---
 
-## 6. Success Criteria
+## 6. Benchmark Results (v0.12.0)
 
-| Metric | Current | Target |
-|--------|---------|--------|
-| 1,000 tasks leveling | 0.4s | <0.3s |
-| 5,000 tasks leveling | ~1s | <1s |
-| 10,000 tasks leveling | >2 min | <10s |
-| Leveling quality (makespan) | Heuristic | Same or better |
-| What-if analysis | ✅ Supported | ✅ Preserved |
+### 6.1 Performance Comparison
+
+| Tasks | Standard | Hybrid | Speedup |
+|-------|----------|--------|---------|
+| 500 | 0.23s | 0.05s | 4.6x |
+| 1000 | 0.82s | 0.18s | 4.5x |
+| 2000 | 5.4s | 1.07s | 5x |
+| 3000 | 4 min 16s | **13.8s** | **19x** |
+| 5000 | est. >30 min | **1.5 min** | ~20x |
+| 7500 | est. hours | **7.2 min** | - |
+| 10000 | ∞ (hangs) | >15 min | - |
+
+### 6.2 Practical Limits
+
+| Strategy | Comfortable | Acceptable | Maximum |
+|----------|-------------|------------|---------|
+| **Standard** | ≤1000 tasks | ≤2000 tasks | ~3000 tasks |
+| **Hybrid** | ≤3000 tasks | ≤5000 tasks | ~7500 tasks |
+
+### 6.3 Profiling Analysis
+
+Profiling with `UTF8PROJ_PROFILE=1` reveals the bottleneck:
+
+| Tasks | BDD Analysis | Heuristic Leveling | Total | BDD % |
+|-------|--------------|-------------------|-------|-------|
+| 1000 | 7.5ms | 152ms | 161ms | 4.6% |
+| 2000 | 27ms | 954ms | 983ms | 2.7% |
+| 3000 | 63ms | 12.7s | 12.7s | **0.5%** |
+
+**Key Finding:** The BDD cluster analysis is fast (O(n), <1% of total time). The bottleneck is the **heuristic slot-finding within clusters** which is O(k²) where k is cluster size.
+
+**Implication:** Parallel BDD libraries (OxiDD, etc.) would NOT help — the BDD is already fast. To further improve:
+1. **Parallel cluster processing** — level independent clusters concurrently with rayon
+2. **Interval tree for slots** — O(log n) gap finding instead of O(n) day-by-day scanning
+
+### 6.4 Cluster Effectiveness
+
+The hybrid approach correctly identifies independent clusters:
+- 1000 tasks → 5 clusters of ~200 tasks each (one per resource)
+- 2000 tasks → 5 clusters of ~400 tasks each
+- 3000 tasks → 5 clusters of ~600 tasks each
+
+This gives ~5x speedup by processing clusters independently, matching benchmarks.
 
 ---
 
-## 7. Non-Goals
+## 7. Success Criteria
+
+| Metric | v0.11.0 | v0.12.0 (Hybrid) | Target |
+|--------|---------|------------------|--------|
+| 1,000 tasks leveling | 0.82s | **0.18s** ✅ | <0.3s |
+| 3,000 tasks leveling | 4+ min | **13.8s** ✅ | <30s |
+| 5,000 tasks leveling | hours | **1.5 min** ⚠️ | <1 min |
+| 10,000 tasks leveling | ∞ | >15 min ❌ | <10s |
+| Leveling quality (makespan) | Heuristic | Same ✅ | Same or better |
+| What-if analysis | ✅ Supported | ✅ Preserved | ✅ Preserved |
+
+---
+
+## 8. Non-Goals
 
 This RFC explicitly does **not** propose:
 
@@ -398,10 +463,11 @@ This RFC explicitly does **not** propose:
 2. **Migrating to pure SAT/CP** — Hybrid approach leverages both paradigms
 3. **Changing the CPM scheduler** — Already excellent at 73k tasks/sec
 4. **Breaking the text-based format** — Git-friendliness is preserved
+5. **Parallel BDD libraries (OxiDD)** — Profiling shows BDD is <1% of time; not the bottleneck
 
 ---
 
-## 8. Relationship to utf8proj Positioning
+## 9. Relationship to utf8proj Positioning
 
 This optimization maintains utf8proj's core differentiators:
 
@@ -417,17 +483,25 @@ This optimization maintains utf8proj's core differentiators:
 
 ---
 
-## 9. Open Questions
+## 10. Open Questions
 
 1. **Cluster ordering:** How should conflict clusters be processed? By size? By resource criticality? By project priority?
+   - *Current:* Largest clusters first (deterministic)
 
 2. **BDD caching:** Should conflict analysis be cached across incremental changes?
+   - *Answer:* Low priority — BDD is only 0.5-5% of total time
 
 3. **Threshold tuning:** At what project size should hybrid leveling activate? Current data suggests ~500 tasks.
+   - *Answer:* Hybrid is always faster; could become default in v0.13.0
 
 4. **Parallel strategy:** Is per-resource parallelism sufficient, or do we need finer-grained concurrency?
+   - *Answer from profiling:* Per-cluster parallelism is sufficient — clusters are independent and contain the O(k²) work
 
-5. **v0.11.1 search limit:** Should the 2000-day limit remain as a safety net even after hybrid leveling, or be removed entirely? Arguments for keeping: defense-in-depth against edge cases. Arguments against: hybrid approach guarantees termination via BDD-validated windows, limit becomes dead code.
+5. **v0.11.1 search limit:** Should the 2000-day limit remain as a safety net even after hybrid leveling?
+   - *Answer:* Keep for defense-in-depth; doesn't affect performance
+
+6. **OxiDD/parallel BDD:** Would parallel BDD with variable reordering help?
+   - *Answer from profiling:* **No** — BDD analysis is <1% of time. The bottleneck is heuristic slot-finding within clusters, not BDD operations.
 
 ---
 

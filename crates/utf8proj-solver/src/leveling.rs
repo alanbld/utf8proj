@@ -856,6 +856,8 @@ fn hybrid_level_resources(
     calendar: &Calendar,
     options: &LevelingOptions,
 ) -> LevelingResult {
+    let total_start = std::time::Instant::now();
+
     let original_schedule = schedule.clone();
     let mut leveled_tasks = schedule.tasks.clone();
     let mut shifted_tasks = Vec::new();
@@ -866,8 +868,28 @@ fn hybrid_level_resources(
     let peak_utilization_before = calculate_peak_utilization(project, &leveled_tasks);
 
     // Step 1: Use BDD to analyze conflict clusters
+    let bdd_start = std::time::Instant::now();
     let analyzer = BddConflictAnalyzer::new();
     let cluster_analysis = analyzer.analyze_clusters(project, schedule);
+    let bdd_elapsed = bdd_start.elapsed();
+
+    // Profile output (only in debug builds or when RUST_LOG is set)
+    if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+        eprintln!(
+            "[PROFILE] BDD cluster analysis: {:?} ({} clusters, {} unconstrained tasks)",
+            bdd_elapsed,
+            cluster_analysis.clusters.len(),
+            cluster_analysis.unconstrained_tasks.len()
+        );
+        for (i, cluster) in cluster_analysis.clusters.iter().enumerate() {
+            eprintln!(
+                "[PROFILE]   Cluster {}: {} tasks, {} resources",
+                i,
+                cluster.tasks.len(),
+                cluster.resources.len()
+            );
+        }
+    }
 
     // If no clusters, no leveling needed
     if cluster_analysis.clusters.is_empty() {
@@ -910,7 +932,12 @@ fn hybrid_level_resources(
         .map(|f| (original_duration * f) as i64);
 
     // Step 2: Process each conflict cluster independently
-    for cluster in &cluster_analysis.clusters {
+    let heuristic_start = std::time::Instant::now();
+    let mut cluster_times: Vec<(usize, std::time::Duration, usize)> = Vec::new();
+
+    for (cluster_idx, cluster) in cluster_analysis.clusters.iter().enumerate() {
+        let cluster_start = std::time::Instant::now();
+
         // Convert cluster task IDs to HashSet for efficient lookup
         let cluster_task_ids: HashSet<&str> = cluster.tasks.iter().map(|s| s.as_str()).collect();
 
@@ -1114,6 +1141,26 @@ fn hybrid_level_resources(
                 hints: vec![],
             });
         }
+
+        // Record cluster timing
+        cluster_times.push((cluster_idx, cluster_start.elapsed(), cluster.tasks.len()));
+    }
+
+    let heuristic_elapsed = heuristic_start.elapsed();
+
+    // Profile output
+    if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+        eprintln!("[PROFILE] Heuristic leveling total: {:?}", heuristic_elapsed);
+        for (idx, elapsed, task_count) in &cluster_times {
+            eprintln!(
+                "[PROFILE]   Cluster {} ({} tasks): {:?}",
+                idx, task_count, elapsed
+            );
+        }
+        eprintln!(
+            "[PROFILE] Total hybrid leveling: {:?}",
+            total_start.elapsed()
+        );
     }
 
     // Calculate new project end
