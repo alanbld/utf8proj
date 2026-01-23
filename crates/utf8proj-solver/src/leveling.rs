@@ -11,6 +11,7 @@
 //! - L001-L004 diagnostics emitted for transparency
 
 use crate::bdd::BddConflictAnalyzer;
+use rayon::prelude::*;
 use chrono::NaiveDate;
 use std::collections::{BinaryHeap, BTreeMap, HashMap, HashSet};
 use utf8proj_core::{
@@ -845,11 +846,286 @@ pub fn level_resources_with_options(
     }
 }
 
-/// Hybrid BDD + heuristic resource leveling (RFC-0014 Phase 1)
+/// Result from processing a single conflict cluster (for parallel processing)
+#[derive(Debug)]
+struct ClusterResult {
+    /// Task updates: task_id -> (new_start, new_finish)
+    task_updates: HashMap<TaskId, (NaiveDate, NaiveDate)>,
+    /// Tasks that were shifted
+    shifted_tasks: Vec<ShiftedTask>,
+    /// Conflicts that couldn't be resolved
+    unresolved_conflicts: Vec<UnresolvedConflict>,
+    /// Diagnostics generated
+    diagnostics: Vec<Diagnostic>,
+    /// Processing time for profiling
+    elapsed: std::time::Duration,
+}
+
+/// Process a single conflict cluster (pure function for parallel execution)
+///
+/// This function is designed to be called in parallel for independent clusters.
+/// It takes immutable references to shared data and returns all updates as values.
+fn process_cluster(
+    cluster: &crate::bdd::ConflictCluster,
+    cluster_idx: usize,
+    tasks: &HashMap<TaskId, ScheduledTask>,
+    project: &Project,
+    calendar: &Calendar,
+    task_priorities: &HashMap<TaskId, (u32, ())>,
+    max_allowed_duration: Option<i64>,
+) -> ClusterResult {
+    let cluster_start = std::time::Instant::now();
+
+    let mut task_updates: HashMap<TaskId, (NaiveDate, NaiveDate)> = HashMap::new();
+    let mut shifted_tasks = Vec::new();
+    let mut unresolved_conflicts = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    // Build resource timelines for only the resources in this cluster
+    let cluster_resources: HashSet<&str> = cluster.resources.iter().map(|s| s.as_str()).collect();
+    let cluster_task_ids: HashSet<&str> = cluster.tasks.iter().map(|s| s.as_str()).collect();
+
+    // Create local timelines for this cluster's resources
+    let mut timelines: HashMap<ResourceId, ResourceTimeline> = HashMap::new();
+    for resource in &project.resources {
+        if cluster_resources.contains(resource.id.as_str()) {
+            timelines.insert(
+                resource.id.clone(),
+                ResourceTimeline::new(resource.id.clone(), resource.capacity),
+            );
+        }
+    }
+
+    // Create a local copy of cluster tasks for mutation
+    let mut local_tasks: HashMap<TaskId, ScheduledTask> = tasks
+        .iter()
+        .filter(|(id, _)| cluster_task_ids.contains(id.as_str()))
+        .map(|(id, task)| (id.clone(), task.clone()))
+        .collect();
+
+    // Initialize timelines with cluster task assignments
+    for task in local_tasks.values() {
+        for assignment in &task.assignments {
+            if let Some(timeline) = timelines.get_mut(&assignment.resource_id) {
+                timeline.add_usage(&task.task_id, task.start, task.finish, assignment.units);
+            }
+        }
+    }
+
+    // Level tasks within this cluster
+    let max_iterations = cluster.tasks.len() * 10;
+    let mut iterations = 0;
+
+    while iterations < max_iterations {
+        iterations += 1;
+
+        // Find conflicts for resources in this cluster
+        let mut all_conflicts: Vec<(ResourceId, OverallocationPeriod)> = timelines
+            .iter()
+            .flat_map(|(_, timeline)| {
+                let resource_id = timeline.resource_id.clone();
+                timeline
+                    .overallocated_periods()
+                    .into_iter()
+                    .filter(|p| {
+                        p.involved_tasks
+                            .iter()
+                            .any(|t| cluster_task_ids.contains(t.as_str()))
+                    })
+                    .map(move |p| (resource_id.clone(), p))
+            })
+            .collect();
+
+        all_conflicts.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)));
+
+        let Some((resource_id, period)) = all_conflicts.into_iter().next() else {
+            break; // No more conflicts in this cluster
+        };
+
+        let timeline_capacity = timelines
+            .get(&resource_id)
+            .map(|t| t.capacity)
+            .unwrap_or(1.0);
+
+        // Find candidates to shift
+        let mut candidates: BinaryHeap<ShiftCandidate> = period
+            .involved_tasks
+            .iter()
+            .filter(|task_id| cluster_task_ids.contains(task_id.as_str()))
+            .filter_map(|task_id| {
+                let task = local_tasks.get(task_id)?;
+                let (priority, _) = task_priorities.get(task_id)?;
+                Some(ShiftCandidate {
+                    task_id: task_id.clone(),
+                    priority: *priority,
+                    slack_days: task.slack.as_days() as i64,
+                    is_critical: task.is_critical,
+                })
+            })
+            .collect();
+
+        if candidates.is_empty() {
+            unresolved_conflicts.push(UnresolvedConflict {
+                resource_id: resource_id.clone(),
+                period: period.clone(),
+                reason: "No shiftable tasks found in cluster".into(),
+            });
+
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::L002UnresolvableConflict,
+                severity: Severity::Warning,
+                message: format!(
+                    "Unresolvable resource conflict: '{}' at {} (hybrid/parallel)",
+                    resource_id, period.start
+                ),
+                file: None,
+                span: None,
+                secondary_spans: vec![],
+                notes: vec![],
+                hints: vec![],
+            });
+            continue;
+        }
+
+        // Pick the best candidate
+        let candidate = candidates.pop().unwrap();
+        let task = local_tasks.get(&candidate.task_id).unwrap();
+        let original_start = task.start;
+
+        let units = task
+            .assignments
+            .iter()
+            .find(|a| a.resource_id == resource_id)
+            .map(|a| a.units)
+            .unwrap_or(1.0);
+
+        let timeline = timelines.get_mut(&resource_id).unwrap();
+        let duration_days = task.duration.as_days() as i64;
+
+        timeline.remove_usage(&candidate.task_id);
+
+        let Some(new_start) = timeline.find_available_slot(
+            duration_days,
+            units,
+            period.end.succ_opt().unwrap_or(period.end),
+            calendar,
+        ) else {
+            unresolved_conflicts.push(UnresolvedConflict {
+                resource_id: resource_id.clone(),
+                period: period.clone(),
+                reason: format!("No available slot for '{}'", candidate.task_id),
+            });
+
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::L002UnresolvableConflict,
+                severity: Severity::Warning,
+                message: format!(
+                    "Cannot level '{}': no available slot (hybrid/parallel)",
+                    candidate.task_id
+                ),
+                file: None,
+                span: None,
+                secondary_spans: vec![],
+                notes: vec![],
+                hints: vec![],
+            });
+
+            timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+            continue;
+        };
+
+        let days_shifted = count_working_days(original_start, new_start, calendar);
+        let new_finish = add_working_days(new_start, duration_days, calendar);
+
+        // Check max delay factor (simplified - just check against known duration)
+        if let Some(max_duration) = max_allowed_duration {
+            let new_project_end = local_tasks
+                .values()
+                .map(|t| t.finish)
+                .chain(std::iter::once(new_finish))
+                .max()
+                .unwrap_or(new_finish);
+            // Approximate check - will be validated after merge
+            let approx_duration = (new_project_end - project.start).num_days();
+            if approx_duration > max_duration {
+                unresolved_conflicts.push(UnresolvedConflict {
+                    resource_id: resource_id.clone(),
+                    period: period.clone(),
+                    reason: "Would exceed max delay factor".into(),
+                });
+                timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+                continue;
+            }
+        }
+
+        // Update the local task copy
+        if let Some(task) = local_tasks.get_mut(&candidate.task_id) {
+            task.start = new_start;
+            task.finish = new_finish;
+            task.early_start = new_start;
+            task.early_finish = new_finish;
+
+            for assignment in &mut task.assignments {
+                assignment.start = new_start;
+                assignment.finish = new_finish;
+            }
+        }
+
+        // Re-add usage at new position
+        timeline.add_usage(&candidate.task_id, new_start, new_finish, units);
+
+        // Record the update
+        task_updates.insert(candidate.task_id.clone(), (new_start, new_finish));
+
+        // Record the shift
+        shifted_tasks.push(ShiftedTask {
+            task_id: candidate.task_id.clone(),
+            original_start,
+            new_start,
+            days_shifted,
+            reason: LevelingReason::ResourceOverallocated {
+                resource: resource_id.clone(),
+                peak_demand: period.peak_usage,
+                capacity: timeline_capacity,
+                dates: vec![period.start],
+            },
+            resources_involved: vec![resource_id.clone()],
+        });
+
+        // Emit L001 diagnostic
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::L001OverallocationResolved,
+            severity: Severity::Info,
+            message: format!(
+                "Task '{}' delayed {} days due to resource '{}' (parallel cluster {})",
+                candidate.task_id, days_shifted, resource_id, cluster_idx
+            ),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![format!(
+                "Cluster: {} tasks competing for {} resources",
+                cluster.tasks.len(),
+                cluster.resources.len()
+            )],
+            hints: vec![],
+        });
+    }
+
+    ClusterResult {
+        task_updates,
+        shifted_tasks,
+        unresolved_conflicts,
+        diagnostics,
+        elapsed: cluster_start.elapsed(),
+    }
+}
+
+/// Hybrid BDD + heuristic resource leveling (RFC-0014 Phase 1+2)
 ///
 /// Uses BDD to identify conflict clusters, then applies heuristic leveling
-/// within each cluster. This achieves O(n + sum(k²)) complexity instead of O(n²),
-/// where k is the cluster size and is typically much smaller than n.
+/// within each cluster in parallel. This achieves O(n + sum(k²)) complexity
+/// instead of O(n²), where k is the cluster size and is typically much smaller than n.
 fn hybrid_level_resources(
     project: &Project,
     schedule: &Schedule,
@@ -911,8 +1187,7 @@ fn hybrid_level_resources(
         };
     }
 
-    // Build resource timelines
-    let mut timelines = build_resource_timelines(project, &leveled_tasks);
+    // Build task priorities (shared, read-only)
     let task_priorities = build_task_priority_map(&leveled_tasks, project);
 
     // Track original project end
@@ -931,232 +1206,71 @@ fn hybrid_level_resources(
         .max_project_delay_factor
         .map(|f| (original_duration * f) as i64);
 
-    // Step 2: Process each conflict cluster independently
+    // Step 2: Process conflict clusters in parallel (RFC-0014 Phase 2)
     let heuristic_start = std::time::Instant::now();
-    let mut cluster_times: Vec<(usize, std::time::Duration, usize)> = Vec::new();
 
-    for (cluster_idx, cluster) in cluster_analysis.clusters.iter().enumerate() {
-        let cluster_start = std::time::Instant::now();
-
-        // Convert cluster task IDs to HashSet for efficient lookup
-        let cluster_task_ids: HashSet<&str> = cluster.tasks.iter().map(|s| s.as_str()).collect();
-
-        // Level only tasks within this cluster
-        let max_iterations = cluster.tasks.len() * 10;
-        let mut iterations = 0;
-
-        while iterations < max_iterations {
-            iterations += 1;
-
-            // Find conflicts only for resources in this cluster
-            let cluster_resources: HashSet<&str> =
-                cluster.resources.iter().map(|s| s.as_str()).collect();
-
-            let mut all_conflicts: Vec<(ResourceId, OverallocationPeriod)> = timelines
-                .iter()
-                .filter(|(res_id, _)| cluster_resources.contains(res_id.as_str()))
-                .flat_map(|(_, timeline)| {
-                    let resource_id = timeline.resource_id.clone();
-                    timeline
-                        .overallocated_periods()
-                        .into_iter()
-                        // Only consider conflicts involving cluster tasks
-                        .filter(|p| {
-                            p.involved_tasks
-                                .iter()
-                                .any(|t| cluster_task_ids.contains(t.as_str()))
-                        })
-                        .map(move |p| (resource_id.clone(), p))
-                })
-                .collect();
-
-            all_conflicts.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)));
-
-            let Some((resource_id, period)) = all_conflicts.into_iter().next() else {
-                break; // No more conflicts in this cluster
-            };
-
-            let timeline_capacity = timelines
-                .get(&resource_id)
-                .map(|t| t.capacity)
-                .unwrap_or(1.0);
-
-            // Find candidates to shift (only from this cluster)
-            let mut candidates: BinaryHeap<ShiftCandidate> = period
-                .involved_tasks
-                .iter()
-                .filter(|task_id| cluster_task_ids.contains(task_id.as_str()))
-                .filter_map(|task_id| {
-                    let task = leveled_tasks.get(task_id)?;
-                    let (priority, _) = task_priorities.get(task_id)?;
-                    Some(ShiftCandidate {
-                        task_id: task_id.clone(),
-                        priority: *priority,
-                        slack_days: task.slack.as_days() as i64,
-                        is_critical: task.is_critical,
-                    })
-                })
-                .collect();
-
-            if candidates.is_empty() {
-                unresolved_conflicts.push(UnresolvedConflict {
-                    resource_id: resource_id.clone(),
-                    period: period.clone(),
-                    reason: "No shiftable tasks found in cluster".into(),
-                });
-
-                diagnostics.push(Diagnostic {
-                    code: DiagnosticCode::L002UnresolvableConflict,
-                    severity: Severity::Warning,
-                    message: format!(
-                        "Unresolvable resource conflict: '{}' at {} (hybrid leveling)",
-                        resource_id, period.start
-                    ),
-                    file: None,
-                    span: None,
-                    secondary_spans: vec![],
-                    notes: vec![],
-                    hints: vec![],
-                });
-                continue;
-            }
-
-            // Pick the best candidate
-            let candidate = candidates.pop().unwrap();
-            let task = leveled_tasks.get(&candidate.task_id).unwrap();
-            let original_start = task.start;
-
-            let units = task
-                .assignments
-                .iter()
-                .find(|a| a.resource_id == resource_id)
-                .map(|a| a.units)
-                .unwrap_or(1.0);
-
-            let timeline = timelines.get_mut(&resource_id).unwrap();
-            let duration_days = task.duration.as_days() as i64;
-
-            timeline.remove_usage(&candidate.task_id);
-
-            let Some(new_start) = timeline.find_available_slot(
-                duration_days,
-                units,
-                period.end.succ_opt().unwrap_or(period.end),
+    // Process clusters in parallel using rayon
+    let cluster_results: Vec<(usize, ClusterResult)> = cluster_analysis
+        .clusters
+        .par_iter()
+        .enumerate()
+        .map(|(idx, cluster)| {
+            let result = process_cluster(
+                cluster,
+                idx,
+                &leveled_tasks,
+                project,
                 calendar,
-            ) else {
-                unresolved_conflicts.push(UnresolvedConflict {
-                    resource_id: resource_id.clone(),
-                    period: period.clone(),
-                    reason: format!("No available slot for '{}'", candidate.task_id),
-                });
-
-                diagnostics.push(Diagnostic {
-                    code: DiagnosticCode::L002UnresolvableConflict,
-                    severity: Severity::Warning,
-                    message: format!(
-                        "Cannot level '{}': no available slot (hybrid)",
-                        candidate.task_id
-                    ),
-                    file: None,
-                    span: None,
-                    secondary_spans: vec![],
-                    notes: vec![],
-                    hints: vec![],
-                });
-
-                timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
-                continue;
-            };
-
-            let days_shifted = count_working_days(original_start, new_start, calendar);
-            let new_finish = add_working_days(new_start, duration_days, calendar);
-
-            // Check max delay factor
-            if let Some(max_duration) = max_allowed_duration {
-                let new_project_end = leveled_tasks
-                    .values()
-                    .map(|t| t.finish)
-                    .chain(std::iter::once(new_finish))
-                    .max()
-                    .unwrap_or(schedule.project_end);
-                let new_duration = count_working_days(project.start, new_project_end, calendar);
-                if new_duration > max_duration {
-                    unresolved_conflicts.push(UnresolvedConflict {
-                        resource_id: resource_id.clone(),
-                        period: period.clone(),
-                        reason: "Would exceed max delay factor".into(),
-                    });
-                    timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
-                    continue;
-                }
-            }
-
-            // Update the task
-            if let Some(task) = leveled_tasks.get_mut(&candidate.task_id) {
-                task.start = new_start;
-                task.finish = new_finish;
-                task.early_start = new_start;
-                task.early_finish = new_finish;
-
-                for assignment in &mut task.assignments {
-                    assignment.start = new_start;
-                    assignment.finish = new_finish;
-                }
-            }
-
-            // Re-add usage at new position
-            timeline.add_usage(&candidate.task_id, new_start, new_finish, units);
-
-            // Record the shift
-            shifted_tasks.push(ShiftedTask {
-                task_id: candidate.task_id.clone(),
-                original_start,
-                new_start,
-                days_shifted,
-                reason: LevelingReason::ResourceOverallocated {
-                    resource: resource_id.clone(),
-                    peak_demand: period.peak_usage,
-                    capacity: timeline_capacity,
-                    dates: vec![period.start],
-                },
-                resources_involved: vec![resource_id.clone()],
-            });
-
-            // Emit L001 diagnostic
-            diagnostics.push(Diagnostic {
-                code: DiagnosticCode::L001OverallocationResolved,
-                severity: Severity::Info,
-                message: format!(
-                    "Task '{}' delayed {} days due to resource '{}' (hybrid)",
-                    candidate.task_id, days_shifted, resource_id
-                ),
-                file: None,
-                span: None,
-                secondary_spans: vec![],
-                notes: vec![format!(
-                    "Cluster: {} tasks competing for {} resources",
-                    cluster.tasks.len(),
-                    cluster.resources.len()
-                )],
-                hints: vec![],
-            });
-        }
-
-        // Record cluster timing
-        cluster_times.push((cluster_idx, cluster_start.elapsed(), cluster.tasks.len()));
-    }
+                &task_priorities,
+                max_allowed_duration,
+            );
+            (idx, result)
+        })
+        .collect();
 
     let heuristic_elapsed = heuristic_start.elapsed();
 
-    // Profile output
-    if std::env::var("UTF8PROJ_PROFILE").is_ok() {
-        eprintln!("[PROFILE] Heuristic leveling total: {:?}", heuristic_elapsed);
-        for (idx, elapsed, task_count) in &cluster_times {
+    // Merge results from all clusters
+    for (cluster_idx, result) in &cluster_results {
+        // Apply task updates
+        for (task_id, (new_start, new_finish)) in &result.task_updates {
+            if let Some(task) = leveled_tasks.get_mut(task_id) {
+                task.start = *new_start;
+                task.finish = *new_finish;
+                task.early_start = *new_start;
+                task.early_finish = *new_finish;
+
+                for assignment in &mut task.assignments {
+                    assignment.start = *new_start;
+                    assignment.finish = *new_finish;
+                }
+            }
+        }
+
+        // Collect shifted tasks, conflicts, and diagnostics
+        shifted_tasks.extend(result.shifted_tasks.iter().cloned());
+        unresolved_conflicts.extend(result.unresolved_conflicts.iter().cloned());
+        diagnostics.extend(result.diagnostics.iter().cloned());
+
+        // Profile individual cluster times
+        if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+            let cluster = &cluster_analysis.clusters[*cluster_idx];
             eprintln!(
                 "[PROFILE]   Cluster {} ({} tasks): {:?}",
-                idx, task_count, elapsed
+                cluster_idx,
+                cluster.tasks.len(),
+                result.elapsed
             );
         }
+    }
+
+    // Profile output
+    if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+        let num_threads = rayon::current_num_threads();
+        eprintln!(
+            "[PROFILE] Parallel heuristic leveling: {:?} ({} threads, {} clusters)",
+            heuristic_elapsed, num_threads, cluster_results.len()
+        );
         eprintln!(
             "[PROFILE] Total hybrid leveling: {:?}",
             total_start.elapsed()

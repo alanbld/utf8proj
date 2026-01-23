@@ -1053,3 +1053,90 @@ fn hybrid_leveling_is_deterministic() {
         );
     }
 }
+
+/// Performance test for parallel hybrid leveling with multiple clusters
+/// Run with: cargo test -p utf8proj-solver parallel_hybrid_performance --release -- --ignored --nocapture
+#[test]
+#[ignore = "Long-running benchmark test, run manually with --ignored flag"]
+fn parallel_hybrid_performance() {
+    use std::time::Instant;
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    // Create a project with 10 independent clusters (10 resources, many tasks each)
+    let num_clusters = 10;
+    let tasks_per_cluster = 100; // 1000 total tasks
+
+    let mut project = Project::new("Parallel Perf Test");
+    project.start = date(2025, 1, 6);
+
+    // Create resources (one per cluster)
+    project.resources = (0..num_clusters)
+        .map(|i| Resource::new(&format!("dev{}", i)).capacity(1.0))
+        .collect();
+
+    // Create tasks - each cluster has tasks competing for the same resource
+    project.tasks = (0..num_clusters)
+        .flat_map(|cluster| {
+            (0..tasks_per_cluster).map(move |i| {
+                Task::new(&format!("c{}t{}", cluster, i))
+                    .effort(Duration::days(2))
+                    .assign(&format!("dev{}", cluster))
+            })
+        })
+        .collect();
+
+    println!(
+        "\nBenchmark: {} clusters × {} tasks = {} total tasks",
+        num_clusters,
+        tasks_per_cluster,
+        project.tasks.len()
+    );
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    // Benchmark standard leveling
+    let options_standard = LevelingOptions {
+        strategy: LevelingStrategy::CriticalPathFirst,
+        max_project_delay_factor: None,
+    };
+    let start = Instant::now();
+    let result_standard =
+        level_resources_with_options(&project, &schedule, &calendar, &options_standard);
+    let standard_time = start.elapsed();
+    println!(
+        "Standard leveling: {:?} ({} shifts)",
+        standard_time,
+        result_standard.shifted_tasks.len()
+    );
+
+    // Benchmark hybrid leveling (parallel)
+    let options_hybrid = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        max_project_delay_factor: None,
+    };
+    let start = Instant::now();
+    let result_hybrid =
+        level_resources_with_options(&project, &schedule, &calendar, &options_hybrid);
+    let hybrid_time = start.elapsed();
+    println!(
+        "Hybrid leveling:   {:?} ({} shifts)",
+        hybrid_time,
+        result_hybrid.shifted_tasks.len()
+    );
+
+    // Calculate speedup
+    let speedup = standard_time.as_secs_f64() / hybrid_time.as_secs_f64();
+    println!("Speedup: {:.1}x", speedup);
+
+    // Verify correctness - both should resolve all conflicts
+    assert!(
+        result_standard.unresolved_conflicts.is_empty(),
+        "Standard should resolve all conflicts"
+    );
+    assert!(
+        result_hybrid.unresolved_conflicts.is_empty(),
+        "Hybrid should resolve all conflicts"
+    );
+}

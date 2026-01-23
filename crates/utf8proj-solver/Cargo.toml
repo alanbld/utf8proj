@@ -14,6 +14,7 @@ chrono.workspace = true
 thiserror.workspace = true
 biodivine-lib-bdd.workspace = true
 rust_decimal.workspace = true
+rayon.workspace = true
 
 [lints]
 workspace = true

@@ -430,7 +430,7 @@ impl BddConflictAnalyzer {
             let num_resources = cluster_resources.len();
             let estimated_contention = if num_resources > 0 && num_tasks > 1 {
                 // Higher contention if many tasks per resource
-                ((num_tasks as f32 / num_resources as f32) - 1.0).min(1.0).max(0.0)
+                ((num_tasks as f32 / num_resources as f32) - 1.0).clamp(0.0, 1.0)
             } else {
                 0.0
             };
