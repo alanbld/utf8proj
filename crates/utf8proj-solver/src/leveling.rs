@@ -10,8 +10,9 @@
 //! - Original schedule preserved alongside leveled schedule
 //! - L001-L004 diagnostics emitted for transparency
 
+use crate::bdd::BddConflictAnalyzer;
 use chrono::NaiveDate;
-use std::collections::{BinaryHeap, BTreeMap, HashMap};
+use std::collections::{BinaryHeap, BTreeMap, HashMap, HashSet};
 use utf8proj_core::{
     Calendar, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule, ScheduledTask,
     Severity, TaskId,
@@ -40,13 +41,15 @@ impl Default for LevelingOptions {
 }
 
 /// Strategy for selecting which tasks to delay during leveling
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LevelingStrategy {
     /// Delay non-critical tasks before critical ones (default)
+    #[default]
     CriticalPathFirst,
-    // Future strategies (not implemented in v1):
-    // PreferShorterDelay,
-    // PreserveEarlySchedule,
+    /// Hybrid BDD + heuristic leveling (RFC-0014)
+    /// Uses BDD to identify conflict clusters, then applies heuristic
+    /// leveling within clusters. More efficient for large projects.
+    Hybrid,
 }
 
 /// Structured reason for a leveling delay
@@ -480,6 +483,11 @@ pub fn level_resources_with_options(
     calendar: &Calendar,
     options: &LevelingOptions,
 ) -> LevelingResult {
+    // Use hybrid leveling if strategy is Hybrid (RFC-0014)
+    if options.strategy == LevelingStrategy::Hybrid {
+        return hybrid_level_resources(project, schedule, calendar, options);
+    }
+
     // Preserve original schedule (RFC-0003 requirement)
     let original_schedule = schedule.clone();
     let mut leveled_tasks = schedule.tasks.clone();
@@ -803,6 +811,376 @@ pub fn level_resources_with_options(
     let peak_utilization_after = calculate_peak_utilization(project, &leveled_tasks);
 
     // Build metrics
+    let metrics = LevelingMetrics {
+        project_duration_increase: duration_increase,
+        peak_utilization_before,
+        peak_utilization_after,
+        tasks_delayed: shifted_tasks.len(),
+        total_delay_days: shifted_tasks.iter().map(|s| s.days_shifted).sum(),
+    };
+
+    LevelingResult {
+        original_schedule,
+        leveled_schedule: Schedule {
+            tasks: leveled_tasks,
+            critical_path,
+            project_duration: Duration::days(project_duration_days),
+            project_end: new_project_end,
+            total_cost: schedule.total_cost.clone(),
+            total_cost_range: schedule.total_cost_range.clone(),
+            project_progress: schedule.project_progress,
+            project_baseline_finish: schedule.project_baseline_finish,
+            project_forecast_finish: schedule.project_forecast_finish,
+            project_variance_days: schedule.project_variance_days,
+            planned_value: schedule.planned_value,
+            earned_value: schedule.earned_value,
+            spi: schedule.spi,
+        },
+        shifted_tasks,
+        unresolved_conflicts,
+        project_extended,
+        new_project_end,
+        metrics,
+        diagnostics,
+    }
+}
+
+/// Hybrid BDD + heuristic resource leveling (RFC-0014 Phase 1)
+///
+/// Uses BDD to identify conflict clusters, then applies heuristic leveling
+/// within each cluster. This achieves O(n + sum(k²)) complexity instead of O(n²),
+/// where k is the cluster size and is typically much smaller than n.
+fn hybrid_level_resources(
+    project: &Project,
+    schedule: &Schedule,
+    calendar: &Calendar,
+    options: &LevelingOptions,
+) -> LevelingResult {
+    let original_schedule = schedule.clone();
+    let mut leveled_tasks = schedule.tasks.clone();
+    let mut shifted_tasks = Vec::new();
+    let mut unresolved_conflicts = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    // Calculate peak utilization before leveling
+    let peak_utilization_before = calculate_peak_utilization(project, &leveled_tasks);
+
+    // Step 1: Use BDD to analyze conflict clusters
+    let analyzer = BddConflictAnalyzer::new();
+    let cluster_analysis = analyzer.analyze_clusters(project, schedule);
+
+    // If no clusters, no leveling needed
+    if cluster_analysis.clusters.is_empty() {
+        return LevelingResult {
+            original_schedule,
+            leveled_schedule: schedule.clone(),
+            shifted_tasks: vec![],
+            unresolved_conflicts: vec![],
+            project_extended: false,
+            new_project_end: schedule.project_end,
+            metrics: LevelingMetrics {
+                project_duration_increase: 0,
+                peak_utilization_before,
+                peak_utilization_after: peak_utilization_before,
+                tasks_delayed: 0,
+                total_delay_days: 0,
+            },
+            diagnostics: vec![],
+        };
+    }
+
+    // Build resource timelines
+    let mut timelines = build_resource_timelines(project, &leveled_tasks);
+    let task_priorities = build_task_priority_map(&leveled_tasks, project);
+
+    // Track original project end
+    let original_end = schedule.project_end;
+
+    // Track milestones for L004 diagnostic
+    let original_milestone_dates: HashMap<TaskId, NaiveDate> = leveled_tasks
+        .iter()
+        .filter(|(_, t)| t.duration.minutes == 0)
+        .map(|(id, t)| (id.clone(), t.start))
+        .collect();
+
+    // Check max delay factor constraint
+    let original_duration = schedule.project_duration.as_days() as f64;
+    let max_allowed_duration = options
+        .max_project_delay_factor
+        .map(|f| (original_duration * f) as i64);
+
+    // Step 2: Process each conflict cluster independently
+    for cluster in &cluster_analysis.clusters {
+        // Convert cluster task IDs to HashSet for efficient lookup
+        let cluster_task_ids: HashSet<&str> = cluster.tasks.iter().map(|s| s.as_str()).collect();
+
+        // Level only tasks within this cluster
+        let max_iterations = cluster.tasks.len() * 10;
+        let mut iterations = 0;
+
+        while iterations < max_iterations {
+            iterations += 1;
+
+            // Find conflicts only for resources in this cluster
+            let cluster_resources: HashSet<&str> =
+                cluster.resources.iter().map(|s| s.as_str()).collect();
+
+            let mut all_conflicts: Vec<(ResourceId, OverallocationPeriod)> = timelines
+                .iter()
+                .filter(|(res_id, _)| cluster_resources.contains(res_id.as_str()))
+                .flat_map(|(_, timeline)| {
+                    let resource_id = timeline.resource_id.clone();
+                    timeline
+                        .overallocated_periods()
+                        .into_iter()
+                        // Only consider conflicts involving cluster tasks
+                        .filter(|p| {
+                            p.involved_tasks
+                                .iter()
+                                .any(|t| cluster_task_ids.contains(t.as_str()))
+                        })
+                        .map(move |p| (resource_id.clone(), p))
+                })
+                .collect();
+
+            all_conflicts.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)));
+
+            let Some((resource_id, period)) = all_conflicts.into_iter().next() else {
+                break; // No more conflicts in this cluster
+            };
+
+            let timeline_capacity = timelines
+                .get(&resource_id)
+                .map(|t| t.capacity)
+                .unwrap_or(1.0);
+
+            // Find candidates to shift (only from this cluster)
+            let mut candidates: BinaryHeap<ShiftCandidate> = period
+                .involved_tasks
+                .iter()
+                .filter(|task_id| cluster_task_ids.contains(task_id.as_str()))
+                .filter_map(|task_id| {
+                    let task = leveled_tasks.get(task_id)?;
+                    let (priority, _) = task_priorities.get(task_id)?;
+                    Some(ShiftCandidate {
+                        task_id: task_id.clone(),
+                        priority: *priority,
+                        slack_days: task.slack.as_days() as i64,
+                        is_critical: task.is_critical,
+                    })
+                })
+                .collect();
+
+            if candidates.is_empty() {
+                unresolved_conflicts.push(UnresolvedConflict {
+                    resource_id: resource_id.clone(),
+                    period: period.clone(),
+                    reason: "No shiftable tasks found in cluster".into(),
+                });
+
+                diagnostics.push(Diagnostic {
+                    code: DiagnosticCode::L002UnresolvableConflict,
+                    severity: Severity::Warning,
+                    message: format!(
+                        "Unresolvable resource conflict: '{}' at {} (hybrid leveling)",
+                        resource_id, period.start
+                    ),
+                    file: None,
+                    span: None,
+                    secondary_spans: vec![],
+                    notes: vec![],
+                    hints: vec![],
+                });
+                continue;
+            }
+
+            // Pick the best candidate
+            let candidate = candidates.pop().unwrap();
+            let task = leveled_tasks.get(&candidate.task_id).unwrap();
+            let original_start = task.start;
+
+            let units = task
+                .assignments
+                .iter()
+                .find(|a| a.resource_id == resource_id)
+                .map(|a| a.units)
+                .unwrap_or(1.0);
+
+            let timeline = timelines.get_mut(&resource_id).unwrap();
+            let duration_days = task.duration.as_days() as i64;
+
+            timeline.remove_usage(&candidate.task_id);
+
+            let Some(new_start) = timeline.find_available_slot(
+                duration_days,
+                units,
+                period.end.succ_opt().unwrap_or(period.end),
+                calendar,
+            ) else {
+                unresolved_conflicts.push(UnresolvedConflict {
+                    resource_id: resource_id.clone(),
+                    period: period.clone(),
+                    reason: format!("No available slot for '{}'", candidate.task_id),
+                });
+
+                diagnostics.push(Diagnostic {
+                    code: DiagnosticCode::L002UnresolvableConflict,
+                    severity: Severity::Warning,
+                    message: format!(
+                        "Cannot level '{}': no available slot (hybrid)",
+                        candidate.task_id
+                    ),
+                    file: None,
+                    span: None,
+                    secondary_spans: vec![],
+                    notes: vec![],
+                    hints: vec![],
+                });
+
+                timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+                continue;
+            };
+
+            let days_shifted = count_working_days(original_start, new_start, calendar);
+            let new_finish = add_working_days(new_start, duration_days, calendar);
+
+            // Check max delay factor
+            if let Some(max_duration) = max_allowed_duration {
+                let new_project_end = leveled_tasks
+                    .values()
+                    .map(|t| t.finish)
+                    .chain(std::iter::once(new_finish))
+                    .max()
+                    .unwrap_or(schedule.project_end);
+                let new_duration = count_working_days(project.start, new_project_end, calendar);
+                if new_duration > max_duration {
+                    unresolved_conflicts.push(UnresolvedConflict {
+                        resource_id: resource_id.clone(),
+                        period: period.clone(),
+                        reason: "Would exceed max delay factor".into(),
+                    });
+                    timeline.add_usage(&candidate.task_id, original_start, task.finish, units);
+                    continue;
+                }
+            }
+
+            // Update the task
+            if let Some(task) = leveled_tasks.get_mut(&candidate.task_id) {
+                task.start = new_start;
+                task.finish = new_finish;
+                task.early_start = new_start;
+                task.early_finish = new_finish;
+
+                for assignment in &mut task.assignments {
+                    assignment.start = new_start;
+                    assignment.finish = new_finish;
+                }
+            }
+
+            // Re-add usage at new position
+            timeline.add_usage(&candidate.task_id, new_start, new_finish, units);
+
+            // Record the shift
+            shifted_tasks.push(ShiftedTask {
+                task_id: candidate.task_id.clone(),
+                original_start,
+                new_start,
+                days_shifted,
+                reason: LevelingReason::ResourceOverallocated {
+                    resource: resource_id.clone(),
+                    peak_demand: period.peak_usage,
+                    capacity: timeline_capacity,
+                    dates: vec![period.start],
+                },
+                resources_involved: vec![resource_id.clone()],
+            });
+
+            // Emit L001 diagnostic
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::L001OverallocationResolved,
+                severity: Severity::Info,
+                message: format!(
+                    "Task '{}' delayed {} days due to resource '{}' (hybrid)",
+                    candidate.task_id, days_shifted, resource_id
+                ),
+                file: None,
+                span: None,
+                secondary_spans: vec![],
+                notes: vec![format!(
+                    "Cluster: {} tasks competing for {} resources",
+                    cluster.tasks.len(),
+                    cluster.resources.len()
+                )],
+                hints: vec![],
+            });
+        }
+    }
+
+    // Calculate new project end
+    let new_project_end = leveled_tasks
+        .values()
+        .map(|t| t.finish)
+        .max()
+        .unwrap_or(original_end);
+
+    let project_extended = new_project_end > original_end;
+    let duration_increase = if project_extended {
+        count_working_days(original_end, new_project_end, calendar)
+    } else {
+        0
+    };
+
+    // Check for milestone date changes (L004)
+    for (milestone_id, original_date) in &original_milestone_dates {
+        if let Some(task) = leveled_tasks.get(milestone_id) {
+            if task.start != *original_date {
+                diagnostics.push(Diagnostic {
+                    code: DiagnosticCode::L004MilestoneDelayed,
+                    severity: Severity::Warning,
+                    message: format!(
+                        "Milestone '{}' moved from {} to {} (hybrid)",
+                        milestone_id, original_date, task.start
+                    ),
+                    file: None,
+                    span: None,
+                    secondary_spans: vec![],
+                    notes: vec![],
+                    hints: vec![],
+                });
+            }
+        }
+    }
+
+    // Project extension diagnostic
+    if project_extended {
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::L003DurationIncreased,
+            severity: Severity::Info,
+            message: format!(
+                "Project duration increased by {} days due to hybrid leveling",
+                duration_increase
+            ),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![format!(
+                "Processed {} conflict cluster(s)",
+                cluster_analysis.clusters.len()
+            )],
+            hints: vec![],
+        });
+    }
+
+    // Recalculate critical path if needed
+    let critical_path = if project_extended {
+        recalculate_critical_path(&leveled_tasks, new_project_end)
+    } else {
+        schedule.critical_path.clone()
+    };
+
+    let project_duration_days = count_working_days(project.start, new_project_end, calendar);
+    let peak_utilization_after = calculate_peak_utilization(project, &leveled_tasks);
+
     let metrics = LevelingMetrics {
         project_duration_increase: duration_increase,
         peak_utilization_before,

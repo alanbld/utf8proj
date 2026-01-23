@@ -5,6 +5,24 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-01-23
+
+### Added
+- **Hybrid BDD Leveling (RFC-0014 Phase 1)** — 4-5x faster resource leveling for large projects
+  - New `--leveling-strategy=hybrid` CLI flag enables BDD-based conflict cluster analysis
+  - Uses BDD to identify independent conflict clusters, then applies heuristic leveling within clusters
+  - Achieves O(n + sum(k²)) complexity instead of O(n²), where k is cluster size
+  - Produces identical results to standard leveling (deterministic, same project end dates)
+  - New types: `ConflictCluster`, `ClusterAnalysis` for BDD-based conflict analysis
+  - Diagnostic notes now show cluster information (e.g., "Cluster: 5 tasks competing for 2 resources")
+
+### Performance
+- Hybrid leveling provides **4-5x speedup** compared to standard leveling:
+  - 500 tasks: 0.23s → **0.05s** (4.6x faster)
+  - 1000 tasks: 0.82s → **0.18s** (4.5x faster)
+  - 2000 tasks: 5.35s → **1.07s** (5x faster)
+- Standard leveling unchanged (default for backwards compatibility)
+
 ## [0.11.2] - 2026-01-22
 
 ### Changed

@@ -65,8 +65,8 @@ pub mod dag;
 pub mod leveling;
 
 pub use bdd::{
-    BddConflictAnalyzer, BddStats, ConflictAnalysis, ConflictResolution, ResourceConflict,
-    ShiftDirection,
+    BddConflictAnalyzer, BddStats, ClusterAnalysis, ConflictAnalysis, ConflictCluster,
+    ConflictResolution, ResourceConflict, ShiftDirection,
 };
 pub use leveling::{
     calculate_utilization, detect_overallocations, level_resources, level_resources_with_options,

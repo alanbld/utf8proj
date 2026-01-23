@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.11.2"
+version = "0.12.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT OR Apache-2.0"
@@ -24,10 +24,10 @@ categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 # Internal crates (version required for crates.io publishing)
-utf8proj-core = { version = "0.11.0", path = "crates/utf8proj-core" }
-utf8proj-parser = { version = "0.11.0", path = "crates/utf8proj-parser" }
-utf8proj-solver = { version = "0.11.0", path = "crates/utf8proj-solver" }
-utf8proj-render = { version = "0.11.0", path = "crates/utf8proj-render" }
+utf8proj-core = { version = "0.12.0", path = "crates/utf8proj-core" }
+utf8proj-parser = { version = "0.12.0", path = "crates/utf8proj-parser" }
+utf8proj-solver = { version = "0.12.0", path = "crates/utf8proj-solver" }
+utf8proj-render = { version = "0.12.0", path = "crates/utf8proj-render" }
 
 # Date/Time
 chrono = { version = "0.4", features = ["serde"] }

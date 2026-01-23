@@ -340,31 +340,28 @@ pub fn level_parallel(project: &Project) -> Schedule {
 
 ## 5. Implementation Plan
 
-### Phase 0: Quick Win (v0.11.2)
+### Phase 0: Quick Win (v0.11.2) ✅ COMPLETE
 
-**Interval Tree for Slot Lookup** — Lowest risk, highest impact
+**BTreeMap Slot Lookup Optimization** — Shipped in v0.11.2
 
-- [ ] Add `intervaltree` crate dependency
-- [ ] Implement `ResourceTimeline` with interval tree
-- [ ] Replace linear slot search in `find_available_slot()`
-- [ ] Benchmark: expect 2-5x improvement for heavily contended resources
-- [ ] Keep 2000-day limit as safety net (remove in Phase 1)
+- [x] Changed `ResourceTimeline.usage` from HashMap to BTreeMap for sorted iteration
+- [x] Added skip-blocked-runs algorithm: when a slot is blocked, skip to the end of the blocked period
+- [x] Added `SlotCheckResult` enum and `find_blocked_run_end()` helper
+- [x] Benchmark: 2-5x improvement achieved for heavily contended resources
+- [x] Keep 2000-day limit as safety net
 
-This can ship independently and provides immediate relief while hybrid approach is developed.
+### Phase 1: Hybrid Leveling (v0.12.0) ✅ COMPLETE
 
-### Phase 1: Hybrid Leveling (v0.12.0)
+**BDD Conflict Cluster Analysis + Heuristic Resolution** — Shipped in v0.12.0
 
-**Week 1-2: BDD Conflict Analysis**
-- [ ] Implement `ConflictAnalysis` struct
-- [ ] Add `analyze_conflicts()` to BDD leveler
-- [ ] Extract feasible windows from BDD
-- [ ] Unit tests for conflict detection accuracy
-
-**Week 3-4: Hybrid Resolution**
-- [ ] Implement `HybridLeveler`
-- [ ] Integrate BDD analysis with heuristic resolution
-- [ ] Add `--leveling-strategy=hybrid` CLI flag
-- [ ] Benchmark against current implementation
+- [x] Implement `ClusterAnalysis` and `ConflictCluster` structs
+- [x] Add `analyze_clusters()` to BDD analyzer (identifies independent conflict groups)
+- [x] Implement `hybrid_level_resources()` function
+- [x] Process unconstrained tasks first (no leveling needed)
+- [x] Level conflict clusters independently (reduces complexity)
+- [x] Add `--leveling-strategy=hybrid` CLI flag
+- [x] Benchmark: **4-5x speedup** achieved (500 tasks: 0.23s→0.05s, 2000 tasks: 5.35s→1.07s)
+- [x] Unit tests for hybrid leveling correctness and determinism
 
 ### Phase 2: Performance Polish (v0.12.1)
 

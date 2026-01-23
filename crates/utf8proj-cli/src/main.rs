@@ -87,6 +87,11 @@ enum Commands {
         #[arg(long)]
         max_delay_factor: Option<f64>,
 
+        /// Leveling strategy (critical-path-first or hybrid)
+        /// hybrid: Uses BDD conflict clustering for better performance on large projects
+        #[arg(long, default_value = "critical-path-first")]
+        leveling_strategy: String,
+
         /// Show progress tracking information
         #[arg(short = 'p', long)]
         show_progress: bool,
@@ -387,6 +392,7 @@ fn main() -> Result<()> {
             output,
             leveling,
             max_delay_factor,
+            leveling_strategy,
             show_progress,
             strict,
             quiet,
@@ -402,6 +408,7 @@ fn main() -> Result<()> {
             output.as_deref(),
             leveling,
             max_delay_factor,
+            &leveling_strategy,
             show_progress,
             strict,
             quiet,
@@ -635,6 +642,7 @@ fn cmd_schedule(
     output: Option<&std::path::Path>,
     leveling: bool,
     max_delay_factor: Option<f64>,
+    leveling_strategy: &str,
     show_progress: bool,
     strict: bool,
     quiet: bool,
@@ -764,8 +772,15 @@ fn cmd_schedule(
     // Apply resource leveling if enabled (RFC-0003: explicit opt-in)
     let (schedule, leveling_diagnostics) = if leveling {
         let calendar = project.calendars.first().cloned().unwrap_or_default();
+
+        // Parse leveling strategy (RFC-0014)
+        let strategy = match leveling_strategy {
+            "hybrid" => utf8proj_solver::LevelingStrategy::Hybrid,
+            "critical-path-first" | _ => utf8proj_solver::LevelingStrategy::CriticalPathFirst,
+        };
+
         let options = LevelingOptions {
-            strategy: utf8proj_solver::LevelingStrategy::CriticalPathFirst,
+            strategy,
             max_project_delay_factor: max_delay_factor,
         };
         let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);

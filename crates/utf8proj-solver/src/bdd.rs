@@ -26,6 +26,28 @@ pub struct ConflictAnalysis {
     pub stats: BddStats,
 }
 
+/// A cluster of tasks competing for the same resources (RFC-0014)
+#[derive(Debug, Clone)]
+pub struct ConflictCluster {
+    /// Tasks in this conflict cluster
+    pub tasks: Vec<String>,
+    /// Resources involved in the conflicts
+    pub resources: Vec<String>,
+    /// Estimated contention (0.0 = no conflicts, 1.0 = fully serialized)
+    pub estimated_contention: f32,
+}
+
+/// Extended conflict analysis with cluster information (RFC-0014)
+#[derive(Debug, Clone)]
+pub struct ClusterAnalysis {
+    /// Conflict clusters (groups of competing tasks)
+    pub clusters: Vec<ConflictCluster>,
+    /// Tasks with no resource conflicts (can be scheduled at ASAP)
+    pub unconstrained_tasks: Vec<String>,
+    /// BDD statistics
+    pub stats: BddStats,
+}
+
 /// A resource conflict at a specific time
 #[derive(Debug, Clone)]
 pub struct ResourceConflict {
@@ -311,6 +333,142 @@ impl BddConflictAnalyzer {
 
         // Use BDD to find minimal set of task shifts
         self.solve_with_bdd(project, schedule, &analysis.conflicts)
+    }
+
+    /// Analyze schedule to identify conflict clusters (RFC-0014 Hybrid Leveling)
+    ///
+    /// Returns clusters of competing tasks and unconstrained tasks that don't
+    /// need leveling. This enables O(n + sum(k²)) leveling instead of O(n²).
+    pub fn analyze_clusters(&self, project: &Project, schedule: &Schedule) -> ClusterAnalysis {
+        let start_time = std::time::Instant::now();
+
+        // Step 1: Collect resource allocations
+        let allocations = self.collect_allocations(project, schedule);
+
+        // Step 2: Find all tasks involved in any conflict
+        let capacities: HashMap<&str, f64> = project
+            .resources
+            .iter()
+            .map(|r| (r.id.as_str(), f64::from(r.capacity)))
+            .collect();
+
+        // Map: resource_id -> set of conflicting task ids
+        let mut resource_conflicts: HashMap<String, HashSet<String>> = HashMap::new();
+
+        for ((resource_id, _date), tasks) in &allocations {
+            let capacity = capacities.get(resource_id.as_str()).copied().unwrap_or(1.0);
+            let total_required: f64 = tasks.iter().map(|(_, units)| units).sum();
+
+            if total_required > capacity {
+                // This (resource, date) is overallocated
+                let task_ids: HashSet<String> = tasks.iter().map(|(id, _)| id.clone()).collect();
+                resource_conflicts
+                    .entry(resource_id.clone())
+                    .or_default()
+                    .extend(task_ids);
+            }
+        }
+
+        // Step 3: Build conflict clusters using union-find for connected components
+        // Tasks are connected if they share a resource conflict
+        let mut all_conflicting_tasks: HashSet<String> = HashSet::new();
+        for tasks in resource_conflicts.values() {
+            all_conflicting_tasks.extend(tasks.iter().cloned());
+        }
+
+        // Build adjacency: which tasks share resources
+        let mut task_resources: HashMap<String, HashSet<String>> = HashMap::new();
+        for (resource_id, tasks) in &resource_conflicts {
+            for task_id in tasks {
+                task_resources
+                    .entry(task_id.clone())
+                    .or_default()
+                    .insert(resource_id.clone());
+            }
+        }
+
+        // Find connected components (clusters)
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut clusters: Vec<ConflictCluster> = Vec::new();
+
+        for task_id in &all_conflicting_tasks {
+            if visited.contains(task_id) {
+                continue;
+            }
+
+            // BFS to find all connected tasks
+            let mut cluster_tasks: Vec<String> = Vec::new();
+            let mut cluster_resources: HashSet<String> = HashSet::new();
+            let mut queue: Vec<String> = vec![task_id.clone()];
+
+            while let Some(current) = queue.pop() {
+                if visited.contains(&current) {
+                    continue;
+                }
+                visited.insert(current.clone());
+                cluster_tasks.push(current.clone());
+
+                // Find all resources this task conflicts on
+                if let Some(resources) = task_resources.get(&current) {
+                    for resource_id in resources {
+                        cluster_resources.insert(resource_id.clone());
+
+                        // Find all other tasks that conflict on this resource
+                        if let Some(other_tasks) = resource_conflicts.get(resource_id) {
+                            for other_task in other_tasks {
+                                if !visited.contains(other_task) {
+                                    queue.push(other_task.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Calculate contention estimate
+            let num_tasks = cluster_tasks.len();
+            let num_resources = cluster_resources.len();
+            let estimated_contention = if num_resources > 0 && num_tasks > 1 {
+                // Higher contention if many tasks per resource
+                ((num_tasks as f32 / num_resources as f32) - 1.0).min(1.0).max(0.0)
+            } else {
+                0.0
+            };
+
+            cluster_tasks.sort(); // Deterministic ordering
+            let mut resources_vec: Vec<String> = cluster_resources.into_iter().collect();
+            resources_vec.sort();
+
+            clusters.push(ConflictCluster {
+                tasks: cluster_tasks,
+                resources: resources_vec,
+                estimated_contention,
+            });
+        }
+
+        // Sort clusters by size (largest first) for consistent processing
+        clusters.sort_by(|a, b| b.tasks.len().cmp(&a.tasks.len()));
+
+        // Step 4: Find unconstrained tasks (not in any cluster)
+        let mut unconstrained_tasks: Vec<String> = schedule
+            .tasks
+            .keys()
+            .filter(|task_id| !all_conflicting_tasks.contains(*task_id))
+            .cloned()
+            .collect();
+        unconstrained_tasks.sort(); // Deterministic ordering
+
+        let elapsed = start_time.elapsed();
+
+        ClusterAnalysis {
+            clusters,
+            unconstrained_tasks,
+            stats: BddStats {
+                variables: all_conflicting_tasks.len(),
+                nodes: resource_conflicts.len(),
+                time_us: elapsed.as_micros() as u64,
+            },
+        }
     }
 
     /// Use BDD to solve for minimal task shifts

@@ -868,3 +868,188 @@ fn leveling_respects_max_delay_factor() {
         result_unlimited.unresolved_conflicts.len()
     );
 }
+
+// =============================================================================
+// RFC-0014: Hybrid BDD Leveling Tests
+// =============================================================================
+
+/// Test hybrid leveling produces same results as standard leveling for simple cases
+#[test]
+fn hybrid_leveling_basic_conflict() {
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    let mut project = Project::new("Hybrid Basic Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    // Standard leveling
+    let options_standard = LevelingOptions {
+        strategy: LevelingStrategy::CriticalPathFirst,
+        max_project_delay_factor: None,
+    };
+    let result_standard =
+        level_resources_with_options(&project, &schedule, &calendar, &options_standard);
+
+    // Hybrid leveling
+    let options_hybrid = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        max_project_delay_factor: None,
+    };
+    let result_hybrid =
+        level_resources_with_options(&project, &schedule, &calendar, &options_hybrid);
+
+    // Both should resolve the conflict
+    assert!(
+        result_standard.unresolved_conflicts.is_empty(),
+        "Standard leveling should resolve conflict"
+    );
+    assert!(
+        result_hybrid.unresolved_conflicts.is_empty(),
+        "Hybrid leveling should resolve conflict"
+    );
+
+    // Both should extend the project
+    assert!(result_standard.project_extended);
+    assert!(result_hybrid.project_extended);
+
+    // Project end dates should be similar
+    assert_eq!(
+        result_standard.new_project_end, result_hybrid.new_project_end,
+        "Hybrid should produce same project end as standard"
+    );
+}
+
+/// Test hybrid leveling correctly handles no-conflict case
+#[test]
+fn hybrid_leveling_no_conflict() {
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    let mut project = Project::new("Hybrid No Conflict Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![
+        Resource::new("dev1").capacity(1.0),
+        Resource::new("dev2").capacity(1.0),
+    ];
+    // Different resources - no conflict
+    project.tasks = vec![
+        Task::new("task1").effort(Duration::days(5)).assign("dev1"),
+        Task::new("task2").effort(Duration::days(5)).assign("dev2"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let options = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        max_project_delay_factor: None,
+    };
+    let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+    // No shifts needed
+    assert!(
+        result.shifted_tasks.is_empty(),
+        "No tasks should be shifted when there's no conflict"
+    );
+    assert!(!result.project_extended);
+}
+
+/// Test hybrid leveling handles multiple independent clusters
+#[test]
+fn hybrid_leveling_independent_clusters() {
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    let mut project = Project::new("Hybrid Clusters Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![
+        Resource::new("dev1").capacity(1.0),
+        Resource::new("dev2").capacity(1.0),
+    ];
+    // Two independent clusters
+    project.tasks = vec![
+        // Cluster 1: dev1 conflict
+        Task::new("task_a1").effort(Duration::days(3)).assign("dev1"),
+        Task::new("task_a2").effort(Duration::days(3)).assign("dev1"),
+        // Cluster 2: dev2 conflict
+        Task::new("task_b1").effort(Duration::days(3)).assign("dev2"),
+        Task::new("task_b2").effort(Duration::days(3)).assign("dev2"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let options = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        max_project_delay_factor: None,
+    };
+    let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+    // All conflicts should be resolved
+    assert!(
+        result.unresolved_conflicts.is_empty(),
+        "All conflicts should be resolved"
+    );
+
+    // Should have diagnostics mentioning clusters
+    let has_cluster_note = result.diagnostics.iter().any(|d| {
+        d.notes
+            .iter()
+            .any(|note| note.contains("Cluster") || note.contains("cluster"))
+    });
+    assert!(has_cluster_note, "Should have diagnostic notes about clusters");
+}
+
+/// Test hybrid leveling is deterministic
+#[test]
+fn hybrid_leveling_is_deterministic() {
+    use utf8proj_solver::{level_resources_with_options, LevelingOptions, LevelingStrategy};
+
+    let mut project = Project::new("Hybrid Determinism Test");
+    project.start = date(2025, 1, 6);
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+    project.tasks = vec![
+        Task::new("task_a").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_b").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_c").effort(Duration::days(3)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    let options = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        max_project_delay_factor: None,
+    };
+
+    // Run multiple times
+    let result1 = level_resources_with_options(&project, &schedule, &calendar, &options);
+    let result2 = level_resources_with_options(&project, &schedule, &calendar, &options);
+    let result3 = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+    // All should produce identical results
+    assert_eq!(
+        result1.new_project_end, result2.new_project_end,
+        "Project end should be identical across runs"
+    );
+    assert_eq!(result2.new_project_end, result3.new_project_end);
+
+    assert_eq!(result1.shifted_tasks.len(), result2.shifted_tasks.len());
+    for (s1, s2) in result1.shifted_tasks.iter().zip(&result2.shifted_tasks) {
+        assert_eq!(s1.task_id, s2.task_id, "Task order should be identical");
+        assert_eq!(
+            s1.new_start, s2.new_start,
+            "New start should be identical for {}",
+            s1.task_id
+        );
+    }
+}
