@@ -41,3 +41,4 @@ files_read.zip
 *.zip
 *.zip:*
 tarpaulin-report.html
+__pycache__/
