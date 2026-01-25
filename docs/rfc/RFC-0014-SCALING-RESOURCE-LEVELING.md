@@ -375,23 +375,180 @@ Based on profiling (BDD is <1% of time, heuristic is bottleneck):
 - [x] Benchmark: 10 clusters × 100 tasks = 115ms → 10ms (parallel hybrid)
 - [x] Added ignored benchmark test: `parallel_hybrid_performance`
 
-### Phase 3: Interval Tree Slot Finding (v0.12.2)
+### Phase 3: Constraint Programming for Small Clusters (v0.13.0)
 
-**Target: 10,000 tasks in <10s**
+**Target: Zero gap from optimal for clusters ≤50 tasks**
 
-Replace O(n) day-by-day slot search with O(log n) interval tree:
+Leverage the existing cluster architecture to apply CP solving where it's fast and beneficial:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  BDD Conflict Detection → Clusters ─┬→ Small (≤N): CP (optimal) │
+│                                      └→ Large (>N): Heuristic    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Configuration:**
+
+```rust
+/// Resource leveling configuration
+#[derive(Debug, Clone)]
+pub struct LevelingConfig {
+    /// Enable optimal solving for small clusters
+    pub use_optimal: bool,           // default: false (opt-in)
+
+    /// Maximum cluster size for CP solver (tasks)
+    pub optimal_threshold: usize,    // default: 50
+
+    /// Timeout per cluster solve (milliseconds)
+    pub optimal_timeout_ms: u64,     // default: 5000
+}
+```
+
+**Default threshold rationale:**
+
+| Threshold | Solve Time | Trade-off |
+|-----------|------------|-----------|
+| 30 | <50ms | Conservative, misses medium clusters |
+| **50** | <200ms | **Good balance** — covers most real conflicts |
+| 100 | <1s | Aggressive, occasional slow solves |
+
+**Implementation:**
+
+```rust
+fn process_cluster(
+    cluster: &ConflictCluster,
+    project: &Project,
+    config: &LevelingConfig,
+) -> ClusterResult {
+    if config.use_optimal && cluster.tasks.len() <= config.optimal_threshold {
+        match solve_cluster_optimal(cluster, project, config.optimal_timeout_ms) {
+            Ok(result) => result,
+            Err(Timeout) => solve_cluster_heuristic(cluster, project), // fallback
+        }
+    } else {
+        solve_cluster_heuristic(cluster, project)
+    }
+}
+
+fn solve_cluster_optimal(
+    cluster: &ConflictCluster,
+    project: &Project,
+    timeout_ms: u64,
+) -> Result<ClusterResult, SolveError> {
+    use pumpkin_solver::{Solver, constraints::Cumulative};
+
+    let mut solver = Solver::with_timeout(Duration::from_millis(timeout_ms));
+
+    // Decision variables: start day for each task
+    let starts: HashMap<TaskId, IntVar> = cluster.tasks.iter()
+        .map(|id| (*id, solver.new_int_var(0, MAX_HORIZON)))
+        .collect();
+
+    // Precedence constraints
+    for (task_id, start_var) in &starts {
+        for dep in &project.task(task_id).depends {
+            if let Some(dep_var) = starts.get(dep) {
+                let duration = project.task(dep).duration;
+                solver.add_constraint(*start_var >= *dep_var + duration);
+            }
+        }
+    }
+
+    // Cumulative constraint per resource (RCPSP core constraint)
+    for resource in cluster.resources_involved() {
+        let tasks: Vec<_> = cluster.tasks.iter()
+            .filter(|t| project.task(t).uses_resource(resource))
+            .collect();
+
+        solver.add_cumulative(
+            tasks.iter().map(|t| starts[t]),           // start times
+            tasks.iter().map(|t| task_duration(t)),    // durations
+            tasks.iter().map(|t| task_demand(t)),      // demands
+            resource_capacity(resource),               // capacity
+        );
+    }
+
+    // Minimize makespan
+    let makespan = solver.new_int_var(0, MAX_HORIZON);
+    for (task_id, start_var) in &starts {
+        solver.add_constraint(makespan >= *start_var + task_duration(task_id));
+    }
+    solver.minimize(makespan);
+
+    solver.solve()
+}
+```
+
+**CLI interface:**
+
+```bash
+# Heuristic only (default, current behavior)
+utf8proj schedule -l project.proj
+
+# Enable optimal with defaults (threshold=50, timeout=5s)
+utf8proj schedule -l --optimal project.proj
+
+# Custom threshold for larger clusters
+utf8proj schedule -l --optimal --optimal-threshold 100 project.proj
+
+# With timeout tuning
+utf8proj schedule -l --optimal --optimal-timeout 10000 project.proj
+```
+
+**Project file override:**
+
+```proj
+project "Critical Launch" {
+    start: 2026-01-05
+    leveling: optimal           # enable CP for small clusters
+    optimal_threshold: 80       # override default
+}
+```
+
+**Diagnostics:**
+
+| Code | Severity | Message |
+|------|----------|---------|
+| L005 | Info | Cluster N (M tasks) solved optimally in Xms |
+| L006 | Hint | Cluster N (M tasks) exceeds threshold, using heuristic |
+| L007 | Warning | Cluster N (M tasks) timed out after Xms, using heuristic |
+
+**Expected results:**
+
+| Scenario | Mode | Gap | Time |
+|----------|------|-----|------|
+| PSPLIB j30 (30 tasks) | Heuristic | 4.5% | <50ms |
+| PSPLIB j30 (30 tasks) | **CP** | **0%** | ~200ms |
+| Enterprise 10k (10×1000) | Heuristic | ~5% | 11s |
+| Enterprise 10k (10×1000) | Hybrid (t=100) | ~2% | ~15s |
+
+**Implementation checklist:**
+
+- [ ] Add `pumpkin-solver` as optional dependency (`optimal-leveling` feature)
+- [ ] Add `LevelingConfig` struct with threshold and timeout
+- [ ] Implement `solve_cluster_optimal()` with cumulative constraint
+- [ ] Add timeout and fallback to heuristic
+- [ ] Add `--optimal`, `--optimal-threshold`, `--optimal-timeout` CLI flags
+- [ ] Add L005/L006/L007 diagnostics
+- [ ] Add `leveling:` and `optimal_threshold:` project file syntax
+- [ ] Benchmark against PSPLIB to verify 0% gap
+- [ ] Document trade-offs in user guide
+
+### Phase 4: Interval Tree Slot Finding (v0.13.x)
+
+**Target: Further optimize slot search from O(n) to O(log n)**
+
+Replace day-by-day slot search with interval tree for very large clusters:
 
 - [ ] Add `intervaltree` or `nodit` crate
 - [ ] Implement interval-based `find_available_slot()`
 - [ ] Combined with parallel clusters: O(n log n / P) where P = parallelism
 
-### Phase 4: Optional Optimal Leveling (v0.13.0+)
-
-For cases where makespan optimization matters:
-
-- [ ] Add `pumpkin-solver` as optional dependency
-- [ ] Implement `level_optimal()` behind feature flag
-- [ ] Document when to use optimal vs heuristic
+This optimization becomes relevant when:
+- Clusters exceed the optimal threshold (>100 tasks)
+- Heuristic fallback is frequently used
+- Project has very long timelines (>1000 working days)
 
 ---
 
