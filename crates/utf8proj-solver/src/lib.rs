@@ -64,6 +64,9 @@ pub mod cpm;
 pub mod dag;
 pub mod leveling;
 
+#[cfg(feature = "optimal-leveling")]
+pub mod optimal;
+
 pub use bdd::{
     BddConflictAnalyzer, BddStats, ClusterAnalysis, ConflictAnalysis, ConflictCluster,
     ConflictResolution, ResourceConflict, ShiftDirection,

@@ -8,6 +8,10 @@ repository.workspace = true
 description = "Scheduling solver for utf8proj (CPM, resource leveling)"
 keywords = ["scheduling", "cpm", "solver"]
 
+[features]
+default = []
+optimal-leveling = ["dep:pumpkin-solver"]
+
 [dependencies]
 utf8proj-core.workspace = true
 chrono.workspace = true
@@ -15,6 +19,7 @@ thiserror.workspace = true
 biodivine-lib-bdd.workspace = true
 rust_decimal.workspace = true
 rayon.workspace = true
+pumpkin-solver = { workspace = true, optional = true }
 
 [lints]
 workspace = true

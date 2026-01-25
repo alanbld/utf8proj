@@ -30,6 +30,12 @@ pub struct LevelingOptions {
     pub strategy: LevelingStrategy,
     /// Maximum allowed project duration increase factor (e.g., 2.0 = can't double duration)
     pub max_project_delay_factor: Option<f64>,
+    /// Enable optimal solving for small clusters (requires `optimal-leveling` feature)
+    pub use_optimal: bool,
+    /// Maximum cluster size for CP solver (tasks). Larger clusters use heuristic.
+    pub optimal_threshold: usize,
+    /// Timeout per cluster solve in milliseconds
+    pub optimal_timeout_ms: u64,
 }
 
 impl Default for LevelingOptions {
@@ -37,6 +43,9 @@ impl Default for LevelingOptions {
         Self {
             strategy: LevelingStrategy::CriticalPathFirst,
             max_project_delay_factor: None,
+            use_optimal: false,
+            optimal_threshold: 50,
+            optimal_timeout_ms: 5000,
         }
     }
 }
@@ -848,17 +857,17 @@ pub fn level_resources_with_options(
 
 /// Result from processing a single conflict cluster (for parallel processing)
 #[derive(Debug)]
-struct ClusterResult {
+pub(crate) struct ClusterResult {
     /// Task updates: task_id -> (new_start, new_finish)
-    task_updates: HashMap<TaskId, (NaiveDate, NaiveDate)>,
+    pub(crate) task_updates: HashMap<TaskId, (NaiveDate, NaiveDate)>,
     /// Tasks that were shifted
-    shifted_tasks: Vec<ShiftedTask>,
+    pub(crate) shifted_tasks: Vec<ShiftedTask>,
     /// Conflicts that couldn't be resolved
-    unresolved_conflicts: Vec<UnresolvedConflict>,
+    pub(crate) unresolved_conflicts: Vec<UnresolvedConflict>,
     /// Diagnostics generated
-    diagnostics: Vec<Diagnostic>,
+    pub(crate) diagnostics: Vec<Diagnostic>,
     /// Processing time for profiling
-    elapsed: std::time::Duration,
+    pub(crate) elapsed: std::time::Duration,
 }
 
 /// Process a single conflict cluster (pure function for parallel execution)

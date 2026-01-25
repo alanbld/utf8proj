@@ -72,6 +72,9 @@ biodivine-lib-bdd = "0.5"
 # Parallelism
 rayon = "1.10"
 
+# Constraint Programming (optional, for optimal leveling)
+pumpkin-solver = "0.2"
+
 # Alternative BDD libraries (not currently used)
 # oxidd = "0.7"      # Heavier, concurrent framework
 # varisat = "0.2"    # SAT solver
