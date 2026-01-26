@@ -849,19 +849,17 @@ milestone golive "Go Live" {
 
 const EXAMPLE_TJP: &str = r#"# TaskJuggler Format Example
 
-project prj "Software Release" 2026-01-06 +8w {
+project prj "Software Release" 2026-01-06 - 2026-03-06 {
     timezone "UTC"
     currency "USD"
 }
 
 resource dev "Development Team" {
     efficiency 1.0
-    rate 95
 }
 
 resource qa "QA Team" {
     efficiency 1.0
-    rate 80
 }
 
 task planning "Planning" {
@@ -1722,5 +1720,138 @@ task standalone "Standalone" {
         // Should count: parent, child1, child2, grandchild, standalone = 5
         assert!(result.contains("task_count"));
         assert!(result.contains("5"));
+    }
+
+    // =========================================================================
+    // RFC-0014: Resource Leveling Tests
+    // =========================================================================
+
+    #[test]
+    fn test_example_leveling_parses() {
+        // Verify the leveling example parses correctly
+        let code = EXAMPLE_LEVELING;
+        let result = schedule(code);
+        assert!(result.is_ok(), "Leveling example should parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_playground_resource_leveling_settings() {
+        // Test that resource leveling can be toggled
+        // Note: We can't test the actual schedule() method in native tests
+        // because it returns JsValue which requires wasm-bindgen runtime
+        let mut pg = Playground::new();
+
+        // Default should be false
+        assert!(!pg.resource_leveling);
+
+        // Enable leveling
+        pg.set_resource_leveling(true);
+        assert!(pg.resource_leveling);
+
+        // Disable leveling
+        pg.set_resource_leveling(false);
+        assert!(!pg.resource_leveling);
+    }
+
+    #[test]
+    fn test_playground_optimal_leveling_settings() {
+        // Test that optimal leveling settings can be set
+        let mut pg = Playground::new();
+
+        // Default values
+        assert!(!pg.optimal_leveling);
+        assert_eq!(pg.optimal_threshold, 50);
+        assert_eq!(pg.optimal_timeout_ms, 5000);
+
+        // Set values
+        pg.set_optimal_leveling(true);
+        pg.set_optimal_threshold(100);
+        pg.set_optimal_timeout(10000);
+
+        assert!(pg.optimal_leveling);
+        assert_eq!(pg.optimal_threshold, 100);
+        assert_eq!(pg.optimal_timeout_ms, 10000);
+    }
+
+    #[test]
+    fn test_project_level_leveling_config() {
+        // Test that project-level leveling config is parsed
+        let project = r#"
+project "Optimal Test" {
+    start: 2026-01-05
+    leveling: optimal
+    optimal_threshold: 80
+    optimal_timeout: 8000
+}
+
+resource dev "Developer" { capacity: 1.0 }
+task a "Task A" { effort: 5d assign: dev }
+"#;
+
+        // Parse and verify config is read
+        let parsed = utf8proj_parser::parse_project(project).expect("Should parse");
+        assert_eq!(parsed.leveling_mode, LevelingMode::Optimal);
+        assert_eq!(parsed.optimal_threshold, Some(80));
+        assert_eq!(parsed.optimal_timeout_ms, Some(8000));
+    }
+
+    #[test]
+    fn test_schedule_with_resource_conflicts() {
+        // Test scheduling with resource conflicts (without leveling)
+        let project = r#"
+project "Conflict Test" {
+    start: 2026-01-05
+}
+
+resource dev "Developer" { capacity: 1.0 }
+
+task a "Task A" { duration: 5d assign: dev }
+task b "Task B" { duration: 5d assign: dev }
+task c "Task C" { duration: 5d depends: a, b assign: dev }
+"#;
+
+        let result = schedule(project).expect("Should schedule");
+        // Without leveling, tasks a and b start on same day
+        assert!(result.contains("Task A"));
+        assert!(result.contains("Task B"));
+    }
+
+    #[test]
+    fn test_all_examples_parse() {
+        // Verify all examples parse without errors
+        let examples = [
+            ("native", EXAMPLE_NATIVE),
+            ("tjp", EXAMPLE_TJP),
+            ("hierarchical", EXAMPLE_HIERARCHICAL),
+            ("progress", EXAMPLE_PROGRESS),
+            ("focus", EXAMPLE_FOCUS),
+            ("temporal", EXAMPLE_TEMPORAL_REGIMES),
+            ("leveling", EXAMPLE_LEVELING),
+        ];
+
+        for (name, code) in examples {
+            let result = if name == "tjp" {
+                utf8proj_parser::parse_tjp(code)
+            } else {
+                utf8proj_parser::parse_project(code)
+            };
+            assert!(result.is_ok(), "Example '{}' should parse: {:?}", name, result.err());
+        }
+    }
+
+    #[test]
+    fn test_leveling_example_has_conflicts() {
+        // Verify the leveling example actually has resource conflicts
+        let parsed = utf8proj_parser::parse_project(EXAMPLE_LEVELING)
+            .expect("Should parse leveling example");
+
+        // Should have developer resource
+        assert!(parsed.resources.iter().any(|r| r.id == "dev"));
+
+        // Should have multiple tasks assigned to dev
+        let dev_tasks: Vec<_> = parsed.tasks.iter()
+            .filter(|t| t.assigned.iter().any(|a| a.resource_id == "dev"))
+            .collect();
+        assert!(dev_tasks.len() >= 3, "Should have at least 3 tasks assigned to dev");
     }
 }
