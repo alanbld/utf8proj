@@ -5,6 +5,7 @@
 #![allow(dead_code)] // Fields/variants for future PSPLIB validation
 
 pub mod bdd;
+pub mod psplib;
 pub mod synthetic;
 
 use std::time::{Duration, Instant};
