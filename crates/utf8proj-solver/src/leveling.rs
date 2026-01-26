@@ -1227,36 +1227,31 @@ fn hybrid_level_resources(
         .map(|(idx, cluster)| {
             // Use optimal CP solver for small clusters when enabled
             #[cfg(feature = "optimal-leveling")]
-            if options.use_optimal && cluster.tasks.len() <= options.optimal_threshold {
-                match crate::optimal::solve_cluster_optimal(
-                    cluster,
-                    idx,
-                    &leveled_tasks,
-                    project,
-                    options.optimal_timeout_ms,
-                ) {
-                    crate::optimal::OptimalResult::Optimal(result) => {
-                        return (idx, result);
-                    }
-                    crate::optimal::OptimalResult::Timeout => {
-                        // Fall back to heuristic on timeout
-                        if std::env::var("UTF8PROJ_PROFILE").is_ok() {
-                            eprintln!(
-                                "[PROFILE]   Cluster {} ({} tasks): CP timeout, falling back to heuristic",
-                                idx, cluster.tasks.len()
-                            );
+            if options.use_optimal {
+                if cluster.tasks.len() <= options.optimal_threshold {
+                    match crate::optimal::solve_cluster_optimal(
+                        cluster,
+                        idx,
+                        &leveled_tasks,
+                        project,
+                        options.optimal_timeout_ms,
+                    ) {
+                        crate::optimal::OptimalResult::Optimal(result) => {
+                            // L005 diagnostic is already included in result.diagnostics
+                            return (idx, result);
                         }
-                    }
-                    crate::optimal::OptimalResult::Infeasible => {
-                        // Shouldn't happen for valid schedules, fall back
-                        if std::env::var("UTF8PROJ_PROFILE").is_ok() {
-                            eprintln!(
-                                "[PROFILE]   Cluster {} ({} tasks): CP infeasible, falling back to heuristic",
-                                idx, cluster.tasks.len()
-                            );
+                        crate::optimal::OptimalResult::Timeout => {
+                            // L007: Solver timed out, falling back to heuristic
+                            // Diagnostic will be added after heuristic runs
+                        }
+                        crate::optimal::OptimalResult::Infeasible => {
+                            // Infeasible (e.g., task demand > capacity), fall back silently
                         }
                     }
                 }
+                // Note: L006 for threshold exceeded is not emitted here because
+                // it would create too much noise for large clusters. The user can
+                // increase --optimal-threshold if they want more clusters solved optimally.
             }
 
             // Default: use heuristic leveling

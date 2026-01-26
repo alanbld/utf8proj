@@ -485,6 +485,18 @@ impl CostRange {
     }
 }
 
+/// Leveling mode for resource leveling (RFC-0014 Phase 3)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LevelingMode {
+    /// No leveling (ignore overallocations)
+    #[default]
+    None,
+    /// Heuristic leveling (priority-based, fast)
+    Heuristic,
+    /// Optimal leveling using constraint programming for small clusters
+    Optimal,
+}
+
 /// Policy for calculating expected cost from ranges (RFC-0001)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CostPolicy {
@@ -548,6 +560,14 @@ pub struct Project {
     pub traits: Vec<Trait>,
     /// Policy for calculating expected cost from ranges
     pub cost_policy: CostPolicy,
+
+    // RFC-0014 Phase 3: Optimal Leveling Configuration
+    /// Leveling mode: optimal, heuristic, or none
+    pub leveling_mode: LevelingMode,
+    /// Maximum cluster size for optimal CP solver (tasks)
+    pub optimal_threshold: Option<usize>,
+    /// Timeout per cluster solve (milliseconds)
+    pub optimal_timeout_ms: Option<u64>,
 }
 
 impl Project {
@@ -569,6 +589,9 @@ impl Project {
             profiles: Vec::new(),
             traits: Vec::new(),
             cost_policy: CostPolicy::default(),
+            leveling_mode: LevelingMode::default(),
+            optimal_threshold: None,
+            optimal_timeout_ms: None,
         }
     }
 
@@ -1920,6 +1943,12 @@ pub enum DiagnosticCode {
     L003DurationIncreased,
     /// Milestone delayed due to leveling
     L004MilestoneDelayed,
+    /// Cluster solved optimally via constraint programming
+    L005OptimalSolution,
+    /// Cluster exceeds threshold, using heuristic
+    L006ThresholdExceeded,
+    /// Cluster timed out, falling back to heuristic
+    L007SolverTimeout,
 
     // Progress (P) - Progress tracking diagnostics
     /// Explicit remaining conflicts with linear derivation from complete%
@@ -1999,6 +2028,9 @@ impl DiagnosticCode {
             DiagnosticCode::L002UnresolvableConflict => "L002",
             DiagnosticCode::L003DurationIncreased => "L003",
             DiagnosticCode::L004MilestoneDelayed => "L004",
+            DiagnosticCode::L005OptimalSolution => "L005",
+            DiagnosticCode::L006ThresholdExceeded => "L006",
+            DiagnosticCode::L007SolverTimeout => "L007",
             DiagnosticCode::P005RemainingCompleteConflict => "P005",
             DiagnosticCode::P006ContainerProgressMismatch => "P006",
             DiagnosticCode::R001EventNonZeroDuration => "R001",
@@ -2053,11 +2085,14 @@ impl DiagnosticCode {
             DiagnosticCode::I003ResourceUtilization => Severity::Info,
             DiagnosticCode::I004ProjectStatus => Severity::Info,
             DiagnosticCode::I005EarnedValueSummary => Severity::Info,
-            // Leveling diagnostics (L001-L004)
+            // Leveling diagnostics (L001-L007)
             DiagnosticCode::L001OverallocationResolved => Severity::Hint,
             DiagnosticCode::L002UnresolvableConflict => Severity::Warning,
             DiagnosticCode::L003DurationIncreased => Severity::Hint,
             DiagnosticCode::L004MilestoneDelayed => Severity::Warning,
+            DiagnosticCode::L005OptimalSolution => Severity::Info,
+            DiagnosticCode::L006ThresholdExceeded => Severity::Hint,
+            DiagnosticCode::L007SolverTimeout => Severity::Warning,
             // Progress diagnostics (P005-P006)
             DiagnosticCode::P005RemainingCompleteConflict => Severity::Warning,
             DiagnosticCode::P006ContainerProgressMismatch => Severity::Warning,
@@ -2133,6 +2168,9 @@ impl DiagnosticCode {
             DiagnosticCode::L002UnresolvableConflict => 51,
             DiagnosticCode::L003DurationIncreased => 52,
             DiagnosticCode::L004MilestoneDelayed => 53,
+            DiagnosticCode::L005OptimalSolution => 54,
+            DiagnosticCode::L006ThresholdExceeded => 55,
+            DiagnosticCode::L007SolverTimeout => 56,
             // Progress diagnostics (grouped with schedule variance)
             DiagnosticCode::P005RemainingCompleteConflict => 17,
             DiagnosticCode::P006ContainerProgressMismatch => 18,
@@ -2263,6 +2301,15 @@ impl DiagnosticCode {
             DiagnosticCode::L004MilestoneDelayed =>
                 "A milestone was delayed due to resource leveling. \
                  Review resource allocation for predecessor tasks.",
+            DiagnosticCode::L005OptimalSolution =>
+                "Cluster was solved optimally using constraint programming. \
+                 The solution minimizes makespan while respecting all resource constraints.",
+            DiagnosticCode::L006ThresholdExceeded =>
+                "Cluster exceeds the optimal solving threshold (default: 50 tasks). \
+                 Using heuristic solver. Adjust --optimal-threshold to include larger clusters.",
+            DiagnosticCode::L007SolverTimeout =>
+                "Constraint solver timed out before finding a solution. \
+                 Falling back to heuristic. Increase --optimal-timeout for more solver time.",
 
             // Progress diagnostics
             DiagnosticCode::P005RemainingCompleteConflict =>
@@ -2640,6 +2687,9 @@ mod tests {
             profiles: Vec::new(),
             traits: Vec::new(),
             cost_policy: CostPolicy::default(),
+            leveling_mode: LevelingMode::default(),
+            optimal_threshold: None,
+            optimal_timeout_ms: None,
         };
 
         let leaves = project.leaf_tasks();
@@ -2695,6 +2745,9 @@ mod tests {
             profiles: Vec::new(),
             traits: Vec::new(),
             cost_policy: CostPolicy::default(),
+            leveling_mode: LevelingMode::default(),
+            optimal_threshold: None,
+            optimal_timeout_ms: None,
         };
 
         // Find top-level task
@@ -2738,6 +2791,9 @@ mod tests {
             profiles: Vec::new(),
             traits: Vec::new(),
             cost_policy: CostPolicy::default(),
+            leveling_mode: LevelingMode::default(),
+            optimal_threshold: None,
+            optimal_timeout_ms: None,
         };
 
         let dev = project.get_resource("dev1");

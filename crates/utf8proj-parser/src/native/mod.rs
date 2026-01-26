@@ -8,9 +8,9 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 
 use utf8proj_core::{
-    Calendar, Dependency, DependencyType, Duration, Holiday, Money, Project, RateRange, Resource,
-    ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint, TaskStatus, TemporalRegime,
-    TimeRange, Trait,
+    Calendar, Dependency, DependencyType, Duration, Holiday, LevelingMode, Money, Project,
+    RateRange, Resource, ResourceProfile, ResourceRate, ResourceRef, Task, TaskConstraint,
+    TaskStatus, TemporalRegime, TimeRange, Trait,
 };
 
 use crate::ParseError;
@@ -276,6 +276,31 @@ fn parse_project_attr(pair: Pair<Rule>, project: &mut Project) -> Result<(), Par
             project
                 .attributes
                 .insert("timezone".to_string(), tz_pair.as_str().to_string());
+        }
+        Rule::project_leveling => {
+            // RFC-0014 Phase 3: leveling mode (optimal, heuristic, none)
+            let mode_pair = inner.into_inner().next().unwrap();
+            let mode_str = mode_pair.as_str();
+            project.leveling_mode = match mode_str {
+                "optimal" => LevelingMode::Optimal,
+                "heuristic" => LevelingMode::Heuristic,
+                "none" => LevelingMode::None,
+                _ => LevelingMode::None,
+            };
+        }
+        Rule::project_optimal_threshold => {
+            // RFC-0014 Phase 3: max cluster size for CP solver
+            let int_pair = inner.into_inner().next().unwrap();
+            if let Ok(threshold) = int_pair.as_str().parse::<usize>() {
+                project.optimal_threshold = Some(threshold);
+            }
+        }
+        Rule::project_optimal_timeout => {
+            // RFC-0014 Phase 3: timeout per cluster in ms
+            let int_pair = inner.into_inner().next().unwrap();
+            if let Ok(timeout) = int_pair.as_str().parse::<u64>() {
+                project.optimal_timeout_ms = Some(timeout);
+            }
         }
         _ => {}
     }
@@ -1689,6 +1714,43 @@ project "Test" {
             project.attributes.get("timezone").map(|s| s.as_str()),
             Some("Europe/Rome")
         );
+    }
+
+    #[test]
+    fn parse_project_leveling_config() {
+        // RFC-0014 Phase 3: Project-level leveling configuration
+        let input = r#"
+project "Test" {
+    start: 2025-01-01
+    leveling: optimal
+    optimal_threshold: 100
+    optimal_timeout: 10000
+}
+"#;
+        let project = parse(input).expect("Failed to parse leveling config");
+        assert_eq!(project.leveling_mode, LevelingMode::Optimal);
+        assert_eq!(project.optimal_threshold, Some(100));
+        assert_eq!(project.optimal_timeout_ms, Some(10000));
+
+        // Test heuristic mode
+        let input_heuristic = r#"
+project "Test" {
+    start: 2025-01-01
+    leveling: heuristic
+}
+"#;
+        let project_h = parse(input_heuristic).expect("Failed to parse heuristic");
+        assert_eq!(project_h.leveling_mode, LevelingMode::Heuristic);
+
+        // Test none mode (explicit)
+        let input_none = r#"
+project "Test" {
+    start: 2025-01-01
+    leveling: none
+}
+"#;
+        let project_n = parse(input_none).expect("Failed to parse none");
+        assert_eq!(project_n.leveling_mode, LevelingMode::None);
     }
 
     #[test]

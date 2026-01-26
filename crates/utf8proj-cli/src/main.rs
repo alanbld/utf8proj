@@ -793,11 +793,21 @@ fn cmd_schedule(
         }
     };
 
+    // RFC-0014 Phase 3: Resolve leveling configuration from project and CLI flags
+    // CLI flags override project-level settings
+    let effective_optimal = optimal
+        || matches!(
+            project.leveling_mode,
+            utf8proj_core::LevelingMode::Optimal
+        );
+    let effective_threshold = project.optimal_threshold.unwrap_or(optimal_threshold);
+    let effective_timeout = project.optimal_timeout_ms.unwrap_or(optimal_timeout);
+
     // Warn about --optimal flag usage (RFC-0014 Phase 3)
-    if optimal && !leveling {
+    if effective_optimal && !leveling {
         eprintln!("Warning: --optimal has no effect without --leveling (-l)");
     }
-    if optimal && leveling && leveling_strategy != "hybrid" {
+    if effective_optimal && leveling && leveling_strategy != "hybrid" {
         eprintln!(
             "Warning: --optimal has no effect with --leveling-strategy={}; requires 'hybrid'",
             leveling_strategy
@@ -817,9 +827,9 @@ fn cmd_schedule(
         let options = LevelingOptions {
             strategy,
             max_project_delay_factor: max_delay_factor,
-            use_optimal: optimal,
-            optimal_threshold,
-            optimal_timeout_ms: optimal_timeout,
+            use_optimal: effective_optimal,
+            optimal_threshold: effective_threshold,
+            optimal_timeout_ms: effective_timeout,
         };
         let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);
 

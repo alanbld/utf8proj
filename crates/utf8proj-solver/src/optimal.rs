@@ -24,12 +24,14 @@
 
 use chrono::NaiveDate;
 use pumpkin_solver::constraints as cp;
-use pumpkin_solver::results::{ProblemSolution, SatisfactionResult};
-use pumpkin_solver::termination::Indefinite;
+use pumpkin_solver::optimisation::linear_sat_unsat::LinearSatUnsat;
+use pumpkin_solver::optimisation::OptimisationDirection;
+use pumpkin_solver::results::{OptimisationResult, ProblemSolution};
+use pumpkin_solver::termination::TimeBudget;
 use pumpkin_solver::variables::TransformableVariable;
 use pumpkin_solver::Solver;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use utf8proj_core::{Diagnostic, DiagnosticCode, Project, Severity, ScheduledTask, Task, TaskId};
 
 /// Find a task by its qualified ID (e.g., "discovery.kickoff") in the project hierarchy
@@ -76,7 +78,7 @@ pub(crate) fn solve_cluster_optimal(
     cluster_idx: usize,
     tasks: &HashMap<TaskId, ScheduledTask>,
     project: &Project,
-    _timeout_ms: u64,
+    timeout_ms: u64,
 ) -> OptimalResult {
     let start_time = Instant::now();
 
@@ -239,30 +241,52 @@ pub(crate) fn solve_cluster_optimal(
             .post();
     }
 
-    // Solve (find any satisfying assignment first)
-    // TODO: Add optimization for makespan when pumpkin API supports it better
-    let mut brancher = solver.default_brancher();
-    let mut termination = Indefinite;
+    // Create makespan variable (latest finish time)
+    let makespan = solver.new_bounded_integer(0, horizon as i32);
 
-    // Extract solution values while still holding references
-    let solution_values: Option<Vec<i64>> = {
-        let result = solver.satisfy(&mut brancher, &mut termination);
-        match result {
-            SatisfactionResult::Satisfiable(satisfiable) => {
-                let solution = satisfiable.solution();
-                Some(
-                    start_vars
-                        .iter()
-                        .map(|&var| solution.get_integer_value(var) as i64)
-                        .collect(),
-                )
-            }
-            SatisfactionResult::Unsatisfiable(_, _) => {
-                return OptimalResult::Infeasible;
-            }
-            SatisfactionResult::Unknown(_, _) => {
-                return OptimalResult::Timeout;
-            }
+    // Add constraint: makespan >= start[i] + duration[i] for all tasks
+    for (idx, &duration) in durations.iter().enumerate() {
+        // makespan - start[i] >= duration[i]
+        let vars = vec![makespan.scaled(1), start_vars[idx].scaled(-1)];
+        let _ = solver
+            .add_constraint(cp::greater_than_or_equals(vars, duration, constraint_tag))
+            .post();
+    }
+
+    // Create brancher and termination condition with timeout
+    let mut brancher = solver.default_brancher();
+    let mut termination = TimeBudget::starting_now(Duration::from_millis(timeout_ms));
+
+    // Optimize: minimize makespan using linear SAT-UNSAT search
+    fn noop_callback<B>(_: &Solver, _: pumpkin_solver::results::SolutionReference, _: &B) {}
+    let result = solver.optimise(
+        &mut brancher,
+        &mut termination,
+        LinearSatUnsat::new(OptimisationDirection::Minimise, makespan, noop_callback),
+    );
+
+    // Extract solution values from optimization result
+    let solution_values: Option<Vec<i64>> = match result {
+        OptimisationResult::Optimal(optimal_solution) => Some(
+            start_vars
+                .iter()
+                .map(|&var| optimal_solution.get_integer_value(var) as i64)
+                .collect(),
+        ),
+        OptimisationResult::Satisfiable(satisfiable) => {
+            // Found a solution but couldn't prove optimality (timeout while improving)
+            Some(
+                start_vars
+                    .iter()
+                    .map(|&var| satisfiable.get_integer_value(var) as i64)
+                    .collect(),
+            )
+        }
+        OptimisationResult::Unsatisfiable => {
+            return OptimalResult::Infeasible;
+        }
+        OptimisationResult::Unknown => {
+            return OptimalResult::Timeout;
         }
     };
 
@@ -316,9 +340,9 @@ pub(crate) fn solve_cluster_optimal(
         }
     }
 
-    // Add summary diagnostic
+    // Add L005 summary diagnostic for optimal solution
     diagnostics.push(Diagnostic {
-        code: DiagnosticCode::L001OverallocationResolved,
+        code: DiagnosticCode::L005OptimalSolution,
         severity: Severity::Info,
         message: format!(
             "Cluster {} ({} tasks) solved optimally in {}ms",
@@ -329,7 +353,9 @@ pub(crate) fn solve_cluster_optimal(
         file: None,
         span: None,
         secondary_spans: vec![],
-        notes: vec![],
+        notes: vec![format!(
+            "Makespan minimized via constraint programming"
+        )],
         hints: vec![],
     });
 

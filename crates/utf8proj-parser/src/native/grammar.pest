@@ -33,7 +33,10 @@ project_attr = {
     project_status_date |
     project_currency |
     project_calendar |
-    project_timezone
+    project_timezone |
+    project_leveling |
+    project_optimal_threshold |
+    project_optimal_timeout
 }
 
 project_start = { "start" ~ ":" ~ date }
@@ -43,6 +46,12 @@ project_currency = { "currency" ~ ":" ~ identifier }
 project_calendar = { "calendar" ~ ":" ~ identifier }
 project_timezone = { "timezone" ~ ":" ~ timezone_value }
 timezone_value = @{ (ASCII_ALPHA | "/" | "_")+ }
+
+// RFC-0014 Phase 3: Optimal Leveling Configuration
+project_leveling = { "leveling" ~ ":" ~ leveling_mode }
+leveling_mode = { "optimal" | "heuristic" | "none" }
+project_optimal_threshold = { "optimal_threshold" ~ ":" ~ integer }
+project_optimal_timeout = { "optimal_timeout" ~ ":" ~ integer }
 
 // ============================================================================
 // Calendar Declaration
