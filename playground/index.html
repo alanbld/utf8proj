@@ -23,9 +23,13 @@
                 <button id="run-btn" class="btn btn-primary" title="Schedule (Ctrl+Enter)">
                     <span class="icon">▶</span> Run
                 </button>
-                <label class="checkbox-label" title="Enable resource leveling">
+                <label class="checkbox-label" title="Enable resource leveling (RFC-0003)">
                     <input type="checkbox" id="leveling-checkbox">
-                    Resource Leveling
+                    Leveling
+                </label>
+                <label class="checkbox-label" title="Use optimal CP solver for small clusters (RFC-0014)">
+                    <input type="checkbox" id="optimal-checkbox">
+                    Optimal
                 </label>
                 <div class="focus-controls" title="Focus view (RFC-0006)">
                     <input type="text" id="focus-input" placeholder="Focus: task ID or name" style="width: 140px;">
@@ -45,6 +49,7 @@
                     <option value="progress">Progress Tracking (RFC-0008)</option>
                     <option value="focus">Focus View (RFC-0006)</option>
                     <option value="temporal">Temporal Regimes (RFC-0012)</option>
+                    <option value="leveling">Resource Leveling (RFC-0003/0014)</option>
                 </select>
                 <button id="share-btn" class="btn" title="Share project">Share</button>
                 <button id="theme-btn" class="btn" title="Toggle dark mode">🌙</button>
@@ -108,7 +113,7 @@
                 <span id="schedule-info"></span>
             </div>
             <div class="status-right">
-                <span class="version">v0.11.0</span>
+                <span class="version">v0.12.0</span>
                 <span class="separator">|</span>
                 <a href="syntax.html" target="_blank" title="Syntax Reference">Syntax</a>
                 <span class="separator">|</span>

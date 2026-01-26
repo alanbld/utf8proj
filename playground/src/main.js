@@ -53,6 +53,8 @@ const nativeDslLanguage = {
         'profile', 'trait', 'specializes', 'skills',
         // RFC-0012: Temporal Regimes
         'regime',
+        // RFC-0014: Optimal Leveling
+        'leveling', 'optimal', 'heuristic', 'optimal_threshold', 'optimal_timeout',
         // Extended task/resource attributes
         'tag', 'note', 'cost', 'payment', 'leave', 'role', 'email',
         'currency', 'timezone', 'summary', 'constraint'
@@ -365,12 +367,14 @@ function runSchedule() {
         monaco.editor.setModelLanguage(editor.getModel(), format === 'native' ? 'proj' : 'tjp');
     }
     const leveling = document.getElementById('leveling-checkbox').checked;
+    const optimal = document.getElementById('optimal-checkbox').checked;
     const focusInput = document.getElementById('focus-input').value.trim();
     const contextDepth = parseInt(document.getElementById('context-depth-select').value, 10);
 
     setStatus('Scheduling...', '');
 
     playground.set_resource_leveling(leveling);
+    playground.set_optimal_leveling(optimal);
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     playground.set_dark_theme(isDark);
 
@@ -522,6 +526,12 @@ function setupEventListeners() {
                 code = wasmModule ? wasmModule.Playground.get_example_temporal_regimes() : '';
                 format = 'native';
                 break;
+            case 'leveling':
+                code = wasmModule ? wasmModule.Playground.get_example_leveling() : '';
+                format = 'native';
+                // Auto-enable leveling checkbox when loading leveling example
+                document.getElementById('leveling-checkbox').checked = true;
+                break;
             default:
                 return;
         }
@@ -611,12 +621,14 @@ function showShareModal() {
     const code = editor.getValue();
     const format = document.getElementById('format-select').value;
     const leveling = document.getElementById('leveling-checkbox').checked;
+    const optimal = document.getElementById('optimal-checkbox').checked;
 
     // Compress and encode the project using LZ-string
     const data = {
         code,
         format,
-        leveling
+        leveling,
+        optimal
     };
 
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(data));
@@ -688,6 +700,9 @@ function loadFromUrl() {
             }
             if (data.leveling !== undefined) {
                 document.getElementById('leveling-checkbox').checked = data.leveling;
+            }
+            if (data.optimal !== undefined) {
+                document.getElementById('optimal-checkbox').checked = data.optimal;
             }
 
             // Auto-run if we have a shared project

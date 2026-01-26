@@ -6,12 +6,15 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
-use utf8proj_core::{CollectingEmitter, Renderer, Scheduler, Severity};
+use utf8proj_core::{CollectingEmitter, LevelingMode, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
 use utf8proj_render::{
     ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer,
 };
-use utf8proj_solver::{analyze_project, classify_scheduling_mode, AnalysisConfig, CpmSolver};
+use utf8proj_solver::{
+    analyze_project, classify_scheduling_mode, level_resources_with_options, AnalysisConfig,
+    CpmSolver, LevelingOptions, LevelingStrategy,
+};
 
 /// Initialize panic hook for better error messages in console
 #[wasm_bindgen(start)]
@@ -341,6 +344,12 @@ pub struct Playground {
     schedule: Option<utf8proj_core::Schedule>,
     dark_theme: bool,
     resource_leveling: bool,
+    /// RFC-0014 Phase 3: Enable optimal CP solver for small clusters
+    optimal_leveling: bool,
+    /// RFC-0014 Phase 3: Max cluster size for optimal solver (default: 50)
+    optimal_threshold: usize,
+    /// RFC-0014 Phase 3: Timeout per cluster in ms (default: 5000)
+    optimal_timeout_ms: u64,
     last_error: Option<String>,
     focus_patterns: Vec<String>,
     context_depth: usize,
@@ -356,6 +365,9 @@ impl Playground {
             schedule: None,
             dark_theme: false,
             resource_leveling: false,
+            optimal_leveling: false,
+            optimal_threshold: 50,
+            optimal_timeout_ms: 5000,
             last_error: None,
             focus_patterns: vec![],
             context_depth: 1,
@@ -392,14 +404,46 @@ impl Playground {
             }
         };
 
-        // Schedule
-        let solver = if self.resource_leveling {
-            CpmSolver::with_leveling()
-        } else {
-            CpmSolver::new()
+        // Schedule (base schedule first)
+        let solver = CpmSolver::new();
+        let base_schedule = match solver.schedule(&project) {
+            Ok(s) => s,
+            Err(e) => {
+                self.last_error = Some(e.to_string());
+                return serde_wasm_bindgen::to_value(&PlaygroundResult {
+                    success: false,
+                    error: Some(e.to_string()),
+                    data: None,
+                })
+                .unwrap();
+            }
         };
 
-        match solver.schedule(&project) {
+        // Apply resource leveling if enabled (RFC-0003, RFC-0014)
+        let schedule = if self.resource_leveling {
+            let calendar = project.calendars.first().cloned().unwrap_or_default();
+
+            // Resolve optimal leveling: CLI settings override, then project-level config
+            let use_optimal = self.optimal_leveling
+                || matches!(project.leveling_mode, LevelingMode::Optimal);
+            let threshold = project.optimal_threshold.unwrap_or(self.optimal_threshold);
+            let timeout = project.optimal_timeout_ms.unwrap_or(self.optimal_timeout_ms);
+
+            let options = LevelingOptions {
+                strategy: LevelingStrategy::Hybrid,
+                max_project_delay_factor: None,
+                use_optimal,
+                optimal_threshold: threshold,
+                optimal_timeout_ms: timeout,
+            };
+
+            let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);
+            result.leveled_schedule
+        } else {
+            base_schedule
+        };
+
+        match Ok::<_, String>(schedule) {
             Ok(schedule) => {
                 // Store for rendering
                 self.project = Some(project.clone());
@@ -594,6 +638,30 @@ impl Playground {
         self.resource_leveling = enabled;
     }
 
+    /// Enable or disable optimal CP solver for small clusters (RFC-0014 Phase 3)
+    ///
+    /// When enabled, clusters with <= optimal_threshold tasks are solved
+    /// using constraint programming for optimal makespan. Larger clusters
+    /// fall back to heuristic leveling.
+    pub fn set_optimal_leveling(&mut self, enabled: bool) {
+        self.optimal_leveling = enabled;
+    }
+
+    /// Set maximum cluster size for optimal solver (RFC-0014 Phase 3)
+    ///
+    /// Default is 50 tasks. Clusters larger than this use heuristic leveling.
+    pub fn set_optimal_threshold(&mut self, threshold: usize) {
+        self.optimal_threshold = threshold;
+    }
+
+    /// Set timeout per cluster for optimal solver in milliseconds (RFC-0014 Phase 3)
+    ///
+    /// Default is 5000ms (5 seconds). If the solver times out, it falls back
+    /// to heuristic leveling for that cluster.
+    pub fn set_optimal_timeout(&mut self, timeout_ms: u64) {
+        self.optimal_timeout_ms = timeout_ms;
+    }
+
     /// Set focus patterns for focus view (RFC-0006)
     ///
     /// Patterns can match task IDs or names:
@@ -647,6 +715,11 @@ impl Playground {
     /// Get temporal regimes example demonstrating work/event/deadline modes (RFC-0012)
     pub fn get_example_temporal_regimes() -> String {
         EXAMPLE_TEMPORAL_REGIMES.to_string()
+    }
+
+    /// Get resource leveling example demonstrating conflict resolution (RFC-0003, RFC-0014)
+    pub fn get_example_leveling() -> String {
+        EXAMPLE_LEVELING.to_string()
     }
 }
 
@@ -1140,6 +1213,86 @@ task contract_deadline "Contract Delivery" {
 milestone delivered "Contract Complete" {
     depends: contract_deadline
 }
+"#;
+
+const EXAMPLE_LEVELING: &str = r#"# Resource Leveling Example (RFC-0003, RFC-0014)
+# Demonstrates resource conflict detection and resolution
+#
+# How to use:
+# 1. First run WITHOUT "Resource Leveling" checked - see overallocation
+# 2. Then enable "Resource Leveling" checkbox and run again
+# 3. Notice how tasks are delayed to resolve conflicts
+#
+# For optimal leveling (RFC-0014 Phase 3), you can also use:
+#   leveling: optimal
+# in the project block to enable constraint programming solver
+
+project "Resource Conflicts Demo" {
+    start: 2026-01-05
+    # Uncomment to enable optimal CP solver:
+    # leveling: optimal
+    # optimal_threshold: 50
+}
+
+# Single developer - can only work on one task at a time
+resource dev "Developer" {
+    rate: 100/hour
+    capacity: 1.0    # 100% capacity = one task at a time
+}
+
+# Single QA engineer
+resource qa "QA Engineer" {
+    rate: 85/hour
+    capacity: 1.0
+}
+
+# These three tasks all want the developer at the same time!
+# Without leveling: they overlap (overallocation)
+# With leveling: they're sequenced automatically
+
+task feature_a "Feature A" {
+    effort: 5d
+    assign: dev      # Needs developer for 5 days
+}
+
+task feature_b "Feature B" {
+    effort: 5d
+    assign: dev      # Also needs developer - CONFLICT!
+}
+
+task feature_c "Feature C" {
+    effort: 3d
+    assign: dev      # Another conflict!
+}
+
+# QA also has conflicts - two testing tasks want QA simultaneously
+task test_a "Test Feature A" {
+    effort: 3d
+    depends: feature_a
+    assign: qa
+}
+
+task test_b "Test Feature B" {
+    effort: 3d
+    depends: feature_b
+    assign: qa       # CONFLICT with test_a!
+}
+
+# Final integration needs both features tested
+task integration "Integration Testing" {
+    effort: 2d
+    depends: test_a, test_b
+    assign: qa
+}
+
+milestone release "Release Ready" {
+    depends: integration
+}
+
+# Expected behavior:
+# - WITHOUT leveling: All features start Jan 5, tests overlap
+# - WITH leveling: Features sequenced (A->B->C), tests sequenced
+# - Project duration increases but resources aren't overloaded
 "#;
 
 // ============================================================================
