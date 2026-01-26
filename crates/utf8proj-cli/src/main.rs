@@ -92,6 +92,21 @@ enum Commands {
         #[arg(long, default_value = "critical-path-first")]
         leveling_strategy: String,
 
+        /// Enable optimal CP solver for small clusters (RFC-0014 Phase 3)
+        /// Requires: --leveling and hybrid strategy. Uses constraint programming
+        /// to find optimal solutions for clusters <= optimal_threshold tasks.
+        #[arg(long)]
+        optimal: bool,
+
+        /// Maximum cluster size for optimal solver (default: 50)
+        /// Larger clusters fall back to heuristic leveling
+        #[arg(long, default_value = "50")]
+        optimal_threshold: usize,
+
+        /// Timeout per cluster for optimal solver in ms (default: 5000)
+        #[arg(long, default_value = "5000")]
+        optimal_timeout: u64,
+
         /// Show progress tracking information
         #[arg(short = 'p', long)]
         show_progress: bool,
@@ -393,6 +408,9 @@ fn main() -> Result<()> {
             leveling,
             max_delay_factor,
             leveling_strategy,
+            optimal,
+            optimal_threshold,
+            optimal_timeout,
             show_progress,
             strict,
             quiet,
@@ -409,6 +427,9 @@ fn main() -> Result<()> {
             leveling,
             max_delay_factor,
             &leveling_strategy,
+            optimal,
+            optimal_threshold,
+            optimal_timeout,
             show_progress,
             strict,
             quiet,
@@ -643,6 +664,9 @@ fn cmd_schedule(
     leveling: bool,
     max_delay_factor: Option<f64>,
     leveling_strategy: &str,
+    optimal: bool,
+    optimal_threshold: usize,
+    optimal_timeout: u64,
     show_progress: bool,
     strict: bool,
     quiet: bool,
@@ -769,6 +793,17 @@ fn cmd_schedule(
         }
     };
 
+    // Warn about --optimal flag usage (RFC-0014 Phase 3)
+    if optimal && !leveling {
+        eprintln!("Warning: --optimal has no effect without --leveling (-l)");
+    }
+    if optimal && leveling && leveling_strategy != "hybrid" {
+        eprintln!(
+            "Warning: --optimal has no effect with --leveling-strategy={}; requires 'hybrid'",
+            leveling_strategy
+        );
+    }
+
     // Apply resource leveling if enabled (RFC-0003: explicit opt-in)
     let (schedule, leveling_diagnostics) = if leveling {
         let calendar = project.calendars.first().cloned().unwrap_or_default();
@@ -782,6 +817,9 @@ fn cmd_schedule(
         let options = LevelingOptions {
             strategy,
             max_project_delay_factor: max_delay_factor,
+            use_optimal: optimal,
+            optimal_threshold,
+            optimal_timeout_ms: optimal_timeout,
         };
         let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);
 

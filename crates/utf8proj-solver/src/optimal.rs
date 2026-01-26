@@ -30,7 +30,28 @@ use pumpkin_solver::variables::TransformableVariable;
 use pumpkin_solver::Solver;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
-use utf8proj_core::{Diagnostic, DiagnosticCode, Project, Severity, ScheduledTask, TaskId};
+use utf8proj_core::{Diagnostic, DiagnosticCode, Project, Severity, ScheduledTask, Task, TaskId};
+
+/// Find a task by its qualified ID (e.g., "discovery.kickoff") in the project hierarchy
+fn find_task_by_id<'a>(tasks: &'a [Task], target_id: &str) -> Option<&'a Task> {
+    for task in tasks {
+        if task.id == target_id {
+            return Some(task);
+        }
+        // Check children with qualified ID prefix
+        if let Some(found) = find_task_by_id(&task.children, target_id) {
+            return Some(found);
+        }
+        // Also check if target starts with this task's id (qualified path)
+        if target_id.starts_with(&format!("{}.", task.id)) {
+            let suffix = &target_id[task.id.len() + 1..];
+            if let Some(found) = find_task_by_id(&task.children, suffix) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
 
 use crate::bdd::ConflictCluster;
 use crate::leveling::{ClusterResult, LevelingReason, ShiftedTask};
@@ -125,7 +146,8 @@ pub(crate) fn solve_cluster_optimal(
         let task_idx = task_indices[task_id];
 
         // Find dependencies that are also in this cluster
-        if let Some(proj_task) = project.tasks.iter().find(|t| &t.id == *task_id) {
+        // Use recursive search to handle hierarchical task IDs like "discovery.kickoff"
+        if let Some(proj_task) = find_task_by_id(&project.tasks, task_id) {
             for dep in &proj_task.depends {
                 if let Some(&dep_idx) = task_indices.get(&dep.predecessor) {
                     let (_, dep_task) = cluster_tasks[dep_idx];
@@ -189,6 +211,13 @@ pub(crate) fn solve_cluster_optimal(
 
         // Capacity in same units (percentage * 100)
         let capacity = (resource.capacity * 100.0) as i32;
+
+        // Check if any single task exceeds capacity (makes CP infeasible)
+        // This can happen when a task is assigned at 100% to a resource with <100% capacity
+        if demands.iter().any(|&d| d > capacity) {
+            // Fall back to heuristic - CP can't solve this constraint
+            return OptimalResult::Timeout;
+        }
 
         // Get start variables and durations for tasks on this resource
         let resource_starts: Vec<_> = tasks_on_resource
@@ -315,8 +344,6 @@ pub(crate) fn solve_cluster_optimal(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_optimal_solver_compiles() {
         // Basic compilation test

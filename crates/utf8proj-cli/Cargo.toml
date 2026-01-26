@@ -12,6 +12,10 @@ keywords = ["cli", "scheduling", "project-management"]
 name = "utf8proj"
 path = "src/main.rs"
 
+[features]
+default = []
+optimal-leveling = ["utf8proj-solver/optimal-leveling"]
+
 [dependencies]
 utf8proj-core.workspace = true
 utf8proj-parser.workspace = true

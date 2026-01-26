@@ -1216,6 +1216,7 @@ fn hybrid_level_resources(
         .map(|f| (original_duration * f) as i64);
 
     // Step 2: Process conflict clusters in parallel (RFC-0014 Phase 2)
+    // Optionally use CP solver for small clusters (RFC-0014 Phase 3)
     let heuristic_start = std::time::Instant::now();
 
     // Process clusters in parallel using rayon
@@ -1224,6 +1225,41 @@ fn hybrid_level_resources(
         .par_iter()
         .enumerate()
         .map(|(idx, cluster)| {
+            // Use optimal CP solver for small clusters when enabled
+            #[cfg(feature = "optimal-leveling")]
+            if options.use_optimal && cluster.tasks.len() <= options.optimal_threshold {
+                match crate::optimal::solve_cluster_optimal(
+                    cluster,
+                    idx,
+                    &leveled_tasks,
+                    project,
+                    options.optimal_timeout_ms,
+                ) {
+                    crate::optimal::OptimalResult::Optimal(result) => {
+                        return (idx, result);
+                    }
+                    crate::optimal::OptimalResult::Timeout => {
+                        // Fall back to heuristic on timeout
+                        if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+                            eprintln!(
+                                "[PROFILE]   Cluster {} ({} tasks): CP timeout, falling back to heuristic",
+                                idx, cluster.tasks.len()
+                            );
+                        }
+                    }
+                    crate::optimal::OptimalResult::Infeasible => {
+                        // Shouldn't happen for valid schedules, fall back
+                        if std::env::var("UTF8PROJ_PROFILE").is_ok() {
+                            eprintln!(
+                                "[PROFILE]   Cluster {} ({} tasks): CP infeasible, falling back to heuristic",
+                                idx, cluster.tasks.len()
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Default: use heuristic leveling
             let result = process_cluster(
                 cluster,
                 idx,

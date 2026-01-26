@@ -4,7 +4,10 @@
 
 use chrono::NaiveDate;
 use utf8proj_core::{Duration, Project, Resource, Scheduler, Task};
-use utf8proj_solver::{detect_overallocations, level_resources, CpmSolver};
+use utf8proj_solver::{
+    detect_overallocations, level_resources, level_resources_with_options, CpmSolver,
+    LevelingOptions, LevelingStrategy,
+};
 
 fn date(year: i32, month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, day).unwrap()
@@ -1139,4 +1142,59 @@ fn parallel_hybrid_performance() {
         result_hybrid.unresolved_conflicts.is_empty(),
         "Hybrid should resolve all conflicts"
     );
+}
+
+/// Test optimal leveling with constraint programming (RFC-0014 Phase 3)
+#[cfg(feature = "optimal-leveling")]
+#[test]
+fn optimal_leveling_simple_conflict() {
+    let mut project = Project::new("Optimal Test");
+    project.start = date(2025, 1, 6); // Monday
+
+    // Single resource with capacity 1.0
+    project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+    // Two tasks that conflict (both assigned to same resource at 100%)
+    project.tasks = vec![
+        Task::new("task_a").effort(Duration::days(3)).assign("dev"),
+        Task::new("task_b").effort(Duration::days(3)).assign("dev"),
+    ];
+
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+    let calendar = utf8proj_core::Calendar::default();
+
+    // Use optimal leveling
+    let options = LevelingOptions {
+        strategy: LevelingStrategy::Hybrid,
+        use_optimal: true,
+        optimal_threshold: 50,
+        optimal_timeout_ms: 5000,
+        ..Default::default()
+    };
+
+    let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+    // Should resolve the conflict by shifting one task
+    assert!(
+        result.unresolved_conflicts.is_empty(),
+        "Optimal solver should resolve all conflicts"
+    );
+    assert!(
+        !result.shifted_tasks.is_empty(),
+        "Should have shifted at least one task"
+    );
+
+    // Verify no overlapping assignments on the resource
+    let task_a = result.leveled_schedule.tasks.get("task_a").unwrap();
+    let task_b = result.leveled_schedule.tasks.get("task_b").unwrap();
+
+    // Tasks should not overlap
+    let a_end = task_a.finish;
+    let b_start = task_b.start;
+    let b_end = task_b.finish;
+    let a_start = task_a.start;
+
+    let no_overlap = a_end < b_start || b_end < a_start;
+    assert!(no_overlap, "Tasks should not overlap after optimal leveling");
 }
