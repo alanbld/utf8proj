@@ -1348,6 +1348,27 @@ fn hybrid_level_resources(
         }
     }
 
+    // Global propagation pass: after merging cluster results, propagate
+    // to successors that may be outside any cluster (cross-resource deps).
+    // Build timelines from the merged state for accurate timeline updates.
+    let mut global_timelines = build_resource_timelines(project, &leveled_tasks);
+    let shifted_task_ids: Vec<TaskId> = cluster_results
+        .iter()
+        .flat_map(|(_, r)| r.task_updates.keys().cloned())
+        .collect();
+    for task_id in &shifted_task_ids {
+        propagate_to_successors(
+            task_id,
+            &mut leveled_tasks,
+            &mut global_timelines,
+            &successor_map,
+            project,
+            calendar,
+            &mut shifted_tasks,
+            &mut diagnostics,
+        );
+    }
+
     // Profile output
     if std::env::var("UTF8PROJ_PROFILE").is_ok() {
         let num_threads = rayon::current_num_threads();
@@ -2877,7 +2898,7 @@ mod tests {
     fn assert_no_negative_gaps(
         project: &Project,
         schedule: &Schedule,
-        calendar: &Calendar,
+        _calendar: &Calendar,
     ) {
         let successor_map = build_successor_map(project);
         for (pred_id, successors) in &successor_map {
@@ -3059,5 +3080,529 @@ mod tests {
         let result = level_resources(&project, &schedule, &calendar);
 
         assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    // =========================================================================
+    // P1 Coverage Gap Tests
+    //
+    // G1: Unresolvable conflicts (L002 diagnostics, unresolved_conflicts vec)
+    // G2: Max delay factor enforcement
+    // G3: Hybrid/cluster leveling end-to-end
+    // =========================================================================
+
+    // --- G1: Unresolvable Conflicts ---
+
+    #[test]
+    fn unresolvable_conflict_no_slot_found() {
+        // Two tasks each need 100% of a resource with capacity 1.0.
+        // After shifting one, the other still conflicts — but both can
+        // eventually be sequenced. This test targets the case where tasks
+        // CAN be resolved. For the truly unresolvable case, see below.
+        //
+        // Here we test that the leveler emits L001 diagnostics and has
+        // no unresolved conflicts for a solvable scenario.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Solvable Conflict");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(3)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // Should resolve cleanly
+        assert!(
+            result.unresolved_conflicts.is_empty(),
+            "Solvable conflict should have no unresolved conflicts, got: {:?}",
+            result
+                .unresolved_conflicts
+                .iter()
+                .map(|c| &c.reason)
+                .collect::<Vec<_>>()
+        );
+
+        // L001 must be emitted
+        let l001_count = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::L001OverallocationResolved)
+            .count();
+        assert!(l001_count > 0, "Expected at least one L001 diagnostic");
+    }
+
+    #[test]
+    fn unresolvable_conflict_units_exceed_capacity() {
+        // A task assigned at 200% to a resource with capacity 100%.
+        // The leveler cannot find any slot (units > capacity), so it
+        // must report an unresolved conflict with L002 diagnostic.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Unresolvable Units");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            // blocker occupies dev at 100%
+            Task::new("blocker").effort(Duration::days(3)).assign("dev"),
+            // overloaded: assigned at 200% — no slot can accommodate this
+            Task::new("overloaded")
+                .effort(Duration::days(3))
+                .assign_with_units("dev", 2.0),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // The overloaded task should appear in unresolved conflicts
+        // because find_available_slot returns None when units > capacity
+        let has_unresolved = !result.unresolved_conflicts.is_empty();
+        let has_l002 = result
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::L002UnresolvableConflict);
+
+        assert!(
+            has_unresolved || has_l002,
+            "Expected unresolved conflict or L002 diagnostic for task with units > capacity. \
+             unresolved_conflicts={}, diagnostics={:?}",
+            result.unresolved_conflicts.len(),
+            result
+                .diagnostics
+                .iter()
+                .map(|d| format!("{:?}", d.code))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn unresolvable_conflict_reports_l002_diagnostic() {
+        // Verifies the L002 diagnostic structure when a conflict cannot be
+        // resolved. Uses a resource with capacity 0.5 but two tasks each
+        // needing 0.5 — they can be sequenced. But a third task at 0.6
+        // will always exceed capacity and cannot be placed anywhere.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("L002 Diagnostic");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(0.5)];
+        project.tasks = vec![
+            // blocker at 50% — fills the resource
+            Task::new("blocker").effort(Duration::days(5)).assign_with_units("dev", 0.5),
+            // exceeds: needs 60% but resource only has 50% capacity
+            Task::new("exceeds").effort(Duration::days(3)).assign_with_units("dev", 0.6),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // L002 must be emitted because 0.6 > 0.5 capacity — no slot possible
+        let l002_diagnostics: Vec<_> = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::L002UnresolvableConflict)
+            .collect();
+
+        assert!(
+            !l002_diagnostics.is_empty(),
+            "Expected L002 diagnostic when task units (0.6) exceed resource capacity (0.5)"
+        );
+
+        // Verify diagnostic severity is Warning
+        for diag in &l002_diagnostics {
+            assert_eq!(
+                diag.severity,
+                Severity::Warning,
+                "L002 should be Warning severity"
+            );
+        }
+
+        // Verify unresolved_conflicts is populated
+        assert!(
+            !result.unresolved_conflicts.is_empty(),
+            "unresolved_conflicts should be non-empty"
+        );
+    }
+
+    // --- G2: Max Delay Factor ---
+
+    #[test]
+    fn max_delay_factor_limits_leveling() {
+        // Two parallel tasks sharing a resource (5 days each).
+        // Without limit: leveling sequences them → 10 days.
+        // With max_project_delay_factor = 1.5: can extend from 5 to 7.5 days
+        // but not to 10, so leveling should stop early.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Max Delay Factor");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(5)).assign("dev"),
+            Task::new("b").effort(Duration::days(5)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        // Unlimited leveling: should extend the project
+        let unlimited = level_resources(&project, &schedule, &calendar);
+        assert!(unlimited.project_extended, "Unlimited leveling should extend project");
+        assert!(
+            unlimited.unresolved_conflicts.is_empty(),
+            "Unlimited should resolve all conflicts"
+        );
+
+        // Limited leveling: factor 1.5 means max 1.5x original duration
+        let limited_options = LevelingOptions {
+            max_project_delay_factor: Some(1.5),
+            ..LevelingOptions::default()
+        };
+        let limited =
+            level_resources_with_options(&project, &schedule, &calendar, &limited_options);
+
+        // Must have unresolved conflicts — can't fully sequence within 1.5x
+        assert!(
+            !limited.unresolved_conflicts.is_empty(),
+            "Limited leveling should leave unresolved conflicts when factor is restrictive"
+        );
+    }
+
+    #[test]
+    fn max_delay_factor_allows_within_budget() {
+        // Two parallel tasks (3 days each) sharing a resource.
+        // Sequential = 6 days. Factor 3.0 (generous) should allow full resolution.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Max Delay Generous");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(3)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            max_project_delay_factor: Some(3.0),
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        // Generous factor: should resolve everything
+        assert!(
+            result.unresolved_conflicts.is_empty(),
+            "Generous factor (3.0x) should allow full resolution, got {} unresolved",
+            result.unresolved_conflicts.len()
+        );
+        assert!(
+            !result.shifted_tasks.is_empty(),
+            "Should have shifted at least one task"
+        );
+    }
+
+    #[test]
+    fn max_delay_factor_none_means_unlimited() {
+        // Confirm that max_project_delay_factor = None imposes no limit.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("No Delay Limit");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(10)).assign("dev"),
+            Task::new("b").effort(Duration::days(10)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            max_project_delay_factor: None,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        // No limit: must resolve everything regardless of duration increase
+        assert!(
+            result.unresolved_conflicts.is_empty(),
+            "No delay limit should resolve all conflicts"
+        );
+        assert!(result.project_extended, "Should extend project");
+    }
+
+    // --- G3: Hybrid/Cluster Leveling End-to-End ---
+
+    #[test]
+    fn hybrid_leveling_resolves_simple_conflict() {
+        // Same setup as level_resources_resolves_simple_conflict but
+        // using LevelingStrategy::Hybrid.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid Simple");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(3)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        assert!(
+            !result.shifted_tasks.is_empty(),
+            "Hybrid leveling should shift at least one task"
+        );
+        assert!(
+            result.unresolved_conflicts.is_empty(),
+            "Hybrid should resolve simple conflict"
+        );
+
+        // Tasks should not overlap after leveling
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+        assert!(
+            a.finish < b.start || b.finish < a.start,
+            "Tasks should not overlap: a={}..{}, b={}..{}",
+            a.start, a.finish, b.start, b.finish
+        );
+    }
+
+    #[test]
+    fn hybrid_leveling_extends_project() {
+        // Verify hybrid leveling reports project extension correctly.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid Extension");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(5)).assign("dev"),
+            Task::new("b").effort(Duration::days(5)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        assert!(
+            result.project_extended,
+            "Hybrid leveling should extend project for parallel tasks"
+        );
+        assert!(result.new_project_end > schedule.project_end);
+        assert!(result.metrics.project_duration_increase > 0);
+        assert!(result.metrics.tasks_delayed > 0);
+    }
+
+    #[test]
+    fn nrt_hybrid_no_negative_gaps() {
+        // NRT: The exact same no-negative-gaps invariant, but exercised
+        // through the hybrid/cluster code path.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("dev")
+                .depends_on("a"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_hybrid_no_negative_gaps_chain() {
+        // NRT: Chain A->B->C through hybrid leveler.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid Chain NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(2)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("a"),
+            Task::new("c")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("b"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_hybrid_no_negative_gaps_multi_resource() {
+        // NRT: Cross-resource dependency through hybrid leveler.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid Multi NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev").capacity(1.0),
+            Resource::new("qa").capacity(1.0),
+        ];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("qa")
+                .depends_on("a"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn hybrid_leveling_with_max_delay_factor() {
+        // Combines hybrid strategy with max delay factor constraint.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hybrid Max Delay");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(5)).assign("dev"),
+            Task::new("b").effort(Duration::days(5)).assign("dev"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        // Restrictive: 1.2x means only 1 extra day allowed on a 5-day project
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            max_project_delay_factor: Some(1.2),
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        // Should have unresolved conflicts — can't fully sequence within 1.2x
+        assert!(
+            !result.unresolved_conflicts.is_empty(),
+            "Hybrid with restrictive delay factor should leave unresolved conflicts"
+        );
+    }
+
+    // --- G3 supplement: Hybrid parity with standard leveler ---
+
+    #[test]
+    fn hybrid_and_standard_produce_valid_schedules() {
+        // Both strategies must produce valid (no negative gap) schedules
+        // for the same input. They don't need identical results, but both
+        // must satisfy the precedence invariant.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Parity Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev").capacity(1.0),
+            Resource::new("qa").capacity(1.0),
+        ];
+        project.tasks = vec![
+            Task::new("x").effort(Duration::days(4)).assign("dev"),
+            Task::new("y").effort(Duration::days(4)).assign("dev"),
+            Task::new("z")
+                .effort(Duration::days(3))
+                .assign("qa")
+                .depends_on("x"),
+            Task::new("w")
+                .effort(Duration::days(3))
+                .assign("qa")
+                .depends_on("y"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        // Standard
+        let standard = level_resources(&project, &schedule, &calendar);
+        assert_no_negative_gaps(&project, &standard.leveled_schedule, &calendar);
+
+        // Hybrid
+        let hybrid_opts = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let hybrid =
+            level_resources_with_options(&project, &schedule, &calendar, &hybrid_opts);
+        assert_no_negative_gaps(&project, &hybrid.leveled_schedule, &calendar);
+
+        // Both must resolve conflicts (or report them)
+        let standard_resolved = standard.unresolved_conflicts.is_empty();
+        let hybrid_resolved = hybrid.unresolved_conflicts.is_empty();
+        assert_eq!(
+            standard_resolved, hybrid_resolved,
+            "Standard and hybrid should agree on resolvability: standard={}, hybrid={}",
+            standard_resolved, hybrid_resolved
+        );
     }
 }
