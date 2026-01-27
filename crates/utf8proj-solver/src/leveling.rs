@@ -2861,4 +2861,203 @@ mod tests {
             a.start
         );
     }
+
+    // =========================================================================
+    // Non-Regression Tests (NRTs)
+    //
+    // These tests encode the exact invariant that was violated before the
+    // successor-propagation fix: after leveling, every dependency edge must
+    // have a non-negative gap. They are designed to FAIL on the old code
+    // (pre-propagation) and PASS on the fixed code.
+    // =========================================================================
+
+    /// Scan every dependency edge in a leveled schedule and assert no negative gaps.
+    ///
+    /// This is the invariant that was violated in 277/480 PSPLIB J30 instances.
+    fn assert_no_negative_gaps(
+        project: &Project,
+        schedule: &Schedule,
+        calendar: &Calendar,
+    ) {
+        let successor_map = build_successor_map(project);
+        for (pred_id, successors) in &successor_map {
+            let Some(pred) = schedule.tasks.get(pred_id) else {
+                continue;
+            };
+            for (succ_id, dep_type, lag) in successors {
+                let Some(succ) = schedule.tasks.get(succ_id) else {
+                    continue;
+                };
+                let lag_days = lag.as_ref().map(|l| l.as_days() as i64).unwrap_or(0);
+
+                let violated = match dep_type {
+                    DependencyType::FinishToStart => {
+                        // succ.start must be > pred.finish + lag
+                        succ.start < pred.finish + chrono::Duration::days(lag_days + 1)
+                    }
+                    DependencyType::StartToStart => {
+                        succ.start < pred.start + chrono::Duration::days(lag_days)
+                    }
+                    DependencyType::FinishToFinish => {
+                        succ.finish < pred.finish + chrono::Duration::days(lag_days)
+                    }
+                    DependencyType::StartToFinish => {
+                        succ.finish < pred.start + chrono::Duration::days(lag_days)
+                    }
+                };
+
+                assert!(
+                    !violated,
+                    "Negative gap: {} ({:?}) {} -> {} (pred finish={}, succ start={}, lag={}d)",
+                    pred_id, dep_type, pred.finish, succ_id, pred.finish, succ.start, lag_days
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_after_leveling_simple() {
+        // NRT: Two tasks share a resource, second depends on first.
+        // A third "blocker" task forces leveling to shift the predecessor.
+        // The successor MUST be pushed forward — not left stranded.
+        //
+        // This is the minimal reproduction of the PSPLIB J30 bug.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("NRT Simple");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            // blocker occupies dev days 1-5, forcing "a" to shift
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            // a depends on nothing, also wants dev days 1-3
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            // b depends on a (FS), also wants dev
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("dev")
+                .depends_on("a"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // THE INVARIANT: no dependency edge has a negative gap
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_chain_of_five() {
+        // NRT: Chain A->B->C->D->E, all same resource, plus a blocker.
+        // Every edge in the chain must have non-negative gap after leveling.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("NRT Chain");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(2)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("a"),
+            Task::new("c")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("b"),
+            Task::new("d")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("c"),
+            Task::new("e")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("d"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_diamond_with_lag() {
+        // NRT: Diamond A->C, B->C with lag, all same resource + blocker.
+        // Tests that the max(predecessors) logic works under leveling.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("NRT Diamond Lag");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut task_c = Task::new("c");
+        task_c.effort = Some(Duration::days(2));
+        task_c.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        task_c.depends = vec![
+            Dependency {
+                predecessor: "a".into(),
+                dep_type: DependencyType::FinishToStart,
+                lag: Some(Duration::days(1)),
+            },
+            Dependency {
+                predecessor: "b".into(),
+                dep_type: DependencyType::FinishToStart,
+                lag: None,
+            },
+        ];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(4)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(5)).assign("dev"),
+            task_c,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_multiple_resources() {
+        // NRT: Tasks on different resources connected by dependencies.
+        // Leveling one resource must propagate to successors on another.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("NRT Multi Resource");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev").capacity(1.0),
+            Resource::new("qa").capacity(1.0),
+        ];
+        project.tasks = vec![
+            // blocker and "a" compete for dev
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            // "b" is on qa but depends on "a" (cross-resource dependency)
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("qa")
+                .depends_on("a"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
 }
