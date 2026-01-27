@@ -4,10 +4,7 @@
 
 use chrono::NaiveDate;
 use utf8proj_core::{Duration, Project, Resource, Scheduler, Task};
-use utf8proj_solver::{
-    detect_overallocations, level_resources, level_resources_with_options, CpmSolver,
-    LevelingOptions, LevelingStrategy,
-};
+use utf8proj_solver::{detect_overallocations, level_resources, CpmSolver};
 
 fn date(year: i32, month: u32, day: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, day).unwrap()

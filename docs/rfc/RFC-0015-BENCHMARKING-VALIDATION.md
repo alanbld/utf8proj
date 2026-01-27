@@ -432,27 +432,22 @@ For initial integration, support projects that have:
 
 ## 9. Tooling Architecture
 
-### 9.1 Format Converters
+### 9.1 External Tooling (Not CLI-Embedded)
 
-**Decision:** Format converters are **core infrastructure**, not optional test utilities.
+**Decision:** Benchmark orchestration lives **outside** the utf8proj binary. Converters produce `.proj` files, the standard `utf8proj schedule` command does the scheduling, and external scripts orchestrate and compare results. This avoids coupling dataset-specific parsing to the CLI.
 
 ```
 tools/
-├── psplib_to_proj/      # PSPLIB → .proj converter
-│   ├── src/
-│   │   └── main.rs      # Rust implementation for speed
+├── psplib_to_proj.py           # PSPLIB .sm → .proj converter (Python)
+├── benchmarks/
+│   ├── benchmark_runner.py     # Core: schedule .proj files, compare vs optima, report
+│   ├── run_psplib.sh           # End-to-end PSPLIB pipeline (download → convert → run)
 │   └── README.md
-├── dslib_to_proj/       # DSLIB → .proj + .baselines converter
-│   ├── src/
-│   │   └── main.rs
-│   └── README.md
-├── imopse_to_proj/      # iMOPSE → .proj converter
-│   └── ...
-└── benchmark_runner/    # Unified benchmark orchestration
-    ├── src/
-    │   └── main.rs
-    └── README.md
+├── dslib_to_proj.py            # DSLIB → .proj + .baselines converter (future)
+└── imopse_to_proj.py           # iMOPSE → .proj converter (future)
 ```
+
+**Pipeline:** `download → convert → utf8proj schedule → compare → report`
 
 ### 9.2 Converter Requirements
 
@@ -468,17 +463,24 @@ Each converter must:
 ### 9.3 Benchmark Runner
 
 ```bash
-# Run all Tier 1 benchmarks
-utf8proj-benchmark --tier 1
+# Full PSPLIB J30 benchmark (download, convert, schedule, report)
+./tools/benchmarks/run_psplib.sh
 
-# Run specific dataset
-utf8proj-benchmark --dataset psplib-j120
+# With resource leveling
+./tools/benchmarks/run_psplib.sh --leveling
 
-# Run DSLIB validation suite
-utf8proj-benchmark --tier 3 --report dslib-validation.json
+# Different dataset
+./tools/benchmarks/run_psplib.sh --dataset j60
 
-# Performance profiling mode
-utf8proj-benchmark --tier 2 --profile --output flamegraph.svg
+# Core runner against any .proj directory
+python3 tools/benchmarks/benchmark_runner.py \
+    --proj-dir data/psplib/j30_proj/ \
+    --optima data/psplib/j30_opt.csv \
+    --output results.json
+
+# With leveling and custom gap threshold
+python3 tools/benchmarks/benchmark_runner.py \
+    --proj-dir data/ --leveling --gap 10.0
 ```
 
 ### 9.4 Versioning and Regression Testing
@@ -505,12 +507,12 @@ datasets:
 benchmark-regression:
   runs-on: ubuntu-latest
   steps:
-    - name: Run Tier 1 benchmarks
-      run: utf8proj-benchmark --tier 1 --assert-no-regression
+    - name: Run PSPLIB J30 benchmarks
+      run: ./tools/benchmarks/run_psplib.sh --skip-download --output results.json
 
-    - name: Run Tier 2 benchmarks (weekly)
+    - name: Run with leveling (weekly)
       if: github.event.schedule
-      run: utf8proj-benchmark --tier 2 --report artifacts/perf.json
+      run: ./tools/benchmarks/run_psplib.sh --leveling --output leveling-results.json
 ```
 
 ---

@@ -1849,9 +1849,9 @@ task c "Task C" { duration: 5d depends: a, b assign: dev }
         assert!(parsed.resources.iter().any(|r| r.id == "dev"));
 
         // Should have multiple tasks assigned to dev
-        let dev_tasks: Vec<_> = parsed.tasks.iter()
+        let dev_task_count = parsed.tasks.iter()
             .filter(|t| t.assigned.iter().any(|a| a.resource_id == "dev"))
-            .collect();
-        assert!(dev_tasks.len() >= 3, "Should have at least 3 tasks assigned to dev");
+            .count();
+        assert!(dev_task_count >= 3, "Should have at least 3 tasks assigned to dev");
     }
 }

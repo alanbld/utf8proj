@@ -248,25 +248,6 @@ enum Commands {
         series: bool,
     },
 
-    /// Validate PSPLIB benchmark instances (RFC-0015)
-    PsplibBenchmark {
-        /// Directory containing PSPLIB .sm files
-        #[arg(value_name = "DIR")]
-        directory: std::path::PathBuf,
-
-        /// Optional file with optimal solutions (e.g., j30opt.sm)
-        #[arg(short, long)]
-        solutions: Option<std::path::PathBuf>,
-
-        /// Acceptable gap percentage (default: 5.0%)
-        #[arg(short, long, default_value = "5.0")]
-        gap: f64,
-
-        /// Validate a single instance file instead of directory
-        #[arg(short, long)]
-        file: Option<std::path::PathBuf>,
-    },
-
     /// Classify tasks by categories (RFC-0011)
     Classify {
         /// Input file path
@@ -503,12 +484,6 @@ fn main() -> Result<()> {
             resources,
             series,
         }) => cmd_bdd_benchmark(scenario, tasks, resources, series),
-        Some(Commands::PsplibBenchmark {
-            directory,
-            solutions,
-            gap,
-            file,
-        }) => cmd_psplib_benchmark(&directory, solutions.as_deref(), gap, file.as_deref()),
         Some(Commands::Classify { file, by }) => cmd_classify(&file, &by),
         Some(Commands::Fix { fix_command }) => match fix_command {
             FixCommands::ContainerDeps {
@@ -2215,105 +2190,6 @@ fn cmd_bdd_benchmark(
         println!("WARNING: {} benchmark(s) failed:", failures.len());
         for f in failures {
             println!("  - {} ({} tasks): {}", f.scenario, f.task_count, f.status);
-        }
-    }
-
-    Ok(())
-}
-
-/// PSPLIB benchmark command: validate against PSPLIB instances (RFC-0015)
-fn cmd_psplib_benchmark(
-    directory: &std::path::Path,
-    solutions: Option<&std::path::Path>,
-    acceptable_gap: f64,
-    single_file: Option<&std::path::Path>,
-) -> Result<()> {
-    println!("utf8proj PSPLIB Validation Benchmark (RFC-0015)");
-    println!("================================================");
-    println!();
-
-    // Load optimal solutions if provided
-    let optimal_solutions = if let Some(sol_path) = solutions {
-        let content = std::fs::read_to_string(sol_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read solutions file: {}", e))?;
-        bench::psplib::parse_optimal_solutions(&content)
-    } else {
-        std::collections::HashMap::new()
-    };
-
-    println!("Configuration:");
-    println!("  Acceptable gap: {:.1}%", acceptable_gap);
-    println!(
-        "  Optimal solutions loaded: {}",
-        if optimal_solutions.is_empty() {
-            "none".to_string()
-        } else {
-            format!("{} instances", optimal_solutions.len())
-        }
-    );
-    println!();
-
-    let results = if let Some(file_path) = single_file {
-        // Single file validation
-        println!("Validating single instance: {}", file_path.display());
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read file: {}", e))?;
-        let name = file_path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let instance = bench::psplib::PsplibInstance::parse(&content, &name)
-            .map_err(|e| anyhow::anyhow!("Failed to parse PSPLIB file: {}", e))?;
-        let optimal = optimal_solutions.get(&name).copied();
-        vec![bench::psplib::validate_instance(
-            &instance,
-            optimal,
-            acceptable_gap,
-        )]
-    } else {
-        // Directory validation
-        println!("Validating directory: {}", directory.display());
-        bench::psplib::validate_directory(directory, &optimal_solutions, acceptable_gap)
-    };
-
-    if results.is_empty() {
-        println!("No PSPLIB instances found.");
-        return Ok(());
-    }
-
-    bench::psplib::print_psplib_report(&results);
-
-    // Return error if any instances failed validation
-    let failures: Vec<_> = results
-        .iter()
-        .filter(|r| matches!(r.status, bench::psplib::PsplibStatus::Error(_)))
-        .collect();
-
-    let suboptimal: Vec<_> = results
-        .iter()
-        .filter(|r| matches!(r.status, bench::psplib::PsplibStatus::Suboptimal(_)))
-        .collect();
-
-    if !failures.is_empty() {
-        println!("ERROR: {} instance(s) failed to schedule:", failures.len());
-        for f in failures {
-            println!("  - {}: {}", f.instance_name, f.status);
-        }
-        return Err(anyhow::anyhow!("PSPLIB validation failed"));
-    }
-
-    if !suboptimal.is_empty() {
-        println!(
-            "WARNING: {} instance(s) exceeded acceptable gap ({}%):",
-            suboptimal.len(),
-            acceptable_gap
-        );
-        for s in &suboptimal[..std::cmp::min(10, suboptimal.len())] {
-            println!("  - {}: {}", s.instance_name, s.status);
-        }
-        if suboptimal.len() > 10 {
-            println!("  ... and {} more", suboptimal.len() - 10);
         }
     }
 
