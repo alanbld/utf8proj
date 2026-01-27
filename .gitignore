@@ -37,6 +37,9 @@ tutor_ideas.zip
 .claude/
 files_read.zip
 
+# Benchmark data (downloaded datasets)
+/data/psplib/
+
 # Temporary files
 *.zip
 *.zip:*
