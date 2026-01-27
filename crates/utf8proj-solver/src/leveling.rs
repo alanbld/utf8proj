@@ -3605,4 +3605,657 @@ mod tests {
             standard_resolved, hybrid_resolved
         );
     }
+
+    // =========================================================================
+    // P2 Coverage Gap Tests
+    //
+    // G4: FF and SF dependency propagation
+    // G6: Nested/hierarchical tasks with leveling + propagation
+    // =========================================================================
+
+    // --- G4: FF and SF Dependency Propagation ---
+
+    #[test]
+    fn propagation_ff_dependency() {
+        // A -FF-> B: B must finish when/after A finishes.
+        // If A is delayed by leveling, B's finish must respect the FF constraint.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("FF Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0),
+        ];
+
+        let mut task_b = Task::new("b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev2".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::FinishToFinish,
+            lag: None,
+        }];
+
+        project.tasks = vec![
+            // blocker forces "a" to shift on dev1
+            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("a").effort(Duration::days(3)).assign("dev1"),
+            task_b,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+
+        // FF: B must finish >= A's finish
+        assert!(
+            b.finish >= a.finish,
+            "FF: b.finish ({}) must be >= a.finish ({})",
+            b.finish,
+            a.finish
+        );
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn propagation_sf_dependency() {
+        // A -SF-> B: B must finish when/after A starts.
+        // If A is delayed by leveling, B's finish must respect the SF constraint.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("SF Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0),
+        ];
+
+        let mut task_b = Task::new("b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev2".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::StartToFinish,
+            lag: None,
+        }];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("a").effort(Duration::days(3)).assign("dev1"),
+            task_b,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+
+        // SF: B must finish >= A's start
+        assert!(
+            b.finish >= a.start,
+            "SF: b.finish ({}) must be >= a.start ({})",
+            b.finish,
+            a.start
+        );
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn propagation_ff_with_lag() {
+        // A -FF+2d-> B: B must finish >= A.finish + 2 days.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("FF Lag Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0),
+        ];
+
+        let mut task_b = Task::new("b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev2".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::FinishToFinish,
+            lag: Some(Duration::days(2)),
+        }];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("a").effort(Duration::days(3)).assign("dev1"),
+            task_b,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+
+        // FF+2d: B.finish >= A.finish + 2 calendar days
+        let required_finish = a.finish + chrono::Duration::days(2);
+        assert!(
+            b.finish >= required_finish,
+            "FF+2d: b.finish ({}) must be >= a.finish + 2d ({})",
+            b.finish,
+            required_finish
+        );
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_all_dep_types() {
+        // NRT combining all four dependency types in one project.
+        // Exercises every branch of compute_earliest_start().
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("All Dep Types NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev").capacity(1.0),
+            Resource::new("qa").capacity(1.0),
+        ];
+
+        // FS: a -> b_fs
+        let mut b_fs = Task::new("b_fs");
+        b_fs.effort = Some(Duration::days(2));
+        b_fs.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "qa".into(),
+            units: 1.0,
+        });
+        b_fs.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+
+        // SS: a -> b_ss
+        let mut b_ss = Task::new("b_ss");
+        b_ss.effort = Some(Duration::days(2));
+        b_ss.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "qa".into(),
+            units: 1.0,
+        });
+        b_ss.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::StartToStart,
+            lag: None,
+        }];
+
+        // FF: a -> b_ff
+        let mut b_ff = Task::new("b_ff");
+        b_ff.effort = Some(Duration::days(2));
+        b_ff.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "qa".into(),
+            units: 1.0,
+        });
+        b_ff.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::FinishToFinish,
+            lag: None,
+        }];
+
+        // SF: a -> b_sf
+        let mut b_sf = Task::new("b_sf");
+        b_sf.effort = Some(Duration::days(2));
+        b_sf.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "qa".into(),
+            units: 1.0,
+        });
+        b_sf.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::StartToFinish,
+            lag: None,
+        }];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            b_fs,
+            b_ss,
+            b_ff,
+            b_sf,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    // --- G6: Nested/Hierarchical Tasks with Leveling + Propagation ---
+
+    #[test]
+    fn propagation_hierarchical_tasks() {
+        // Nested tasks: phase.task_a -> phase.task_b on the same resource.
+        // Verifies that build_successor_map correctly resolves qualified IDs.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hierarchical Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut task_b = Task::new("task_b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![utf8proj_core::Dependency {
+            predecessor: "task_a".into(), // relative sibling reference
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+
+        let phase = Task::new("phase")
+            .child(Task::new("task_a").effort(Duration::days(3)).assign("dev"))
+            .child(task_b);
+
+        project.tasks = vec![
+            // blocker at top level competes for dev
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            phase,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let task_a = &result.leveled_schedule.tasks["phase.task_a"];
+        let task_b = &result.leveled_schedule.tasks["phase.task_b"];
+
+        // FS: task_b must start after task_a finishes
+        assert!(
+            task_b.start > task_a.finish,
+            "phase.task_b.start ({}) must be after phase.task_a.finish ({})",
+            task_b.start,
+            task_a.finish
+        );
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_hierarchical() {
+        // NRT: Hierarchical task structure with dependencies and leveling.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Hierarchical NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut child_b = Task::new("child_b");
+        child_b.effort = Some(Duration::days(2));
+        child_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        child_b.depends = vec![utf8proj_core::Dependency {
+            predecessor: "child_a".into(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+
+        let mut child_d = Task::new("child_d");
+        child_d.effort = Some(Duration::days(2));
+        child_d.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        child_d.depends = vec![utf8proj_core::Dependency {
+            predecessor: "child_c".into(),
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+
+        let phase1 = Task::new("phase1")
+            .child(Task::new("child_a").effort(Duration::days(3)).assign("dev"))
+            .child(child_b);
+
+        let phase2 = Task::new("phase2")
+            .child(Task::new("child_c").effort(Duration::days(3)).assign("dev"))
+            .child(child_d);
+
+        project.tasks = vec![phase1, phase2];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn propagation_cross_hierarchy_dependency() {
+        // phase1.task_a -> phase2.task_b (cross-hierarchy dependency).
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Cross Hierarchy");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut task_b = Task::new("task_b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![utf8proj_core::Dependency {
+            predecessor: "phase1.task_a".into(), // absolute cross-hierarchy ref
+            dep_type: DependencyType::FinishToStart,
+            lag: None,
+        }];
+
+        let phase1 = Task::new("phase1")
+            .child(Task::new("task_a").effort(Duration::days(3)).assign("dev"));
+
+        let phase2 = Task::new("phase2").child(task_b);
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            phase1,
+            phase2,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let task_a = &result.leveled_schedule.tasks["phase1.task_a"];
+        let task_b = &result.leveled_schedule.tasks["phase2.task_b"];
+
+        assert!(
+            task_b.start > task_a.finish,
+            "phase2.task_b.start ({}) must be after phase1.task_a.finish ({})",
+            task_b.start,
+            task_a.finish
+        );
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    // =========================================================================
+    // P3 Coverage Gap Tests
+    //
+    // G5: Milestone delay detection (L004) in both standard and hybrid
+    // G7: Leveling with calendar holidays
+    // =========================================================================
+
+    // --- G5: Milestone Delay Detection (L004) ---
+
+    #[test]
+    fn milestone_delay_emits_l004_standard() {
+        // A milestone depends on a task that gets delayed by leveling.
+        // The standard leveler must emit L004.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Milestone L004");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("work").effort(Duration::days(3)).assign("dev"),
+            Task::new("release")
+                .milestone()
+                .assign("dev")
+                .depends_on("work"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let has_l004 = result
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::L004MilestoneDelayed);
+
+        assert!(
+            has_l004,
+            "Expected L004 diagnostic when milestone is delayed. Diagnostics: {:?}",
+            result
+                .diagnostics
+                .iter()
+                .map(|d| format!("{:?}", d.code))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn milestone_delay_emits_l004_hybrid() {
+        // Same scenario through hybrid leveler.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Milestone L004 Hybrid");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("work").effort(Duration::days(3)).assign("dev"),
+            Task::new("release")
+                .milestone()
+                .assign("dev")
+                .depends_on("work"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+
+        let options = LevelingOptions {
+            strategy: LevelingStrategy::Hybrid,
+            ..LevelingOptions::default()
+        };
+        let result = level_resources_with_options(&project, &schedule, &calendar, &options);
+
+        let has_l004 = result
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::L004MilestoneDelayed);
+
+        assert!(
+            has_l004,
+            "Expected L004 diagnostic from hybrid leveler. Diagnostics: {:?}",
+            result
+                .diagnostics
+                .iter()
+                .map(|d| format!("{:?}", d.code))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn milestone_not_delayed_no_l004() {
+        // A milestone that is NOT delayed should NOT emit L004.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Milestone No L004");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            // No resource conflict: sequential by dependency
+            Task::new("work").effort(Duration::days(3)).assign("dev"),
+            Task::new("release")
+                .milestone()
+                .assign("dev")
+                .depends_on("work"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let has_l004 = result
+            .diagnostics
+            .iter()
+            .any(|d| d.code == DiagnosticCode::L004MilestoneDelayed);
+
+        assert!(
+            !has_l004,
+            "L004 should NOT be emitted when milestone is not delayed"
+        );
+    }
+
+    // --- G7: Leveling with Calendar Holidays ---
+
+    #[test]
+    fn leveling_with_holidays_respects_calendar() {
+        // Holidays during the leveling window. Shifted tasks must land
+        // on working days, not on holidays.
+        use utf8proj_core::{Holiday, Scheduler};
+
+        let mut project = Project::new("Holiday Leveling");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap(); // Monday
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(3)).assign("dev"),
+        ];
+
+        let mut calendar = Calendar::default();
+        // Add a holiday on Wed Jan 15 and Thu Jan 16
+        calendar.holidays.push(Holiday {
+            name: "Company Retreat".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 16).unwrap(),
+        });
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // After leveling, no task should start or finish on a holiday
+        for (task_id, task) in &result.leveled_schedule.tasks {
+            assert!(
+                calendar.is_working_day(task.start),
+                "Task '{}' starts on non-working day: {} (holiday or weekend)",
+                task_id,
+                task.start
+            );
+            assert!(
+                calendar.is_working_day(task.finish),
+                "Task '{}' finishes on non-working day: {} (holiday or weekend)",
+                task_id,
+                task.finish
+            );
+        }
+
+        assert!(
+            result.unresolved_conflicts.is_empty(),
+            "Should resolve conflicts even with holidays"
+        );
+    }
+
+    #[test]
+    fn leveling_with_holidays_propagation() {
+        // Holidays + dependency propagation: shifted successor must
+        // also land on working days and respect the dependency.
+        use utf8proj_core::{Holiday, Scheduler};
+
+        let mut project = Project::new("Holiday Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("dev")
+                .depends_on("a"),
+        ];
+
+        let mut calendar = Calendar::default();
+        // Holiday smack in the middle of where shifted tasks would land
+        calendar.holidays.push(Holiday {
+            name: "Holiday".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(),
+        });
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // Check no task on holiday
+        for (task_id, task) in &result.leveled_schedule.tasks {
+            assert!(
+                calendar.is_working_day(task.start),
+                "Task '{}' starts on non-working day: {}",
+                task_id,
+                task.start
+            );
+        }
+
+        // Check dependency invariant
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
+
+    #[test]
+    fn nrt_no_negative_gaps_with_holidays() {
+        // NRT: no-negative-gaps invariant with holidays in the calendar.
+        use utf8proj_core::{Holiday, Scheduler};
+
+        let mut project = Project::new("Holiday NRT");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(5)).assign("dev"),
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(3))
+                .assign("dev")
+                .depends_on("a"),
+            Task::new("c")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("b"),
+        ];
+
+        let mut calendar = Calendar::default();
+        // Multiple holidays scattered through the scheduling window
+        calendar.holidays.push(Holiday {
+            name: "Holiday1".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+        });
+        calendar.holidays.push(Holiday {
+            name: "Holiday2".into(),
+            start: NaiveDate::from_ymd_opt(2025, 1, 22).unwrap(),
+            end: NaiveDate::from_ymd_opt(2025, 1, 23).unwrap(),
+        });
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        assert_no_negative_gaps(&project, &result.leveled_schedule, &calendar);
+    }
 }
