@@ -13,10 +13,10 @@
 use crate::bdd::BddConflictAnalyzer;
 use rayon::prelude::*;
 use chrono::NaiveDate;
-use std::collections::{BinaryHeap, BTreeMap, HashMap, HashSet};
+use std::collections::{BinaryHeap, BTreeMap, HashMap, HashSet, VecDeque};
 use utf8proj_core::{
-    Calendar, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule, ScheduledTask,
-    Severity, TaskId,
+    Calendar, DependencyType, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule,
+    ScheduledTask, Severity, Task, TaskId,
 };
 
 // =============================================================================
@@ -514,6 +514,9 @@ pub fn level_resources_with_options(
     // Build task priority map for shifting decisions
     let task_priorities = build_task_priority_map(&leveled_tasks, project);
 
+    // Build successor map for dependency propagation
+    let successor_map = build_successor_map(project);
+
     // Track milestones for L004 diagnostic
     let original_milestone_dates: HashMap<TaskId, NaiveDate> = leveled_tasks
         .iter()
@@ -755,6 +758,18 @@ pub fn level_resources_with_options(
             notes: vec![],
             hints: vec![format!("Resource '{}' was overallocated", resource_id)],
         });
+
+        // Propagate delay to transitive successors
+        propagate_to_successors(
+            &candidate.task_id,
+            &mut leveled_tasks,
+            &mut timelines,
+            &successor_map,
+            project,
+            calendar,
+            &mut shifted_tasks,
+            &mut diagnostics,
+        );
     }
 
     // Calculate new project end
@@ -882,6 +897,7 @@ fn process_cluster(
     calendar: &Calendar,
     task_priorities: &HashMap<TaskId, (u32, ())>,
     max_allowed_duration: Option<i64>,
+    successor_map: &SuccessorMap,
 ) -> ClusterResult {
     let cluster_start = std::time::Instant::now();
 
@@ -1119,6 +1135,30 @@ fn process_cluster(
             )],
             hints: vec![],
         });
+
+        // Propagate delay to successors within this cluster
+        propagate_to_successors(
+            &candidate.task_id,
+            &mut local_tasks,
+            &mut timelines,
+            successor_map,
+            project,
+            calendar,
+            &mut shifted_tasks,
+            &mut diagnostics,
+        );
+
+        // Update task_updates with any propagated changes
+        for (id, task) in &local_tasks {
+            if cluster_task_ids.contains(id.as_str()) {
+                let original = tasks.get(id);
+                if let Some(orig) = original {
+                    if orig.start != task.start || orig.finish != task.finish {
+                        task_updates.insert(id.clone(), (task.start, task.finish));
+                    }
+                }
+            }
+        }
     }
 
     ClusterResult {
@@ -1199,6 +1239,9 @@ fn hybrid_level_resources(
     // Build task priorities (shared, read-only)
     let task_priorities = build_task_priority_map(&leveled_tasks, project);
 
+    // Build successor map for dependency propagation
+    let successor_map = build_successor_map(project);
+
     // Track original project end
     let original_end = schedule.project_end;
 
@@ -1263,6 +1306,7 @@ fn hybrid_level_resources(
                 calendar,
                 &task_priorities,
                 max_allowed_duration,
+                &successor_map,
             );
             (idx, result)
         })
@@ -1413,6 +1457,265 @@ fn hybrid_level_resources(
         new_project_end,
         metrics,
         diagnostics,
+    }
+}
+
+/// Type alias for the successor map: predecessor_id -> Vec<(successor_id, dep_type, lag)>
+type SuccessorMap = HashMap<TaskId, Vec<(TaskId, DependencyType, Option<Duration>)>>;
+
+/// Build a successor map from the project's task tree.
+///
+/// Inverts `task.depends` to produce `predecessor -> Vec<(successor_id, dep_type, lag)>`.
+/// Uses qualified IDs (e.g., "phase1.task1") to match the scheduled task keys.
+fn build_successor_map(project: &Project) -> SuccessorMap {
+    let mut map: SuccessorMap = HashMap::new();
+
+    // First, flatten all tasks to get qualified IDs
+    let mut task_map: HashMap<String, &Task> = HashMap::new();
+    let mut context_map: HashMap<String, String> = HashMap::new();
+    flatten_project_tasks(&project.tasks, "", &mut task_map, &mut context_map);
+
+    // For each task, resolve its dependencies and invert them
+    let qualified_ids: Vec<String> = task_map.keys().cloned().collect();
+    for qualified_id in &qualified_ids {
+        let task = task_map[qualified_id];
+        for dep in &task.depends {
+            // Resolve predecessor path (absolute or relative)
+            let pred_id = resolve_dep_path(&dep.predecessor, qualified_id, &context_map, &task_map);
+            if let Some(pred_id) = pred_id {
+                map.entry(pred_id)
+                    .or_default()
+                    .push((qualified_id.clone(), dep.dep_type, dep.lag.clone()));
+            }
+        }
+    }
+
+    map
+}
+
+/// Flatten hierarchical tasks into qualified ID map (mirrors lib.rs logic)
+fn flatten_project_tasks<'a>(
+    tasks: &'a [Task],
+    prefix: &str,
+    map: &mut HashMap<String, &'a Task>,
+    context_map: &mut HashMap<String, String>,
+) {
+    for task in tasks {
+        let qualified_id = if prefix.is_empty() {
+            task.id.clone()
+        } else {
+            format!("{}.{}", prefix, task.id)
+        };
+        map.insert(qualified_id.clone(), task);
+        context_map.insert(qualified_id.clone(), prefix.to_string());
+        if !task.children.is_empty() {
+            flatten_project_tasks(&task.children, &qualified_id, map, context_map);
+        }
+    }
+}
+
+/// Resolve a dependency path (mirrors lib.rs resolve_dependency_path)
+fn resolve_dep_path(
+    dep_path: &str,
+    from_qualified_id: &str,
+    context_map: &HashMap<String, String>,
+    task_map: &HashMap<String, &Task>,
+) -> Option<String> {
+    if task_map.contains_key(dep_path) {
+        return Some(dep_path.to_string());
+    }
+    if dep_path.contains('.') {
+        return None;
+    }
+    if let Some(container) = context_map.get(from_qualified_id) {
+        let qualified = if container.is_empty() {
+            dep_path.to_string()
+        } else {
+            format!("{}.{}", container, dep_path)
+        };
+        if task_map.contains_key(&qualified) {
+            return Some(qualified);
+        }
+    }
+    None
+}
+
+/// Compute the earliest valid start for a task given ALL its predecessors' current dates.
+///
+/// Returns `None` if any predecessor is missing from the schedule (shouldn't happen).
+fn compute_earliest_start(
+    task_id: &TaskId,
+    _project: &Project,
+    leveled_tasks: &HashMap<TaskId, ScheduledTask>,
+    successor_map: &SuccessorMap,
+) -> Option<NaiveDate> {
+    // We need the task's dependencies (predecessor -> this task).
+    // Scan the successor map to find all predecessors of task_id.
+    let mut earliest = None;
+
+    for (pred_id, successors) in successor_map {
+        for (succ_id, dep_type, lag) in successors {
+            if succ_id != task_id {
+                continue;
+            }
+            let pred = leveled_tasks.get(pred_id)?;
+            let lag_days = lag.as_ref().map(|l| l.as_days() as i64).unwrap_or(0);
+
+            let constraint_date = match dep_type {
+                DependencyType::FinishToStart => {
+                    // Successor starts after predecessor finishes + lag
+                    pred.finish + chrono::Duration::days(lag_days + 1)
+                }
+                DependencyType::StartToStart => {
+                    // Successor starts when predecessor starts + lag
+                    pred.start + chrono::Duration::days(lag_days)
+                }
+                DependencyType::FinishToFinish => {
+                    // Successor finishes when predecessor finishes + lag
+                    // So successor start = pred.finish + lag - successor_duration
+                    let succ = leveled_tasks.get(task_id)?;
+                    let succ_dur = (succ.finish - succ.start).num_days();
+                    pred.finish + chrono::Duration::days(lag_days) - chrono::Duration::days(succ_dur)
+                }
+                DependencyType::StartToFinish => {
+                    // Successor finishes when predecessor starts + lag
+                    let succ = leveled_tasks.get(task_id)?;
+                    let succ_dur = (succ.finish - succ.start).num_days();
+                    pred.start + chrono::Duration::days(lag_days) - chrono::Duration::days(succ_dur)
+                }
+            };
+
+            earliest = Some(match earliest {
+                Some(e) => std::cmp::max(e, constraint_date),
+                None => constraint_date,
+            });
+        }
+    }
+
+    earliest
+}
+
+/// Propagate delay to all transitive successors after a task has been shifted.
+///
+/// Uses BFS in topological order. For each successor, computes the earliest valid start
+/// from ALL predecessors; if it's later than the current start, shifts the successor.
+fn propagate_to_successors(
+    shifted_task_id: &TaskId,
+    leveled_tasks: &mut HashMap<TaskId, ScheduledTask>,
+    timelines: &mut HashMap<ResourceId, ResourceTimeline>,
+    successor_map: &SuccessorMap,
+    project: &Project,
+    calendar: &Calendar,
+    shifted_tasks: &mut Vec<ShiftedTask>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut queue: VecDeque<TaskId> = VecDeque::new();
+    let mut visited: HashSet<TaskId> = HashSet::new();
+
+    // Seed the queue with direct successors of the shifted task
+    if let Some(successors) = successor_map.get(shifted_task_id) {
+        for (succ_id, _, _) in successors {
+            if leveled_tasks.contains_key(succ_id) && visited.insert(succ_id.clone()) {
+                queue.push_back(succ_id.clone());
+            }
+        }
+    }
+
+    while let Some(succ_id) = queue.pop_front() {
+        let Some(earliest) = compute_earliest_start(&succ_id, project, leveled_tasks, successor_map) else {
+            continue;
+        };
+
+        let task = match leveled_tasks.get(&succ_id) {
+            Some(t) => t,
+            None => continue,
+        };
+
+        if earliest <= task.start {
+            // No shift needed — but still enqueue this task's successors
+            // in case they depend on other shifted tasks
+            if let Some(next_succs) = successor_map.get(&succ_id) {
+                for (next_id, _, _) in next_succs {
+                    if leveled_tasks.contains_key(next_id) && visited.insert(next_id.clone()) {
+                        queue.push_back(next_id.clone());
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Need to shift this successor
+        let original_start = task.start;
+        let duration_days = task.duration.as_days() as i64;
+        let new_start = earliest;
+        let new_finish = add_working_days(new_start, duration_days, calendar);
+        let days_shifted = count_working_days(original_start, new_start, calendar);
+
+        // Remove old timeline usage for all assignments
+        for assignment in &task.assignments {
+            if let Some(timeline) = timelines.get_mut(&assignment.resource_id) {
+                timeline.remove_usage(&succ_id);
+            }
+        }
+
+        // Update the task
+        let task = leveled_tasks.get_mut(&succ_id).unwrap();
+        task.start = new_start;
+        task.finish = new_finish;
+        task.early_start = new_start;
+        task.early_finish = new_finish;
+        for assignment in &mut task.assignments {
+            assignment.start = new_start;
+            assignment.finish = new_finish;
+        }
+
+        // Re-add timeline usage at new position
+        let task = &leveled_tasks[&succ_id];
+        for assignment in &task.assignments {
+            if let Some(timeline) = timelines.get_mut(&assignment.resource_id) {
+                timeline.add_usage(&succ_id, new_start, new_finish, assignment.units);
+            }
+        }
+
+        // Record the shift
+        shifted_tasks.push(ShiftedTask {
+            task_id: succ_id.clone(),
+            original_start,
+            new_start,
+            days_shifted,
+            reason: LevelingReason::DependencyChain {
+                predecessor: shifted_task_id.clone(),
+                predecessor_delay: days_shifted,
+            },
+            resources_involved: leveled_tasks[&succ_id]
+                .assignments
+                .iter()
+                .map(|a| a.resource_id.clone())
+                .collect(),
+        });
+
+        diagnostics.push(Diagnostic {
+            code: DiagnosticCode::L001OverallocationResolved,
+            severity: Severity::Hint,
+            message: format!(
+                "Successor '{}' propagated {} day(s) due to predecessor shift",
+                succ_id, days_shifted
+            ),
+            file: None,
+            span: None,
+            secondary_spans: vec![],
+            notes: vec![],
+            hints: vec![format!("Predecessor '{}' was delayed", shifted_task_id)],
+        });
+
+        // Enqueue this task's successors for further propagation
+        if let Some(next_succs) = successor_map.get(&succ_id) {
+            for (next_id, _, _) in next_succs {
+                if leveled_tasks.contains_key(next_id) && visited.insert(next_id.clone()) {
+                    queue.push_back(next_id.clone());
+                }
+            }
+        }
     }
 }
 
@@ -2327,5 +2630,235 @@ mod tests {
         // Invalid range should return 0
         let count = count_schedule_working_days(start, end, &calendar);
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn propagation_shifts_successor_after_predecessor_delayed() {
+        // A -> B, same resource. Leveling shifts A, B must cascade.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Propagation Test");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            // task0 occupies dev, no dependency — forces conflict with task_a
+            Task::new("task0").effort(Duration::days(3)).assign("dev"),
+            Task::new("task_a").effort(Duration::days(3)).assign("dev"),
+            Task::new("task_b")
+                .effort(Duration::days(3))
+                .assign("dev")
+                .depends_on("task_a"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        // task_b must start after task_a finishes (dependency preserved after leveling)
+        let task_a = &result.leveled_schedule.tasks["task_a"];
+        let task_b = &result.leveled_schedule.tasks["task_b"];
+        assert!(
+            task_b.start > task_a.finish
+                || task_b.start == task_a.finish.succ_opt().unwrap(),
+            "task_b ({}) must start after task_a finishes ({})",
+            task_b.start,
+            task_a.finish
+        );
+    }
+
+    #[test]
+    fn propagation_chain_a_b_c() {
+        // A -> B -> C, same resource + conflicting task. Cascade through chain.
+        use utf8proj_core::Scheduler;
+
+        let mut project = Project::new("Chain Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(3)).assign("dev"),
+            Task::new("a").effort(Duration::days(2)).assign("dev"),
+            Task::new("b")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("a"),
+            Task::new("c")
+                .effort(Duration::days(2))
+                .assign("dev")
+                .depends_on("b"),
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+        let c = &result.leveled_schedule.tasks["c"];
+
+        assert!(
+            b.start > a.finish || b.start == a.finish.succ_opt().unwrap(),
+            "b must respect a: b.start={} a.finish={}",
+            b.start,
+            a.finish
+        );
+        assert!(
+            c.start > b.finish || c.start == b.finish.succ_opt().unwrap(),
+            "c must respect b: c.start={} b.finish={}",
+            c.start,
+            b.finish
+        );
+    }
+
+    #[test]
+    fn propagation_diamond_both_predecessors() {
+        // A -> C, B -> C. Both A and B delayed. C respects both.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("Diamond Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut task_c = Task::new("c");
+        task_c.effort = Some(Duration::days(2));
+        task_c.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        task_c.depends = vec![
+            Dependency {
+                predecessor: "a".into(),
+                dep_type: DependencyType::FinishToStart,
+                lag: None,
+            },
+            Dependency {
+                predecessor: "b".into(),
+                dep_type: DependencyType::FinishToStart,
+                lag: None,
+            },
+        ];
+
+        project.tasks = vec![
+            Task::new("a").effort(Duration::days(3)).assign("dev"),
+            Task::new("b").effort(Duration::days(5)).assign("dev"),
+            task_c,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+        let c = &result.leveled_schedule.tasks["c"];
+
+        // C must start after BOTH a and b finish
+        assert!(
+            c.start > a.finish,
+            "c.start ({}) must be after a.finish ({})",
+            c.start,
+            a.finish
+        );
+        assert!(
+            c.start > b.finish,
+            "c.start ({}) must be after b.finish ({})",
+            c.start,
+            b.finish
+        );
+    }
+
+    #[test]
+    fn propagation_with_lag() {
+        // A -> B +2d lag. After leveling, lag is preserved.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("Lag Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![Resource::new("dev").capacity(1.0)];
+
+        let mut task_b = Task::new("b");
+        task_b.effort = Some(Duration::days(2));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::FinishToStart,
+            lag: Some(Duration::days(2)),
+        }];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(3)).assign("dev"),
+            Task::new("a").effort(Duration::days(2)).assign("dev"),
+            task_b,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+
+        // B must start at least 2 working days after A finishes (FS + 2d lag)
+        let gap = count_working_days(a.finish, b.start, &calendar);
+        assert!(
+            gap >= 2,
+            "Expected gap >= 2 working days between a.finish ({}) and b.start ({}), got {}",
+            a.finish,
+            b.start,
+            gap
+        );
+    }
+
+    #[test]
+    fn propagation_ss_dependency() {
+        // A -SS-> B. After leveling shifts A, B must respect SS constraint.
+        use utf8proj_core::{Dependency, DependencyType, Scheduler};
+
+        let mut project = Project::new("SS Propagation");
+        project.start = NaiveDate::from_ymd_opt(2025, 1, 6).unwrap();
+        project.resources = vec![
+            Resource::new("dev1").capacity(1.0),
+            Resource::new("dev2").capacity(1.0),
+        ];
+
+        let mut task_b = Task::new("b");
+        task_b.effort = Some(Duration::days(3));
+        task_b.assigned.push(utf8proj_core::ResourceRef {
+            resource_id: "dev2".into(),
+            units: 1.0,
+        });
+        task_b.depends = vec![Dependency {
+            predecessor: "a".into(),
+            dep_type: DependencyType::StartToStart,
+            lag: None,
+        }];
+
+        project.tasks = vec![
+            Task::new("blocker").effort(Duration::days(3)).assign("dev1"),
+            Task::new("a").effort(Duration::days(3)).assign("dev1"),
+            task_b,
+        ];
+
+        let solver = crate::CpmSolver::new();
+        let schedule = solver.schedule(&project).unwrap();
+        let calendar = Calendar::default();
+        let result = level_resources(&project, &schedule, &calendar);
+
+        let a = &result.leveled_schedule.tasks["a"];
+        let b = &result.leveled_schedule.tasks["b"];
+
+        // SS: B must start >= A's start
+        assert!(
+            b.start >= a.start,
+            "SS: b.start ({}) must be >= a.start ({})",
+            b.start,
+            a.start
+        );
     }
 }
