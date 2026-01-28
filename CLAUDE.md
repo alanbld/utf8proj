@@ -21,7 +21,7 @@ This project follows **Semantic Versioning** (SemVer):
 
 Version is set in `Cargo.toml` under `[workspace.package]`:
 ```toml
-version = "0.10.0"
+version = "0.12.2"
 ```
 
 All crates inherit this version via `version.workspace = true`.
@@ -58,6 +58,8 @@ crates/
 playground/             # Browser-based playground (Monaco editor, WASM)
 syntax/                 # Editor syntax highlighting (TextMate, Vim)
 tools/mpp_to_proj/      # MS Project companion tool (Python, handles Manually Scheduled tasks)
+tools/benchmarks/       # PSPLIB benchmark runner (RFC-0015 validation)
+tools/psplib_to_proj.py # PSPLIB → .proj converter
 docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.md, RFCs)
 .github/workflows/      # Release workflow (cross-platform binaries)
 ```
@@ -74,6 +76,7 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 - **Critical path**: Calculation with all dependency types
 - **Effort-driven scheduling**: PMI-compliant Duration = Effort / Resource_Units
 - **Resource leveling**: RFC-0003 deterministic leveling with full audit trail (L001-L004 diagnostics)
+- **Hybrid BDD leveling**: RFC-0014 cluster-based leveling (4-5x faster for large projects via `--leveling-strategy=hybrid`)
 - **Progress-aware scheduling**: RFC-0008 status date resolution, remaining duration calculation, P005/P006 diagnostics
 - **Temporal regimes**: RFC-0012 work/event/deadline modes for calendar interaction (`regime: event` allows weekend scheduling)
 - **Calendar diagnostics**: C001-C023 codes for working days vs calendar days analysis
@@ -85,7 +88,7 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 
 ## Test Coverage
 
-~850 tests, ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
+~940 tests, ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
 
 ## Diagnostic System (Compiler-Grade)
 
@@ -146,11 +149,15 @@ Duration = Effort / Total_Resource_Units
 ```
 Example: 40h effort with 1 resource @ 50% = 10 days. Use `assign_with_units("dev", 0.5)` for partial allocations.
 
-### Resource Leveling (RFC-0003)
+### Resource Leveling (RFC-0003, RFC-0014)
 - **Opt-in only**: `CpmSolver::with_leveling()` or `-l` CLI flag
 - **Deterministic**: Same inputs → identical outputs (stable sorting)
 - **Auditable**: Every shift has a `LevelingReason`
 - **L001-L004 diagnostics** explain all leveling decisions
+- **Leveling strategies** (`--leveling-strategy`):
+  - `critical-path-first` (default): Priority-based heuristic
+  - `hybrid`: BDD cluster analysis + heuristic (4-5x faster for large projects)
+  - `optimal`: Branch-and-bound solver (experimental, small projects only)
 
 ### Progress-Aware Scheduling (RFC-0008)
 - **Status Date Resolution**: CLI `--as-of` > `project.status_date` > `today()`
@@ -171,12 +178,16 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 ## Important Files
 
 - `crates/utf8proj-solver/src/lib.rs` - CPM scheduler with effort-driven calculation
-- `crates/utf8proj-solver/src/leveling.rs` - Resource leveling algorithm
+- `crates/utf8proj-solver/src/leveling.rs` - Resource leveling algorithm (heuristic + hybrid BDD)
+- `crates/utf8proj-solver/src/optimal.rs` - Optimal leveling solver (experimental)
+- `crates/utf8proj-solver/src/bdd.rs` - BDD-based conflict cluster analysis
 - `crates/utf8proj-parser/src/native/grammar.pest` - Native DSL grammar
 - `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
 - `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
 - `docs/SCHEDULING_ANALYSIS.md` - PMI/PERT/CPM compliance analysis
 - `docs/MS_PROJECT_COMPARISON.md` - Feature comparison with MS Project
+- `docs/rfc/RFC-0014-SCALING-RESOURCE-LEVELING.md` - Hybrid BDD leveling design
+- `docs/rfc/RFC-0015-BENCHMARKING-VALIDATION.md` - PSPLIB benchmark framework
 
 ## MS Project Compatibility
 
@@ -228,7 +239,8 @@ utf8proj check --format=json project.proj
 
 # Schedule a project
 utf8proj schedule project.tjp
-utf8proj schedule -l project.tjp        # with resource leveling
+utf8proj schedule -l project.tjp                              # with resource leveling
+utf8proj schedule -l --leveling-strategy=hybrid project.tjp   # hybrid BDD leveling (faster)
 
 # Generate Gantt chart
 utf8proj gantt project.tjp -o chart.svg              # SVG (default)
@@ -248,6 +260,10 @@ utf8proj compare --baseline original --format json project.proj  # JSON output
 # Run benchmarks
 utf8proj benchmark -t chain -c 10000 --series
 utf8proj bdd-benchmark --series
+
+# PSPLIB benchmarks (RFC-0015)
+cd tools/benchmarks && ./run_psplib.sh   # requires PSPLIB dataset
+python3 tools/psplib_to_proj.py j30.sm/j301_1.sm -o project.proj
 
 # Build WASM playground
 cd playground && ./build.sh && python3 -m http.server 8080
