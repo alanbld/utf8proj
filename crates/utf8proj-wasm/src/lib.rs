@@ -353,6 +353,8 @@ pub struct Playground {
     last_error: Option<String>,
     focus_patterns: Vec<String>,
     context_depth: usize,
+    /// RFC-0016: Diagnostics from last schedule operation
+    diagnostics: Vec<utf8proj_core::Diagnostic>,
 }
 
 #[wasm_bindgen]
@@ -371,6 +373,7 @@ impl Playground {
             last_error: None,
             focus_patterns: vec![],
             context_depth: 1,
+            diagnostics: vec![],
         }
     }
 
@@ -383,96 +386,18 @@ impl Playground {
     /// # Returns
     /// JSON object with schedule data or error
     pub fn schedule(&mut self, input: &str, format: &str) -> JsValue {
-        self.last_error = None;
-
-        // Parse based on format
-        let project = match format {
-            "tjp" => utf8proj_parser::parse_tjp(input),
-            _ => parse_proj(input),
-        };
-
-        let project = match project {
-            Ok(p) => p,
+        match self.schedule_internal(input, format) {
+            Ok(data) => serde_wasm_bindgen::to_value(&PlaygroundResult {
+                success: true,
+                error: None,
+                data: Some(data),
+            })
+            .unwrap(),
             Err(e) => {
-                self.last_error = Some(e.to_string());
-                return serde_wasm_bindgen::to_value(&PlaygroundResult {
-                    success: false,
-                    error: Some(e.to_string()),
-                    data: None,
-                })
-                .unwrap();
-            }
-        };
-
-        // Schedule (base schedule first)
-        let solver = CpmSolver::new();
-        let base_schedule = match solver.schedule(&project) {
-            Ok(s) => s,
-            Err(e) => {
-                self.last_error = Some(e.to_string());
-                return serde_wasm_bindgen::to_value(&PlaygroundResult {
-                    success: false,
-                    error: Some(e.to_string()),
-                    data: None,
-                })
-                .unwrap();
-            }
-        };
-
-        // Apply resource leveling if enabled (RFC-0003, RFC-0014)
-        let schedule = if self.resource_leveling {
-            let calendar = project.calendars.first().cloned().unwrap_or_default();
-
-            // Resolve optimal leveling: CLI settings override, then project-level config
-            let use_optimal =
-                self.optimal_leveling || matches!(project.leveling_mode, LevelingMode::Optimal);
-            let threshold = project.optimal_threshold.unwrap_or(self.optimal_threshold);
-            let timeout = project
-                .optimal_timeout_ms
-                .unwrap_or(self.optimal_timeout_ms);
-
-            let options = LevelingOptions {
-                // Use CriticalPathFirst in WASM: Hybrid requires rayon (threading)
-                // and std::time::Instant which are unavailable in browser WASM runtime
-                strategy: LevelingStrategy::CriticalPathFirst,
-                max_project_delay_factor: None,
-                use_optimal,
-                optimal_threshold: threshold,
-                optimal_timeout_ms: timeout,
-            };
-
-            let result =
-                level_resources_with_options(&project, &base_schedule, &calendar, &options);
-            result.leveled_schedule
-        } else {
-            base_schedule
-        };
-
-        match Ok::<_, String>(schedule) {
-            Ok(schedule) => {
-                // Store for rendering
-                self.project = Some(project.clone());
-                self.schedule = Some(schedule.clone());
-
-                // Return simplified result
-                let data = PlaygroundScheduleData {
-                    tasks: schedule.tasks.len(),
-                    duration_days: schedule.project_duration.as_days() as i64,
-                    critical_path: schedule.critical_path.clone(),
-                };
-
-                serde_wasm_bindgen::to_value(&PlaygroundResult {
-                    success: true,
-                    error: None,
-                    data: Some(data),
-                })
-                .unwrap()
-            }
-            Err(e) => {
-                self.last_error = Some(e.to_string());
+                self.last_error = Some(e.clone());
                 serde_wasm_bindgen::to_value(&PlaygroundResult {
                     success: false,
-                    error: Some(e.to_string()),
+                    error: Some(e),
                     data: None,
                 })
                 .unwrap()
@@ -633,6 +558,83 @@ impl Playground {
         self.last_error.clone()
     }
 
+    // =========================================================================
+    // RFC-0016: Audit Console - Diagnostic Access Methods
+    // =========================================================================
+
+    /// Get all diagnostics from the last schedule operation (RFC-0016)
+    ///
+    /// Returns a JSON array of diagnostic objects with code, severity, and message.
+    /// Includes all severity levels (error, warning, hint, info).
+    pub fn get_diagnostics(&self) -> String {
+        let infos: Vec<DiagnosticInfo> = self
+            .diagnostics
+            .iter()
+            .map(|d| DiagnosticInfo {
+                code: format!("{}", d.code),
+                severity: d.severity.as_str().to_string(),
+                message: d.message.clone(),
+            })
+            .collect();
+        serde_json::to_string(&infos).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Get diagnostics filtered by minimum severity (RFC-0016)
+    ///
+    /// # Arguments
+    /// * `min_severity` - Minimum severity: "error", "warning", "hint", or "info"
+    ///
+    /// Returns diagnostics at or above the specified severity level.
+    pub fn get_diagnostics_filtered(&self, min_severity: &str) -> String {
+        let min_level = match min_severity.to_lowercase().as_str() {
+            "error" => 0,
+            "warning" => 1,
+            "hint" => 2,
+            "info" | _ => 3,
+        };
+
+        let infos: Vec<DiagnosticInfo> = self
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                let level = match d.severity {
+                    Severity::Error => 0,
+                    Severity::Warning => 1,
+                    Severity::Hint => 2,
+                    Severity::Info => 3,
+                };
+                level <= min_level
+            })
+            .map(|d| DiagnosticInfo {
+                code: format!("{}", d.code),
+                severity: d.severity.as_str().to_string(),
+                message: d.message.clone(),
+            })
+            .collect();
+        serde_json::to_string(&infos).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Get leveling-specific diagnostics only (RFC-0016)
+    ///
+    /// Returns only L001-L007 diagnostics (leveling audit trail).
+    /// Useful for understanding what the leveler changed.
+    pub fn get_leveling_audit(&self) -> String {
+        let infos: Vec<DiagnosticInfo> = self
+            .diagnostics
+            .iter()
+            .filter(|d| {
+                let code = format!("{}", d.code);
+                code.starts_with('L')
+            })
+            .map(|d| DiagnosticInfo {
+                code: format!("{}", d.code),
+                severity: d.severity.as_str().to_string(),
+                message: d.message.clone(),
+            })
+            .collect();
+        serde_json::to_string(&infos).unwrap_or_else(|_| "[]".to_string())
+    }
+
     /// Enable or disable dark theme
     pub fn set_dark_theme(&mut self, enabled: bool) {
         self.dark_theme = enabled;
@@ -725,6 +727,82 @@ impl Playground {
     /// Get resource leveling example demonstrating conflict resolution (RFC-0003, RFC-0014)
     pub fn get_example_leveling() -> String {
         EXAMPLE_LEVELING.to_string()
+    }
+}
+
+// Non-WASM methods for internal use and testing
+impl Playground {
+    /// Internal schedule implementation (RFC-0016: captures diagnostics)
+    ///
+    /// This method is used by both the WASM binding and unit tests.
+    /// Not exposed to WASM because Result<PlaygroundScheduleData, String> is not WASM-compatible.
+    pub fn schedule_internal(
+        &mut self,
+        input: &str,
+        format: &str,
+    ) -> Result<PlaygroundScheduleData, String> {
+        self.last_error = None;
+        self.diagnostics.clear();
+
+        // Parse based on format
+        let project = match format {
+            "tjp" => utf8proj_parser::parse_tjp(input),
+            _ => parse_proj(input),
+        }
+        .map_err(|e| e.to_string())?;
+
+        // Schedule (base schedule first)
+        let solver = CpmSolver::new();
+        let base_schedule = solver.schedule(&project).map_err(|e| e.to_string())?;
+
+        // Apply resource leveling if enabled (RFC-0003, RFC-0014)
+        let schedule = if self.resource_leveling {
+            let calendar = project.calendars.first().cloned().unwrap_or_default();
+
+            // Resolve optimal leveling: CLI settings override, then project-level config
+            let use_optimal =
+                self.optimal_leveling || matches!(project.leveling_mode, LevelingMode::Optimal);
+            let threshold = project.optimal_threshold.unwrap_or(self.optimal_threshold);
+            let timeout = project
+                .optimal_timeout_ms
+                .unwrap_or(self.optimal_timeout_ms);
+
+            let options = LevelingOptions {
+                // Use CriticalPathFirst in WASM: Hybrid requires rayon (threading)
+                // and std::time::Instant which are unavailable in browser WASM runtime
+                strategy: LevelingStrategy::CriticalPathFirst,
+                max_project_delay_factor: None,
+                use_optimal,
+                optimal_threshold: threshold,
+                optimal_timeout_ms: timeout,
+            };
+
+            let leveling_result =
+                level_resources_with_options(&project, &base_schedule, &calendar, &options);
+
+            // RFC-0016: Capture leveling diagnostics
+            self.diagnostics.extend(leveling_result.diagnostics);
+
+            leveling_result.leveled_schedule
+        } else {
+            base_schedule
+        };
+
+        // RFC-0016: Run analyze_project to get additional diagnostics
+        let mut emitter = CollectingEmitter::new();
+        let config = AnalysisConfig::default();
+        analyze_project(&project, Some(&schedule), &config, &mut emitter);
+        self.diagnostics.extend(emitter.diagnostics);
+
+        // Store for rendering
+        self.project = Some(project);
+        self.schedule = Some(schedule.clone());
+
+        Ok(PlaygroundScheduleData {
+            tasks: schedule.tasks.len(),
+            duration_days: schedule.project_duration.as_days() as i64,
+            critical_path: schedule.critical_path.clone(),
+        })
     }
 }
 
@@ -1872,5 +1950,125 @@ task c "Task C" { duration: 5d depends: a, b assign: dev }
             dev_task_count >= 3,
             "Should have at least 3 tasks assigned to dev"
         );
+    }
+
+    // =========================================================================
+    // RFC-0016: Audit Console Tests (TDD)
+    // =========================================================================
+
+    const CONFLICTING_TASKS_PROJECT: &str = r#"
+project "Conflict Test" {
+    start: 2026-01-05
+}
+
+resource dev "Developer" { capacity: 1.0 }
+
+task a "Task A" { effort: 5d assign: dev }
+task b "Task B" { effort: 5d assign: dev }
+task c "Task C" { effort: 3d depends: b assign: dev }
+"#;
+
+    #[test]
+    fn test_get_diagnostics_returns_json() {
+        // RFC-0016: get_diagnostics() should return valid JSON array
+        let mut pg = Playground::new();
+        pg.set_resource_leveling(true);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let diagnostics = pg.get_diagnostics();
+        assert!(!diagnostics.is_empty(), "Diagnostics should not be empty");
+
+        // Should be valid JSON
+        let parsed: Result<Vec<DiagnosticInfo>, _> = serde_json::from_str(&diagnostics);
+        assert!(
+            parsed.is_ok(),
+            "Diagnostics should be valid JSON: {}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn test_playground_captures_leveling_diagnostics() {
+        // RFC-0016: Leveling should produce L001 diagnostics
+        let mut pg = Playground::new();
+        pg.set_resource_leveling(true);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let diagnostics = pg.get_diagnostics();
+        let parsed: Vec<DiagnosticInfo> =
+            serde_json::from_str(&diagnostics).expect("Should parse diagnostics JSON");
+
+        // Should have at least one L001 (overallocation resolved)
+        let has_l001 = parsed.iter().any(|d| d.code == "L001");
+        assert!(
+            has_l001,
+            "Should have L001 diagnostic. Got: {:?}",
+            parsed.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_get_leveling_audit_returns_only_l_codes() {
+        // RFC-0016: get_leveling_audit() filters to L001-L007 only
+        let mut pg = Playground::new();
+        pg.set_resource_leveling(true);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let audit = pg.get_leveling_audit();
+        let parsed: Vec<DiagnosticInfo> =
+            serde_json::from_str(&audit).expect("Should parse audit JSON");
+
+        // All diagnostics should be L-prefixed
+        for diag in &parsed {
+            assert!(
+                diag.code.starts_with('L'),
+                "Leveling audit should only contain L codes, got: {}",
+                diag.code
+            );
+        }
+    }
+
+    #[test]
+    fn test_diagnostics_empty_without_leveling() {
+        // RFC-0016: Without leveling, no L001 diagnostics
+        let mut pg = Playground::new();
+        pg.set_resource_leveling(false); // leveling OFF
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let audit = pg.get_leveling_audit();
+        let parsed: Vec<DiagnosticInfo> =
+            serde_json::from_str(&audit).expect("Should parse audit JSON");
+
+        // Should have no L001 (no leveling happened)
+        let has_l001 = parsed.iter().any(|d| d.code == "L001");
+        assert!(!has_l001, "Should NOT have L001 without leveling");
+    }
+
+    #[test]
+    fn test_get_diagnostics_filtered_by_severity() {
+        // RFC-0016: Filter diagnostics by minimum severity
+        let mut pg = Playground::new();
+        pg.set_resource_leveling(true);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        // Filter to warnings and above (should exclude hints and info)
+        let warnings = pg.get_diagnostics_filtered("warning");
+        let parsed: Vec<DiagnosticInfo> =
+            serde_json::from_str(&warnings).expect("Should parse filtered JSON");
+
+        // All should be warning or error severity
+        for diag in &parsed {
+            assert!(
+                diag.severity == "warning" || diag.severity == "error",
+                "Filtered diagnostics should be warning+, got: {} ({})",
+                diag.severity,
+                diag.code
+            );
+        }
     }
 }
