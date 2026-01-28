@@ -135,15 +135,16 @@ def convert_to_proj(instance: PSPLIBInstance, optimal_makespan: Optional[int] = 
     lines.append(f'# Source: https://www.om-db.wi.tum.de/psplib/')
     lines.append('')
 
-    # Project declaration
+    # Project declaration — assign continuous calendar for PSPLIB (no weekends)
     lines.append(f'project "{instance.name}" {{')
     lines.append('    start: 2026-01-05')
+    lines.append('    calendar: continuous')
     lines.append('}')
     lines.append('')
 
     # PSPLIB uses continuous time (no weekends)
     lines.append('calendar "continuous" {')
-    lines.append('    working_days: mon-sun')
+    lines.append('    working_days: mon, tue, wed, thu, fri, sat, sun')
     lines.append('}')
     lines.append('')
 

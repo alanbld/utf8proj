@@ -14,7 +14,7 @@
     "serve": "python3 -m http.server 8080"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.42.0"
   },
   "keywords": [
     "utf8proj",
