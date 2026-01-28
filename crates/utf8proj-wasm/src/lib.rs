@@ -424,10 +424,12 @@ impl Playground {
             let calendar = project.calendars.first().cloned().unwrap_or_default();
 
             // Resolve optimal leveling: CLI settings override, then project-level config
-            let use_optimal = self.optimal_leveling
-                || matches!(project.leveling_mode, LevelingMode::Optimal);
+            let use_optimal =
+                self.optimal_leveling || matches!(project.leveling_mode, LevelingMode::Optimal);
             let threshold = project.optimal_threshold.unwrap_or(self.optimal_threshold);
-            let timeout = project.optimal_timeout_ms.unwrap_or(self.optimal_timeout_ms);
+            let timeout = project
+                .optimal_timeout_ms
+                .unwrap_or(self.optimal_timeout_ms);
 
             let options = LevelingOptions {
                 // Use CriticalPathFirst in WASM: Hybrid requires rayon (threading)
@@ -439,7 +441,8 @@ impl Playground {
                 optimal_timeout_ms: timeout,
             };
 
-            let result = level_resources_with_options(&project, &base_schedule, &calendar, &options);
+            let result =
+                level_resources_with_options(&project, &base_schedule, &calendar, &options);
             result.leveled_schedule
         } else {
             base_schedule
@@ -1733,7 +1736,11 @@ task standalone "Standalone" {
         // Verify the leveling example parses correctly
         let code = EXAMPLE_LEVELING;
         let result = schedule(code);
-        assert!(result.is_ok(), "Leveling example should parse: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Leveling example should parse: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -1837,7 +1844,12 @@ task c "Task C" { duration: 5d depends: a, b assign: dev }
             } else {
                 utf8proj_parser::parse_project(code)
             };
-            assert!(result.is_ok(), "Example '{}' should parse: {:?}", name, result.err());
+            assert!(
+                result.is_ok(),
+                "Example '{}' should parse: {:?}",
+                name,
+                result.err()
+            );
         }
     }
 
@@ -1851,9 +1863,14 @@ task c "Task C" { duration: 5d depends: a, b assign: dev }
         assert!(parsed.resources.iter().any(|r| r.id == "dev"));
 
         // Should have multiple tasks assigned to dev
-        let dev_task_count = parsed.tasks.iter()
+        let dev_task_count = parsed
+            .tasks
+            .iter()
             .filter(|t| t.assigned.iter().any(|a| a.resource_id == "dev"))
             .count();
-        assert!(dev_task_count >= 3, "Should have at least 3 tasks assigned to dev");
+        assert!(
+            dev_task_count >= 3,
+            "Should have at least 3 tasks assigned to dev"
+        );
     }
 }

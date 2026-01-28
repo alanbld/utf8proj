@@ -347,7 +347,10 @@ mod tests {
 
         let store = parse_baselines(input).unwrap();
         let baseline = store.get("original").unwrap();
-        assert_eq!(baseline.description, Some("Initial approved plan".to_string()));
+        assert_eq!(
+            baseline.description,
+            Some("Initial approved plan".to_string())
+        );
     }
 
     #[test]
@@ -385,7 +388,10 @@ mod tests {
         assert_eq!(design.start, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap());
         assert_eq!(design.finish, NaiveDate::from_ymd_opt(2026, 1, 10).unwrap());
 
-        assert_eq!(baseline.project_finish, NaiveDate::from_ymd_opt(2026, 2, 28).unwrap());
+        assert_eq!(
+            baseline.project_finish,
+            NaiveDate::from_ymd_opt(2026, 2, 28).unwrap()
+        );
     }
 
     #[test]

@@ -856,7 +856,8 @@ fn leveling_respects_max_delay_factor() {
     // With very restrictive limit (1.1x = only 10% extension allowed)
     let options = LevelingOptions {
         strategy: LevelingStrategy::CriticalPathFirst,
-        max_project_delay_factor: Some(1.1), ..Default::default()
+        max_project_delay_factor: Some(1.1),
+        ..Default::default()
     };
     let result_limited = level_resources_with_options(&project, &schedule, &calendar, &options);
 
@@ -893,7 +894,8 @@ fn hybrid_leveling_basic_conflict() {
     // Standard leveling
     let options_standard = LevelingOptions {
         strategy: LevelingStrategy::CriticalPathFirst,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let result_standard =
         level_resources_with_options(&project, &schedule, &calendar, &options_standard);
@@ -901,7 +903,8 @@ fn hybrid_leveling_basic_conflict() {
     // Hybrid leveling
     let options_hybrid = LevelingOptions {
         strategy: LevelingStrategy::Hybrid,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let result_hybrid =
         level_resources_with_options(&project, &schedule, &calendar, &options_hybrid);
@@ -950,7 +953,8 @@ fn hybrid_leveling_no_conflict() {
 
     let options = LevelingOptions {
         strategy: LevelingStrategy::Hybrid,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let result = level_resources_with_options(&project, &schedule, &calendar, &options);
 
@@ -976,11 +980,19 @@ fn hybrid_leveling_independent_clusters() {
     // Two independent clusters
     project.tasks = vec![
         // Cluster 1: dev1 conflict
-        Task::new("task_a1").effort(Duration::days(3)).assign("dev1"),
-        Task::new("task_a2").effort(Duration::days(3)).assign("dev1"),
+        Task::new("task_a1")
+            .effort(Duration::days(3))
+            .assign("dev1"),
+        Task::new("task_a2")
+            .effort(Duration::days(3))
+            .assign("dev1"),
         // Cluster 2: dev2 conflict
-        Task::new("task_b1").effort(Duration::days(3)).assign("dev2"),
-        Task::new("task_b2").effort(Duration::days(3)).assign("dev2"),
+        Task::new("task_b1")
+            .effort(Duration::days(3))
+            .assign("dev2"),
+        Task::new("task_b2")
+            .effort(Duration::days(3))
+            .assign("dev2"),
     ];
 
     let solver = CpmSolver::new();
@@ -989,7 +1001,8 @@ fn hybrid_leveling_independent_clusters() {
 
     let options = LevelingOptions {
         strategy: LevelingStrategy::Hybrid,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let result = level_resources_with_options(&project, &schedule, &calendar, &options);
 
@@ -1005,7 +1018,10 @@ fn hybrid_leveling_independent_clusters() {
             .iter()
             .any(|note| note.contains("Cluster") || note.contains("cluster"))
     });
-    assert!(has_cluster_note, "Should have diagnostic notes about clusters");
+    assert!(
+        has_cluster_note,
+        "Should have diagnostic notes about clusters"
+    );
 }
 
 /// Test hybrid leveling is deterministic
@@ -1028,7 +1044,8 @@ fn hybrid_leveling_is_deterministic() {
 
     let options = LevelingOptions {
         strategy: LevelingStrategy::Hybrid,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
 
     // Run multiple times
@@ -1099,7 +1116,8 @@ fn parallel_hybrid_performance() {
     // Benchmark standard leveling
     let options_standard = LevelingOptions {
         strategy: LevelingStrategy::CriticalPathFirst,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let start = Instant::now();
     let result_standard =
@@ -1114,7 +1132,8 @@ fn parallel_hybrid_performance() {
     // Benchmark hybrid leveling (parallel)
     let options_hybrid = LevelingOptions {
         strategy: LevelingStrategy::Hybrid,
-        max_project_delay_factor: None, ..Default::default()
+        max_project_delay_factor: None,
+        ..Default::default()
     };
     let start = Instant::now();
     let result_hybrid =
@@ -1193,5 +1212,8 @@ fn optimal_leveling_simple_conflict() {
     let a_start = task_a.start;
 
     let no_overlap = a_end < b_start || b_end < a_start;
-    assert!(no_overlap, "Tasks should not overlap after optimal leveling");
+    assert!(
+        no_overlap,
+        "Tasks should not overlap after optimal leveling"
+    );
 }

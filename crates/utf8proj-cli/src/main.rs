@@ -795,11 +795,8 @@ fn cmd_schedule(
 
     // RFC-0014 Phase 3: Resolve leveling configuration from project and CLI flags
     // CLI flags override project-level settings
-    let effective_optimal = optimal
-        || matches!(
-            project.leveling_mode,
-            utf8proj_core::LevelingMode::Optimal
-        );
+    let effective_optimal =
+        optimal || matches!(project.leveling_mode, utf8proj_core::LevelingMode::Optimal);
     let effective_threshold = project.optimal_threshold.unwrap_or(optimal_threshold);
     let effective_timeout = project.optimal_timeout_ms.unwrap_or(optimal_timeout);
 
@@ -2388,20 +2385,24 @@ fn cmd_baseline_save(
     }
 
     // Parse and schedule the project
-    let project = parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
     let schedule = CpmSolver::new()
         .schedule(&project)
         .with_context(|| "Failed to schedule project")?;
 
     // Load existing baselines
-    let mut store = load_baselines(file)
-        .with_context(|| "Failed to load existing baselines")?;
+    let mut store = load_baselines(file).with_context(|| "Failed to load existing baselines")?;
 
     // Check if baseline already exists
     if store.contains(name) {
         eprintln!("error[B003]: Baseline \"{}\" already exists.", name);
         eprintln!("  help: Baselines are immutable. To replace, first remove it:");
-        eprintln!("        utf8proj baseline remove --name {} {}", name, file.display());
+        eprintln!(
+            "        utf8proj baseline remove --name {} {}",
+            name,
+            file.display()
+        );
         std::process::exit(1);
     }
 
@@ -2426,8 +2427,12 @@ fn cmd_baseline_save(
 
     // Add to store and save
     store.baselines.insert(name.to_string(), baseline.clone());
-    save_baselines(file, &store)
-        .with_context(|| format!("Failed to save baselines to '{}'", baselines_path(file).display()))?;
+    save_baselines(file, &store).with_context(|| {
+        format!(
+            "Failed to save baselines to '{}'",
+            baselines_path(file).display()
+        )
+    })?;
 
     // Output summary
     println!("Baseline \"{}\" saved", name);
@@ -2447,12 +2452,14 @@ fn cmd_baseline_list(file: &std::path::Path) -> Result<()> {
 
     if !baselines_file.exists() {
         eprintln!("warning[B007]: No baselines file found for this project.");
-        eprintln!("  help: Create a baseline with: utf8proj baseline save --name <name> {}", file.display());
+        eprintln!(
+            "  help: Create a baseline with: utf8proj baseline save --name <name> {}",
+            file.display()
+        );
         return Ok(());
     }
 
-    let store = load_baselines(file)
-        .with_context(|| "Failed to load baselines")?;
+    let store = load_baselines(file).with_context(|| "Failed to load baselines")?;
 
     if store.is_empty() {
         println!("No baselines found.");
@@ -2483,14 +2490,16 @@ fn cmd_baseline_list(file: &std::path::Path) -> Result<()> {
 
 /// Show details of a specific baseline
 fn cmd_baseline_show(file: &std::path::Path, name: &str, show_all: bool) -> Result<()> {
-    let store = load_baselines(file)
-        .with_context(|| "Failed to load baselines")?;
+    let store = load_baselines(file).with_context(|| "Failed to load baselines")?;
 
     let baseline = match store.get(name) {
         Some(b) => b,
         None => {
             eprintln!("error[B004]: Baseline \"{}\" not found.", name);
-            eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+            eprintln!(
+                "  help: Use 'utf8proj baseline list {}' to see available baselines.",
+                file.display()
+            );
             std::process::exit(1);
         }
     };
@@ -2509,10 +2518,21 @@ fn cmd_baseline_show(file: &std::path::Path, name: &str, show_all: bool) -> Resu
 
     // Show tasks
     let tasks: Vec<_> = baseline.tasks.values().collect();
-    let show_count = if show_all { tasks.len() } else { tasks.len().min(10) };
+    let show_count = if show_all {
+        tasks.len()
+    } else {
+        tasks.len().min(10)
+    };
 
     if !tasks.is_empty() {
-        println!("Tasks{}:", if show_all || tasks.len() <= 10 { "" } else { " (first 10)" });
+        println!(
+            "Tasks{}:",
+            if show_all || tasks.len() <= 10 {
+                ""
+            } else {
+                " (first 10)"
+            }
+        );
         for snapshot in tasks.iter().take(show_count) {
             println!(
                 "  {}: {} -> {}",
@@ -2521,7 +2541,10 @@ fn cmd_baseline_show(file: &std::path::Path, name: &str, show_all: bool) -> Resu
         }
 
         if !show_all && tasks.len() > 10 {
-            println!("  ... and {} more (use --all to show all)", tasks.len() - 10);
+            println!(
+                "  ... and {} more (use --all to show all)",
+                tasks.len() - 10
+            );
         }
     }
 
@@ -2530,18 +2553,23 @@ fn cmd_baseline_show(file: &std::path::Path, name: &str, show_all: bool) -> Resu
 
 /// Remove a baseline
 fn cmd_baseline_remove(file: &std::path::Path, name: &str, skip_confirm: bool) -> Result<()> {
-    let mut store = load_baselines(file)
-        .with_context(|| "Failed to load baselines")?;
+    let mut store = load_baselines(file).with_context(|| "Failed to load baselines")?;
 
     if !store.contains(name) {
         eprintln!("error[B004]: Baseline \"{}\" not found.", name);
-        eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+        eprintln!(
+            "  help: Use 'utf8proj baseline list {}' to see available baselines.",
+            file.display()
+        );
         std::process::exit(1);
     }
 
     // Confirmation prompt
     if !skip_confirm {
-        print!("Remove baseline \"{}\"? This cannot be undone. [y/N] ", name);
+        print!(
+            "Remove baseline \"{}\"? This cannot be undone. [y/N] ",
+            name
+        );
         std::io::stdout().flush()?;
 
         let mut input = String::new();
@@ -2554,8 +2582,7 @@ fn cmd_baseline_remove(file: &std::path::Path, name: &str, skip_confirm: bool) -
     }
 
     store.remove(name);
-    save_baselines(file, &store)
-        .with_context(|| "Failed to save baselines")?;
+    save_baselines(file, &store).with_context(|| "Failed to save baselines")?;
 
     println!("Baseline \"{}\" removed.", name);
 
@@ -2575,21 +2602,23 @@ fn cmd_compare(
     threshold: Option<i32>,
 ) -> Result<()> {
     // Parse and schedule the project
-    let project = parse_file(file)
-        .with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
     let schedule = CpmSolver::new()
         .schedule(&project)
         .with_context(|| "Failed to schedule project")?;
 
     // Load baselines
-    let store = load_baselines(file)
-        .with_context(|| "Failed to load baselines")?;
+    let store = load_baselines(file).with_context(|| "Failed to load baselines")?;
 
     let baseline = match store.get(baseline_name) {
         Some(b) => b,
         None => {
             eprintln!("error[B004]: Baseline \"{}\" not found.", baseline_name);
-            eprintln!("  help: Use 'utf8proj baseline list {}' to see available baselines.", file.display());
+            eprintln!(
+                "  help: Use 'utf8proj baseline list {}' to see available baselines.",
+                file.display()
+            );
             std::process::exit(1);
         }
     };

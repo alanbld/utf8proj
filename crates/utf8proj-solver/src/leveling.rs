@@ -11,9 +11,9 @@
 //! - L001-L004 diagnostics emitted for transparency
 
 use crate::bdd::BddConflictAnalyzer;
-use rayon::prelude::*;
 use chrono::NaiveDate;
-use std::collections::{BinaryHeap, BTreeMap, HashMap, HashSet, VecDeque};
+use rayon::prelude::*;
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet, VecDeque};
 use utf8proj_core::{
     Calendar, DependencyType, Diagnostic, DiagnosticCode, Duration, Project, ResourceId, Schedule,
     ScheduledTask, Severity, Task, TaskId,
@@ -334,7 +334,8 @@ impl ResourceTimeline {
 
                 if current_usage > available_capacity {
                     // This day is blocked - find the end of the blocked run
-                    latest_blocked_date = Some(self.find_blocked_run_end(check_date, available_capacity));
+                    latest_blocked_date =
+                        Some(self.find_blocked_run_end(check_date, available_capacity));
                 }
                 working_days_checked += 1;
             }
@@ -1374,7 +1375,9 @@ fn hybrid_level_resources(
         let num_threads = rayon::current_num_threads();
         eprintln!(
             "[PROFILE] Parallel heuristic leveling: {:?} ({} threads, {} clusters)",
-            heuristic_elapsed, num_threads, cluster_results.len()
+            heuristic_elapsed,
+            num_threads,
+            cluster_results.len()
         );
         eprintln!(
             "[PROFILE] Total hybrid leveling: {:?}",
@@ -1504,9 +1507,11 @@ fn build_successor_map(project: &Project) -> SuccessorMap {
             // Resolve predecessor path (absolute or relative)
             let pred_id = resolve_dep_path(&dep.predecessor, qualified_id, &context_map, &task_map);
             if let Some(pred_id) = pred_id {
-                map.entry(pred_id)
-                    .or_default()
-                    .push((qualified_id.clone(), dep.dep_type, dep.lag.clone()));
+                map.entry(pred_id).or_default().push((
+                    qualified_id.clone(),
+                    dep.dep_type,
+                    dep.lag.clone(),
+                ));
             }
         }
     }
@@ -1596,7 +1601,8 @@ fn compute_earliest_start(
                     // So successor start = pred.finish + lag - successor_duration
                     let succ = leveled_tasks.get(task_id)?;
                     let succ_dur = (succ.finish - succ.start).num_days();
-                    pred.finish + chrono::Duration::days(lag_days) - chrono::Duration::days(succ_dur)
+                    pred.finish + chrono::Duration::days(lag_days)
+                        - chrono::Duration::days(succ_dur)
                 }
                 DependencyType::StartToFinish => {
                     // Successor finishes when predecessor starts + lag
@@ -1643,7 +1649,9 @@ fn propagate_to_successors(
     }
 
     while let Some(succ_id) = queue.pop_front() {
-        let Some(earliest) = compute_earliest_start(&succ_id, project, leveled_tasks, successor_map) else {
+        let Some(earliest) =
+            compute_earliest_start(&succ_id, project, leveled_tasks, successor_map)
+        else {
             continue;
         };
 
@@ -2680,8 +2688,7 @@ mod tests {
         let task_a = &result.leveled_schedule.tasks["task_a"];
         let task_b = &result.leveled_schedule.tasks["task_b"];
         assert!(
-            task_b.start > task_a.finish
-                || task_b.start == task_a.finish.succ_opt().unwrap(),
+            task_b.start > task_a.finish || task_b.start == task_a.finish.succ_opt().unwrap(),
             "task_b ({}) must start after task_a finishes ({})",
             task_b.start,
             task_a.finish
@@ -2861,7 +2868,9 @@ mod tests {
         }];
 
         project.tasks = vec![
-            Task::new("blocker").effort(Duration::days(3)).assign("dev1"),
+            Task::new("blocker")
+                .effort(Duration::days(3))
+                .assign("dev1"),
             Task::new("a").effort(Duration::days(3)).assign("dev1"),
             task_b,
         ];
@@ -2895,11 +2904,7 @@ mod tests {
     /// Scan every dependency edge in a leveled schedule and assert no negative gaps.
     ///
     /// This is the invariant that was violated in 277/480 PSPLIB J30 instances.
-    fn assert_no_negative_gaps(
-        project: &Project,
-        schedule: &Schedule,
-        _calendar: &Calendar,
-    ) {
+    fn assert_no_negative_gaps(project: &Project, schedule: &Schedule, _calendar: &Calendar) {
         let successor_map = build_successor_map(project);
         for (pred_id, successors) in &successor_map {
             let Some(pred) = schedule.tasks.get(pred_id) else {
@@ -3194,9 +3199,13 @@ mod tests {
         project.resources = vec![Resource::new("dev").capacity(0.5)];
         project.tasks = vec![
             // blocker at 50% — fills the resource
-            Task::new("blocker").effort(Duration::days(5)).assign_with_units("dev", 0.5),
+            Task::new("blocker")
+                .effort(Duration::days(5))
+                .assign_with_units("dev", 0.5),
             // exceeds: needs 60% but resource only has 50% capacity
-            Task::new("exceeds").effort(Duration::days(3)).assign_with_units("dev", 0.6),
+            Task::new("exceeds")
+                .effort(Duration::days(3))
+                .assign_with_units("dev", 0.6),
         ];
 
         let solver = crate::CpmSolver::new();
@@ -3256,7 +3265,10 @@ mod tests {
 
         // Unlimited leveling: should extend the project
         let unlimited = level_resources(&project, &schedule, &calendar);
-        assert!(unlimited.project_extended, "Unlimited leveling should extend project");
+        assert!(
+            unlimited.project_extended,
+            "Unlimited leveling should extend project"
+        );
         assert!(
             unlimited.unresolved_conflicts.is_empty(),
             "Unlimited should resolve all conflicts"
@@ -3385,7 +3397,10 @@ mod tests {
         assert!(
             a.finish < b.start || b.finish < a.start,
             "Tasks should not overlap: a={}..{}, b={}..{}",
-            a.start, a.finish, b.start, b.finish
+            a.start,
+            a.finish,
+            b.start,
+            b.finish
         );
     }
 
@@ -3592,8 +3607,7 @@ mod tests {
             strategy: LevelingStrategy::Hybrid,
             ..LevelingOptions::default()
         };
-        let hybrid =
-            level_resources_with_options(&project, &schedule, &calendar, &hybrid_opts);
+        let hybrid = level_resources_with_options(&project, &schedule, &calendar, &hybrid_opts);
         assert_no_negative_gaps(&project, &hybrid.leveled_schedule, &calendar);
 
         // Both must resolve conflicts (or report them)
@@ -3642,7 +3656,9 @@ mod tests {
 
         project.tasks = vec![
             // blocker forces "a" to shift on dev1
-            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("blocker")
+                .effort(Duration::days(5))
+                .assign("dev1"),
             Task::new("a").effort(Duration::days(3)).assign("dev1"),
             task_b,
         ];
@@ -3692,7 +3708,9 @@ mod tests {
         }];
 
         project.tasks = vec![
-            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("blocker")
+                .effort(Duration::days(5))
+                .assign("dev1"),
             Task::new("a").effort(Duration::days(3)).assign("dev1"),
             task_b,
         ];
@@ -3741,7 +3759,9 @@ mod tests {
         }];
 
         project.tasks = vec![
-            Task::new("blocker").effort(Duration::days(5)).assign("dev1"),
+            Task::new("blocker")
+                .effort(Duration::days(5))
+                .assign("dev1"),
             Task::new("a").effort(Duration::days(3)).assign("dev1"),
             task_b,
         ];
@@ -3971,8 +3991,8 @@ mod tests {
             lag: None,
         }];
 
-        let phase1 = Task::new("phase1")
-            .child(Task::new("task_a").effort(Duration::days(3)).assign("dev"));
+        let phase1 =
+            Task::new("phase1").child(Task::new("task_a").effort(Duration::days(3)).assign("dev"));
 
         let phase2 = Task::new("phase2").child(task_b);
 

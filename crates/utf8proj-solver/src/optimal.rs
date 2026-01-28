@@ -32,7 +32,7 @@ use pumpkin_solver::variables::TransformableVariable;
 use pumpkin_solver::Solver;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
-use utf8proj_core::{Diagnostic, DiagnosticCode, Project, Severity, ScheduledTask, Task, TaskId};
+use utf8proj_core::{Diagnostic, DiagnosticCode, Project, ScheduledTask, Severity, Task, TaskId};
 
 /// Find a task by its qualified ID (e.g., "discovery.kickoff") in the project hierarchy
 fn find_task_by_id<'a>(tasks: &'a [Task], target_id: &str) -> Option<&'a Task> {
@@ -162,7 +162,11 @@ pub(crate) fn solve_cluster_optimal(
                         start_vars[dep_idx].scaled(-1),
                     ];
                     let _ = solver
-                        .add_constraint(cp::greater_than_or_equals(vars, dep_duration, constraint_tag))
+                        .add_constraint(cp::greater_than_or_equals(
+                            vars,
+                            dep_duration,
+                            constraint_tag,
+                        ))
                         .post();
                 }
             }
@@ -226,8 +230,10 @@ pub(crate) fn solve_cluster_optimal(
             .iter()
             .map(|&idx| start_vars[idx])
             .collect();
-        let resource_durations: Vec<i32> =
-            tasks_on_resource.iter().map(|&idx| durations[idx]).collect();
+        let resource_durations: Vec<i32> = tasks_on_resource
+            .iter()
+            .map(|&idx| durations[idx])
+            .collect();
 
         // Add cumulative constraint
         let _ = solver
@@ -353,9 +359,7 @@ pub(crate) fn solve_cluster_optimal(
         file: None,
         span: None,
         secondary_spans: vec![],
-        notes: vec![format!(
-            "Makespan minimized via constraint programming"
-        )],
+        notes: vec![format!("Makespan minimized via constraint programming")],
         hints: vec![],
     });
 

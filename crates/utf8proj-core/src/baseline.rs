@@ -141,11 +141,7 @@ pub struct TaskSnapshot {
 
 impl TaskSnapshot {
     /// Create a new task snapshot
-    pub fn new(
-        task_id: impl Into<String>,
-        start: NaiveDate,
-        finish: NaiveDate,
-    ) -> Self {
+    pub fn new(task_id: impl Into<String>, start: NaiveDate, finish: NaiveDate) -> Self {
         Self {
             task_id: task_id.into(),
             start,
@@ -683,8 +679,16 @@ mod tests {
     fn test_baseline_add_task() {
         let mut baseline = Baseline::new("original");
 
-        baseline.add_task(TaskSnapshot::new("design", date(2026, 1, 1), date(2026, 1, 10)));
-        baseline.add_task(TaskSnapshot::new("build", date(2026, 1, 11), date(2026, 2, 15)));
+        baseline.add_task(TaskSnapshot::new(
+            "design",
+            date(2026, 1, 1),
+            date(2026, 1, 10),
+        ));
+        baseline.add_task(TaskSnapshot::new(
+            "build",
+            date(2026, 1, 11),
+            date(2026, 2, 15),
+        ));
 
         assert_eq!(baseline.task_count(), 2);
         assert_eq!(baseline.project_finish, date(2026, 2, 15));
