@@ -736,6 +736,7 @@ impl Playground {
     ///
     /// This method is used by both the WASM binding and unit tests.
     /// Not exposed to WASM because Result<PlaygroundScheduleData, String> is not WASM-compatible.
+    #[allow(private_interfaces)]
     pub fn schedule_internal(
         &mut self,
         input: &str,

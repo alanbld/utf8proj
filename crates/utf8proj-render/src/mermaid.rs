@@ -270,6 +270,8 @@ impl Renderer for MermaidRenderer {
 
 impl MermaidRenderer {
     /// Collect first predecessor for each task
+    #[allow(unknown_lints)]
+    #[allow(clippy::self_only_used_in_recursion)]
     fn collect_predecessors(
         &self,
         task: &utf8proj_core::Task,

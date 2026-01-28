@@ -365,6 +365,8 @@ impl Renderer for PlantUmlRenderer {
 
 impl PlantUmlRenderer {
     /// Collect first predecessor for each task
+    #[allow(unknown_lints)]
+    #[allow(clippy::self_only_used_in_recursion)]
     fn collect_predecessors(&self, task: &utf8proj_core::Task, map: &mut HashMap<String, String>) {
         if let Some(first_dep) = task.depends.first() {
             map.insert(task.id.clone(), first_dep.predecessor.clone());

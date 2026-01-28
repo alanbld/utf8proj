@@ -391,6 +391,8 @@ impl HtmlGanttRenderer {
         result
     }
 
+    #[allow(unknown_lints)]
+    #[allow(clippy::self_only_used_in_recursion)]
     fn collect_tasks<'a>(
         &self,
         tasks: &'a [Task],
