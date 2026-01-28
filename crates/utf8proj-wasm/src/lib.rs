@@ -430,7 +430,9 @@ impl Playground {
             let timeout = project.optimal_timeout_ms.unwrap_or(self.optimal_timeout_ms);
 
             let options = LevelingOptions {
-                strategy: LevelingStrategy::Hybrid,
+                // Use CriticalPathFirst in WASM: Hybrid requires rayon (threading)
+                // and std::time::Instant which are unavailable in browser WASM runtime
+                strategy: LevelingStrategy::CriticalPathFirst,
                 max_project_delay_factor: None,
                 use_optimal,
                 optimal_threshold: threshold,
