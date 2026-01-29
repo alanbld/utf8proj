@@ -19,7 +19,7 @@
 //!     Deployment       :milestone, m1, after t3, 0d
 //! ```
 
-use crate::DisplayMode;
+use crate::{DisplayMode, NowLineConfig};
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
 
 /// MermaidJS Gantt chart renderer
@@ -41,6 +41,9 @@ pub struct MermaidRenderer {
     pub display_mode: DisplayMode,
     /// Maximum label width in characters
     pub label_width: usize,
+    /// RFC-0017: Now line configuration
+    /// Note: MermaidJS todayMarker always uses system date, not configurable
+    pub now_line: NowLineConfig,
 }
 
 impl Default for MermaidRenderer {
@@ -54,6 +57,7 @@ impl Default for MermaidRenderer {
             exclude_weekends: false,
             display_mode: DisplayMode::Name,
             label_width: 40,
+            now_line: NowLineConfig::default(),
         }
     }
 }
@@ -108,6 +112,15 @@ impl MermaidRenderer {
     /// Configure maximum label width in characters
     pub fn label_width(mut self, width: usize) -> Self {
         self.label_width = width;
+        self
+    }
+
+    /// Configure now line rendering (RFC-0017)
+    ///
+    /// Note: MermaidJS `todayMarker` always uses the system date.
+    /// The status_date in NowLineConfig is ignored; only disabled/enabled matters.
+    pub fn with_now_line(mut self, config: NowLineConfig) -> Self {
+        self.now_line = config;
         self
     }
 
@@ -196,6 +209,11 @@ impl Renderer for MermaidRenderer {
         // Exclude weekends if enabled
         if self.exclude_weekends {
             output.push_str("    excludes weekends\n");
+        }
+
+        // RFC-0017: Today marker (MermaidJS uses system date, not configurable)
+        if !self.now_line.disabled && self.now_line.status_date.is_some() {
+            output.push_str("    todayMarker stroke-width:2px,stroke:#E53935\n");
         }
 
         output.push('\n');

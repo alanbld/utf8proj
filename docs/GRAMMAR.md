@@ -28,6 +28,7 @@ This document defines the grammar for utf8proj project files (`.proj` extension)
                  | "currency" ":" <identifier>
                  | "calendar" ":" <identifier>
                  | "timezone" ":" <timezone-value>
+                 | "status_date" ":" <date>
 
 <timezone-value> ::= [A-Za-z/_]+
 ```

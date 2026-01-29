@@ -84,10 +84,14 @@ class UTF8ProjWriter:
         title = props.getProjectTitle() or "Untitled"
         start_date = self.format_date(props.getStartDate()) or datetime.now().strftime("%Y-%m-%d")
         finish_date = self.format_date(props.getFinishDate())
+        # RFC-0017: Extract status date from MS Project
+        status_date = self.format_date(props.getStatusDate())
         self.add_line(f'project "{title}" {{')
         self.add_line(f'start: {start_date}', 1)
         if finish_date:
             self.add_line(f'end: {finish_date}', 1)
+        if status_date:
+            self.add_line(f'status_date: {status_date}', 1)
         self.add_line(f'currency: EUR', 1)
         self.add_line('}')
         self.add_line('')

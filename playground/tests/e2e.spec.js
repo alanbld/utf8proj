@@ -634,3 +634,79 @@ test.describe('RFC-0012: Temporal Regimes', () => {
         expect(editorContent).toContain('regime:');
     });
 });
+
+test.describe('RFC-0017: Now Line', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+    });
+
+    test('now line checkbox exists', async ({ page }) => {
+        const checkbox = page.locator('#nowline-checkbox');
+        await expect(checkbox).toBeVisible();
+    });
+
+    test('now line checkbox is checked by default', async ({ page }) => {
+        const checkbox = page.locator('#nowline-checkbox');
+        const isChecked = await checkbox.isChecked();
+        expect(isChecked).toBe(true);
+    });
+
+    test('can disable now line', async ({ page }) => {
+        const checkbox = page.locator('#nowline-checkbox');
+        await checkbox.uncheck();
+
+        const isChecked = await checkbox.isChecked();
+        expect(isChecked).toBe(false);
+    });
+
+    test('now line renders in Gantt chart', async ({ page }) => {
+        // Use a project with explicit status_date within the chart range
+        await typeProject(page, SAMPLE_PROJECTS.withStatusDate);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Access iframe and look for now-line element
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const nowLine = iframe.locator('.now-line');
+        // Should have at least one now line (status date)
+        const count = await nowLine.count();
+        expect(count).toBeGreaterThanOrEqual(1);
+    });
+
+    test('now line hidden when checkbox unchecked', async ({ page }) => {
+        // Uncheck the now line checkbox first
+        const checkbox = page.locator('#nowline-checkbox');
+        await checkbox.uncheck();
+
+        await typeProject(page, SAMPLE_PROJECTS.simple);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Access iframe and verify no now-line elements
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const nowLine = iframe.locator('.now-line');
+        const count = await nowLine.count();
+        expect(count).toBe(0);
+    });
+
+    test('now line uses status_date from project', async ({ page }) => {
+        // Use status_date that falls within the chart's visible range
+        await typeProject(page, SAMPLE_PROJECTS.withStatusDate);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Access iframe and look for now-line with status-date class
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const statusLine = iframe.locator('.now-line.status-date');
+        const count = await statusLine.count();
+        expect(count).toBe(1);
+    });
+});

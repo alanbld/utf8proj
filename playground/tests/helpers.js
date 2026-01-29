@@ -320,4 +320,30 @@ task deadline_task "Deadline Task" {
     finish_no_later_than: 2025-02-28
 }
 `,
+
+    // RFC-0017: Project with status_date for now line testing
+    withStatusDate: `project "Status Date Test" {
+    start: 2025-02-01
+    status_date: 2025-02-10
+}
+
+resource dev "Developer" {
+    rate: 850/day
+}
+
+task design "Design" {
+    effort: 5d
+    assign: dev
+}
+
+task build "Build" {
+    effort: 10d
+    assign: dev
+    depends: design
+}
+
+milestone launch "Launch" {
+    depends: build
+}
+`,
 };

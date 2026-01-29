@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 use utf8proj_core::{CollectingEmitter, LevelingMode, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
 use utf8proj_render::{
-    ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, PlantUmlRenderer,
+    ExcelConfig, ExcelRenderer, HtmlGanttRenderer, MermaidRenderer, NowLineConfig, PlantUmlRenderer,
 };
 use utf8proj_solver::{
     analyze_project, classify_scheduling_mode, level_resources_with_options, AnalysisConfig,
@@ -355,6 +355,8 @@ pub struct Playground {
     context_depth: usize,
     /// RFC-0016: Diagnostics from last schedule operation
     diagnostics: Vec<utf8proj_core::Diagnostic>,
+    /// RFC-0017: Show now line on Gantt chart (default: true)
+    show_now_line: bool,
 }
 
 #[wasm_bindgen]
@@ -374,6 +376,7 @@ impl Playground {
             focus_patterns: vec![],
             context_depth: 1,
             diagnostics: vec![],
+            show_now_line: true, // RFC-0017: enabled by default
         }
     }
 
@@ -461,6 +464,16 @@ impl Playground {
                 if !self.focus_patterns.is_empty() {
                     renderer = renderer.focus(self.focus_patterns.clone());
                     renderer = renderer.context_depth(self.context_depth);
+                }
+                // RFC-0017: Configure now line
+                if self.show_now_line {
+                    // Use project.status_date if set, otherwise use today
+                    let status_date = project
+                        .status_date
+                        .unwrap_or_else(|| chrono::Local::now().date_naive());
+                    renderer = renderer.with_now_line(NowLineConfig::with_status_date(status_date));
+                } else {
+                    renderer = renderer.with_now_line(NowLineConfig::disabled());
                 }
                 renderer.render(project, schedule).unwrap_or_default()
             }
@@ -667,6 +680,19 @@ impl Playground {
     /// to heuristic leveling for that cluster.
     pub fn set_optimal_timeout(&mut self, timeout_ms: u64) {
         self.optimal_timeout_ms = timeout_ms;
+    }
+
+    /// Enable or disable now line rendering on Gantt chart (RFC-0017)
+    ///
+    /// When enabled (default), a vertical red line is drawn at the status date
+    /// or today's date on the Gantt chart.
+    pub fn set_show_now_line(&mut self, enabled: bool) {
+        self.show_now_line = enabled;
+    }
+
+    /// Get current now line setting (RFC-0017)
+    pub fn get_show_now_line(&self) -> bool {
+        self.show_now_line
     }
 
     /// Set focus patterns for focus view (RFC-0006)
@@ -2071,5 +2097,86 @@ task c "Task C" { effort: 3d depends: b assign: dev }
                 diag.code
             );
         }
+    }
+
+    // =========================================================================
+    // RFC-0017: Now Line Tests (TDD)
+    // =========================================================================
+
+    #[test]
+    fn test_now_line_default_enabled() {
+        // RFC-0017: Now line should be enabled by default
+        let pg = Playground::new();
+        assert!(pg.show_now_line, "Now line should be enabled by default");
+        assert!(pg.get_show_now_line(), "get_show_now_line should return true");
+    }
+
+    #[test]
+    fn test_now_line_can_be_disabled() {
+        // RFC-0017: Now line can be toggled
+        let mut pg = Playground::new();
+        pg.set_show_now_line(false);
+        assert!(!pg.show_now_line, "Now line should be disabled");
+        assert!(!pg.get_show_now_line(), "get_show_now_line should return false");
+    }
+
+    #[test]
+    fn test_now_line_rendered_when_enabled() {
+        // RFC-0017: When enabled, now line should appear in Gantt
+        let mut pg = Playground::new();
+        pg.set_show_now_line(true);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let html = pg.render_gantt();
+        assert!(
+            html.contains("now-line"),
+            "Gantt should contain now-line element when enabled"
+        );
+    }
+
+    #[test]
+    fn test_now_line_not_rendered_when_disabled() {
+        // RFC-0017: When disabled, now line should NOT appear in Gantt
+        let mut pg = Playground::new();
+        pg.set_show_now_line(false);
+        let _ = pg.schedule_internal(CONFLICTING_TASKS_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let html = pg.render_gantt();
+        assert!(
+            !html.contains("class=\"now-line"),
+            "Gantt should NOT contain now-line element when disabled"
+        );
+    }
+
+    #[test]
+    fn test_now_line_uses_status_date() {
+        // RFC-0017: Now line should use project.status_date if set
+        let project_with_status_date = r#"
+project "Status Date Test" {
+    start: 2026-01-05
+    status_date: 2026-01-10
+}
+
+task a "Task A" { duration: 10d }
+task b "Task B" { duration: 5d depends: a }
+"#;
+
+        let mut pg = Playground::new();
+        pg.set_show_now_line(true);
+        let _ = pg.schedule_internal(project_with_status_date, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let html = pg.render_gantt();
+        assert!(
+            html.contains("now-line"),
+            "Gantt should contain now-line"
+        );
+        // The status date should appear in the label
+        assert!(
+            html.contains("2026-01-10"),
+            "Gantt should contain status date label"
+        );
     }
 }

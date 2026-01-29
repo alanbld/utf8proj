@@ -20,7 +20,7 @@
 //! @endgantt
 //! ```
 
-use crate::DisplayMode;
+use crate::{DisplayMode, NowLineConfig};
 use std::collections::HashMap;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
 
@@ -43,8 +43,8 @@ pub struct PlantUmlRenderer {
     pub show_aliases: bool,
     /// Custom scale (day, week, month)
     pub scale: Option<String>,
-    /// Whether to use today marker
-    pub show_today: bool,
+    /// RFC-0017: Now line configuration
+    pub now_line: NowLineConfig,
     /// Display mode for task labels
     pub display_mode: DisplayMode,
     /// Maximum label width in characters
@@ -62,7 +62,7 @@ impl Default for PlantUmlRenderer {
             close_weekends: true,
             show_aliases: true,
             scale: None,
-            show_today: false,
+            now_line: NowLineConfig::default(),
             display_mode: DisplayMode::Name,
             label_width: 40,
         }
@@ -122,9 +122,19 @@ impl PlantUmlRenderer {
         self
     }
 
-    /// Show today marker
+    /// Show today marker (uses today's date)
+    ///
+    /// For a custom status date, use `with_now_line()` instead.
     pub fn show_today(mut self) -> Self {
-        self.show_today = true;
+        self.now_line = NowLineConfig::with_status_date(chrono::Local::now().date_naive());
+        self
+    }
+
+    /// Configure now line rendering (RFC-0017)
+    ///
+    /// Allows specifying a custom status date for the now line.
+    pub fn with_now_line(mut self, config: NowLineConfig) -> Self {
+        self.now_line = config;
         self
     }
 
@@ -206,9 +216,12 @@ impl Renderer for PlantUmlRenderer {
             output.push_str("sunday are closed\n");
         }
 
-        // Today marker
-        if self.show_today {
-            output.push_str("today is colored in LightBlue\n");
+        // RFC-0017: Now line / today marker
+        if !self.now_line.disabled {
+            if let Some(status_date) = self.now_line.status_date {
+                // PlantUML supports coloring a specific date
+                output.push_str(&format!("{} is colored in LightCoral\n", status_date));
+            }
         }
 
         output.push('\n');
@@ -779,7 +792,22 @@ mod tests {
         let schedule = create_test_schedule();
 
         let output = renderer.render(&project, &schedule).unwrap();
-        assert!(output.contains("today is colored in LightBlue"));
+        // show_today() uses today's date, colored in LightCoral
+        assert!(output.contains("is colored in LightCoral"));
+    }
+
+    #[test]
+    fn plantuml_with_status_date() {
+        // RFC-0017: Custom status date via with_now_line()
+        use crate::NowLineConfig;
+        let status_date = chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let renderer = PlantUmlRenderer::new()
+            .with_now_line(NowLineConfig::with_status_date(status_date));
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let output = renderer.render(&project, &schedule).unwrap();
+        assert!(output.contains("2025-01-15 is colored in LightCoral"));
     }
 
     #[test]

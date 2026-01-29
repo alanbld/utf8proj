@@ -113,6 +113,13 @@ fn parse_project_decl(
                 Rule::workinghours_attr => {
                     // Could configure calendar
                 }
+                Rule::now_attr => {
+                    // RFC-0017: Parse 'now' attribute as status_date
+                    let mut inner = actual_attr.into_inner();
+                    if let Some(date_pair) = inner.next() {
+                        project.status_date = Some(parse_date(date_pair.as_str())?);
+                    }
+                }
                 _ => {}
             }
         }
@@ -688,6 +695,24 @@ mod tests {
         assert_eq!(
             t2.depends[0].dep_type,
             utf8proj_core::DependencyType::FinishToFinish
+        );
+    }
+
+    #[test]
+    fn parse_project_now_attribute() {
+        // RFC-0017: 'now' attribute sets status_date
+        let input = r#"
+            project test "Test" 2025-01-01 - 2025-12-31 {
+                now 2025-03-15
+            }
+            task t1 "Task 1" { duration 5d }
+        "#;
+
+        let project = parse(input).unwrap();
+        assert!(project.status_date.is_some(), "status_date should be set from 'now'");
+        assert_eq!(
+            project.status_date.unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2025, 3, 15).unwrap()
         );
     }
 }

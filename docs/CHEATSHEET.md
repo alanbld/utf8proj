@@ -11,6 +11,7 @@
 | **Dates** | `2026-01-15` | Always Year-Month-Day |
 | **Durations** | `5d` `2w` `1m` | d=days, w=weeks, m=months |
 | **Progress** | `complete: 75%` | Update as work completes |
+| **Status Date** | `status_date: 2026-01-20` | "As-of" date for reporting |
 | **Names** | `"Sprint 1"` | Text inside quotes |
 | **Rates** | `rate: 800/day` | Change the number |
 | **Capacity** | `capacity: 0.5` | 1.0=full, 0.5=half time |

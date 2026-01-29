@@ -204,6 +204,19 @@ enum Commands {
         /// Number of days to show in daily Excel schedule (default: 60)
         #[arg(long, default_value = "60")]
         days: u32,
+
+        /// Status date for now line (RFC-0017). Format: YYYY-MM-DD.
+        /// Defaults to project.status_date or today if not specified.
+        #[arg(long, value_name = "DATE")]
+        as_of: Option<String>,
+
+        /// Disable now line rendering on Gantt chart (RFC-0017)
+        #[arg(long)]
+        no_now_line: bool,
+
+        /// Show today line separately when status_date differs from today (RFC-0017)
+        #[arg(long)]
+        show_today: bool,
     },
 
     /// Run performance benchmarks
@@ -455,6 +468,9 @@ fn main() -> Result<()> {
             context_depth,
             daily,
             days,
+            as_of,
+            no_now_line,
+            show_today,
         }) => cmd_gantt(
             &file,
             &output,
@@ -470,6 +486,9 @@ fn main() -> Result<()> {
             context_depth,
             daily,
             days,
+            as_of.as_deref(),
+            no_now_line,
+            show_today,
         ),
         Some(Commands::Benchmark {
             topology,
@@ -1040,6 +1059,9 @@ fn cmd_gantt(
     context_depth: usize,
     daily: bool,
     days: u32,
+    as_of: Option<&str>,
+    no_now_line: bool,
+    show_today: bool,
 ) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
@@ -1175,8 +1197,8 @@ fn cmd_gantt(
                 .with_context(|| "Failed to render SVG Gantt chart")?
         }
         "html" => {
-            // HTML format with focus view support
-            use utf8proj_render::gantt::{FocusConfig, HtmlGanttRenderer};
+            // HTML format with focus view and now line support
+            use utf8proj_render::gantt::{FocusConfig, HtmlGanttRenderer, NowLineConfig};
 
             let mut renderer = HtmlGanttRenderer::new();
             renderer.label_width = width as u32;
@@ -1196,6 +1218,27 @@ fn cmd_gantt(
                         context_depth
                     );
                 }
+            }
+
+            // Configure now line (RFC-0017)
+            if no_now_line {
+                renderer.now_line = NowLineConfig::disabled();
+            } else {
+                // Resolve status date: --as-of > project.status_date > today
+                let status_date = if let Some(date_str) = as_of {
+                    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                        .with_context(|| format!("Invalid date format '{}', expected YYYY-MM-DD", date_str))?
+                } else if let Some(date) = project.status_date {
+                    date
+                } else {
+                    chrono::Local::now().date_naive()
+                };
+
+                let mut now_line_config = NowLineConfig::with_status_date(status_date);
+                if show_today {
+                    now_line_config = now_line_config.with_today();
+                }
+                renderer.now_line = now_line_config;
             }
 
             renderer

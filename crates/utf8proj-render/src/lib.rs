@@ -45,7 +45,7 @@ pub mod mermaid;
 pub mod plantuml;
 
 pub use excel::{ExcelConfig, ExcelRenderer, ScheduleGranularity};
-pub use gantt::{FocusConfig, GanttTheme, HtmlGanttRenderer, TaskVisibility};
+pub use gantt::{FocusConfig, GanttTheme, HtmlGanttRenderer, NowLineConfig, TaskVisibility};
 pub use mermaid::MermaidRenderer;
 pub use plantuml::PlantUmlRenderer;
 

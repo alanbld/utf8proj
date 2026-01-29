@@ -368,6 +368,7 @@ function runSchedule() {
     }
     const leveling = document.getElementById('leveling-checkbox').checked;
     const optimal = document.getElementById('optimal-checkbox').checked;
+    const nowLine = document.getElementById('nowline-checkbox').checked;
     const focusInput = document.getElementById('focus-input').value.trim();
     const contextDepth = parseInt(document.getElementById('context-depth-select').value, 10);
 
@@ -375,6 +376,7 @@ function runSchedule() {
 
     playground.set_resource_leveling(leveling);
     playground.set_optimal_leveling(optimal);
+    playground.set_show_now_line(nowLine); // RFC-0017
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     playground.set_dark_theme(isDark);
 
@@ -622,13 +624,15 @@ function showShareModal() {
     const format = document.getElementById('format-select').value;
     const leveling = document.getElementById('leveling-checkbox').checked;
     const optimal = document.getElementById('optimal-checkbox').checked;
+    const nowLine = document.getElementById('nowline-checkbox').checked;
 
     // Compress and encode the project using LZ-string
     const data = {
         code,
         format,
         leveling,
-        optimal
+        optimal,
+        nowLine  // RFC-0017
     };
 
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(data));
@@ -703,6 +707,9 @@ function loadFromUrl() {
             }
             if (data.optimal !== undefined) {
                 document.getElementById('optimal-checkbox').checked = data.optimal;
+            }
+            if (data.nowLine !== undefined) {
+                document.getElementById('nowline-checkbox').checked = data.nowLine;
             }
 
             // Auto-run if we have a shared project

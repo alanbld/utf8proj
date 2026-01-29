@@ -34,6 +34,45 @@ pub struct HtmlGanttRenderer {
     pub interactive: bool,
     /// Focus view configuration (None = show all tasks)
     pub focus: Option<FocusConfig>,
+    /// Now line configuration (RFC-0017)
+    pub now_line: NowLineConfig,
+}
+
+/// Configuration for now line rendering (RFC-0017)
+#[derive(Clone, Debug, Default)]
+pub struct NowLineConfig {
+    /// The resolved status date (from --as-of, project.status_date, or today)
+    pub status_date: Option<NaiveDate>,
+    /// Whether to show the today line separately (when different from status_date)
+    pub show_today: bool,
+    /// Disable now line rendering entirely
+    pub disabled: bool,
+}
+
+impl NowLineConfig {
+    /// Create config with status date line enabled
+    pub fn with_status_date(date: NaiveDate) -> Self {
+        Self {
+            status_date: Some(date),
+            show_today: false,
+            disabled: false,
+        }
+    }
+
+    /// Also show today line when it differs from status_date
+    pub fn with_today(mut self) -> Self {
+        self.show_today = true;
+        self
+    }
+
+    /// Disable all now line rendering
+    pub fn disabled() -> Self {
+        Self {
+            status_date: None,
+            show_today: false,
+            disabled: true,
+        }
+    }
 }
 
 /// Configuration for focus view rendering
@@ -216,6 +255,7 @@ impl Default for HtmlGanttRenderer {
             show_dependencies: true,
             interactive: true,
             focus: None,
+            now_line: NowLineConfig::default(),
         }
     }
 }
@@ -291,6 +331,22 @@ impl HtmlGanttRenderer {
         } else {
             self.focus = Some(FocusConfig::new(vec![], depth));
         }
+        self
+    }
+
+    /// Configure now line rendering (RFC-0017)
+    ///
+    /// The now line is a vertical marker showing the status date on the Gantt chart.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use chrono::NaiveDate;
+    /// let status_date = NaiveDate::from_ymd_opt(2026, 1, 20).unwrap();
+    /// let renderer = HtmlGanttRenderer::new()
+    ///     .with_now_line(NowLineConfig::with_status_date(status_date));
+    /// ```
+    pub fn with_now_line(mut self, config: NowLineConfig) -> Self {
+        self.now_line = config;
         self
     }
 
@@ -538,6 +594,14 @@ impl HtmlGanttRenderer {
                 px_per_day,
             ));
         }
+
+        // Now line (RFC-0017) - rendered on top of everything
+        svg.push_str(&self.render_now_line(
+            project_start,
+            project_end,
+            tasks.len(),
+            px_per_day,
+        ));
 
         svg
     }
@@ -1009,6 +1073,77 @@ impl HtmlGanttRenderer {
         )
     }
 
+    /// Render the now line (RFC-0017)
+    ///
+    /// A vertical line indicating the status date on the Gantt chart.
+    fn render_now_line(
+        &self,
+        project_start: NaiveDate,
+        project_end: NaiveDate,
+        task_count: usize,
+        px_per_day: f64,
+    ) -> String {
+        // Skip if disabled or no status date
+        if self.now_line.disabled || self.now_line.status_date.is_none() {
+            return String::new();
+        }
+
+        let mut svg = String::new();
+        let chart_height =
+            self.header_height as f64 + (task_count as f64 * self.row_height as f64);
+
+        // Status date line (primary)
+        if let Some(status_date) = self.now_line.status_date {
+            // Check if date is within chart range
+            if status_date >= project_start && status_date <= project_end {
+                let x = self.date_to_x(status_date, project_start, px_per_day);
+                let y_start = self.padding as f64;
+                let y_end = self.padding as f64 + chart_height;
+
+                // Vertical line
+                svg.push_str(&format!(
+                    r#"                <line class="now-line status-date" x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" />
+"#,
+                    x = x,
+                    y1 = y_start,
+                    y2 = y_end
+                ));
+
+                // Label at top
+                svg.push_str(&format!(
+                    r#"                <text class="now-line-label" x="{x}" y="{y}" text-anchor="middle">{date}</text>
+"#,
+                    x = x,
+                    y = y_start - 5.0,
+                    date = status_date
+                ));
+            }
+        }
+
+        // Today line (secondary) - only if show_today is true and differs from status_date
+        if self.now_line.show_today {
+            let today = chrono::Local::now().date_naive();
+            if self.now_line.status_date != Some(today)
+                && today >= project_start
+                && today <= project_end
+            {
+                let x = self.date_to_x(today, project_start, px_per_day);
+                let y_start = self.padding as f64;
+                let y_end = self.padding as f64 + chart_height;
+
+                svg.push_str(&format!(
+                    r#"                <line class="now-line today" x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" />
+"#,
+                    x = x,
+                    y1 = y_start,
+                    y2 = y_end
+                ));
+            }
+        }
+
+        svg
+    }
+
     /// Generate CSS styles
     fn generate_css(&self) -> String {
         format!(
@@ -1127,6 +1262,22 @@ impl HtmlGanttRenderer {
         }}
         .tooltip .task-dates {{
             color: #aaa;
+        }}
+        /* Now line styles (RFC-0017) */
+        .now-line {{
+            stroke-width: 2px;
+            pointer-events: none;
+        }}
+        .now-line.status-date {{
+            stroke: #E53935;
+        }}
+        .now-line.today {{
+            stroke: #43A047;
+            stroke-dasharray: 6,4;
+        }}
+        .now-line-label {{
+            font-size: 10px;
+            fill: #E53935;
         }}"#,
             critical = self.theme.critical_color,
             normal = self.theme.normal_color,
@@ -1979,5 +2130,141 @@ mod tests {
         assert!(renderer.focus.is_some());
         assert_eq!(renderer.focus.as_ref().unwrap().focus_patterns.len(), 1);
         assert_eq!(renderer.focus.as_ref().unwrap().context_depth, 1);
+    }
+
+    // =========================================================================
+    // Now Line Tests (RFC-0017 TDD)
+    // =========================================================================
+
+    #[test]
+    fn now_line_config_default_disabled() {
+        let config = NowLineConfig::default();
+        assert!(config.status_date.is_none());
+        assert!(!config.show_today);
+        assert!(!config.disabled);
+    }
+
+    #[test]
+    fn now_line_config_with_status_date() {
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let config = NowLineConfig::with_status_date(date);
+        assert_eq!(config.status_date, Some(date));
+        assert!(!config.show_today);
+        assert!(!config.disabled);
+    }
+
+    #[test]
+    fn now_line_config_with_today() {
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let config = NowLineConfig::with_status_date(date).with_today();
+        assert_eq!(config.status_date, Some(date));
+        assert!(config.show_today);
+    }
+
+    #[test]
+    fn now_line_config_disabled() {
+        let config = NowLineConfig::disabled();
+        assert!(config.status_date.is_none());
+        assert!(config.disabled);
+    }
+
+    #[test]
+    fn now_line_at_status_date() {
+        // Test that now line is rendered at correct position
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        // Status date is Jan 15, project runs Jan 6-29
+        let status_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let renderer = HtmlGanttRenderer::new()
+            .with_now_line(NowLineConfig::with_status_date(status_date));
+
+        let html = renderer.render(&project, &schedule).unwrap();
+
+        // Should contain the now line SVG element
+        assert!(html.contains("now-line"), "Should contain now-line class");
+        assert!(html.contains("status-date"), "Should contain status-date class");
+        // Should contain the date label
+        assert!(html.contains("2025-01-15"), "Should contain the status date label");
+    }
+
+    #[test]
+    fn now_line_outside_range_not_rendered() {
+        // Test that now line is NOT rendered when outside chart range
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        // Status date is Feb 15, but project ends Jan 29
+        let status_date = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
+        let renderer = HtmlGanttRenderer::new()
+            .with_now_line(NowLineConfig::with_status_date(status_date));
+
+        let html = renderer.render(&project, &schedule).unwrap();
+
+        // Should NOT contain now-line elements since date is outside range
+        assert!(
+            !html.contains("class=\"now-line"),
+            "Should not render now-line outside chart range"
+        );
+    }
+
+    #[test]
+    fn now_line_disabled_not_rendered() {
+        // Test that now line is NOT rendered when disabled
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let renderer =
+            HtmlGanttRenderer::new().with_now_line(NowLineConfig::disabled());
+
+        let html = renderer.render(&project, &schedule).unwrap();
+
+        // Should NOT contain now-line elements
+        assert!(
+            !html.contains("class=\"now-line"),
+            "Should not render now-line when disabled"
+        );
+    }
+
+    #[test]
+    fn now_line_css_classes_applied() {
+        // Test that correct CSS classes are in the stylesheet
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let status_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let renderer = HtmlGanttRenderer::new()
+            .with_now_line(NowLineConfig::with_status_date(status_date));
+
+        let html = renderer.render(&project, &schedule).unwrap();
+
+        // Should contain CSS styling for now-line
+        assert!(html.contains(".now-line"), "Should contain .now-line CSS rule");
+    }
+
+    #[test]
+    fn now_line_default_not_rendered() {
+        // Test that default (no status_date set) doesn't render a line
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let renderer = HtmlGanttRenderer::new(); // Default NowLineConfig
+
+        let html = renderer.render(&project, &schedule).unwrap();
+
+        // Default config has no status_date, so no line should be rendered
+        assert!(
+            !html.contains("class=\"now-line"),
+            "Default should not render now-line without status_date"
+        );
+    }
+
+    #[test]
+    fn now_line_builder_method() {
+        let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
+        let renderer = HtmlGanttRenderer::new()
+            .with_now_line(NowLineConfig::with_status_date(date));
+
+        assert_eq!(renderer.now_line.status_date, Some(date));
     }
 }

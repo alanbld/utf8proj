@@ -21,7 +21,7 @@ This project follows **Semantic Versioning** (SemVer):
 
 Version is set in `Cargo.toml` under `[workspace.package]`:
 ```toml
-version = "0.12.2"
+version = "0.13.0"
 ```
 
 All crates inherit this version via `version.workspace = true`.
