@@ -1090,53 +1090,82 @@ milestone launch_complete "Product Launched" {
 }
 "#;
 
-const EXAMPLE_PROGRESS: &str = r#"# Progress Tracking Example (RFC-0008)
-# Demonstrates status_date, completion %, and remaining duration
+const EXAMPLE_PROGRESS: &str = r#"# Progress Tracking Example (RFC-0008, RFC-0018)
+# Demonstrates status_date, completion %, variance, and Excel progress modes
+#
+# TIP: Export to Excel with different progress modes:
+#   - None: Clean schedule view
+#   - Columns: Adds Complete%, Remaining, Actual dates
+#   - Visual: Color-coded bars (green=done, red=behind, blue=remaining)
+#   - Full: Status icons (✓●○⚠), Variance column
 
-project "Sprint Progress" {
+project "Q1 Product Launch" {
     start: 2026-01-06
-    status_date: 2026-01-20  # Report as of this date
+    status_date: 2026-01-20  # Report "as of" this date
 }
 
-resource dev "Developer" {
-    capacity: 1.0
+resource dev1 "Senior Developer" {
+    rate: 700/day
 }
 
-# Completed task - locked to actual dates
-task done "Feature A - Complete" {
+resource dev2 "Junior Developer" {
+    rate: 500/day
+}
+
+resource qa "QA Engineer" {
+    rate: 500/day
+}
+
+# ✓ COMPLETE - 100% done
+task planning "Planning & Design" {
     duration: 5d
     complete: 100%
-    assign: dev
+    assign: dev1
 }
 
-# In-progress task - schedules remaining from status_date
-task in_progress "Feature B - In Progress" {
+# ● IN PROGRESS - 60% done (on track)
+task backend "Backend Development" {
     duration: 10d
-    complete: 40%           # 40% done = 6 days remaining
-    depends: done
-    assign: dev
+    complete: 60%
+    depends: planning
+    assign: dev1
 }
 
-# In-progress with explicit remaining override
-task custom_remaining "Feature C - Custom Remaining" {
-    duration: 8d
-    complete: 50%           # Would be 4d remaining
-    remaining: 6d           # But we know it needs 6d more
-    depends: in_progress
-    assign: dev
+# ⚠ BEHIND - Only 30% done when should be ~60%
+task frontend "Frontend Development" {
+    duration: 10d
+    complete: 30%
+    depends: planning
+    assign: dev2
 }
 
-# Future task - schedules from predecessor
-task future "Feature D - Not Started" {
+# ⚠ OVERDUE - Scheduled start passed but not started
+task api_docs "API Documentation" {
+    duration: 3d
+    complete: 0%
+    depends: planning
+    assign: dev2
+}
+
+# ○ NOT STARTED - Scheduled after status_date
+task testing "Integration Testing" {
     duration: 5d
     complete: 0%
-    depends: custom_remaining
-    assign: dev
+    depends: backend, frontend
+    assign: qa
 }
 
-# Milestone tracks overall completion
-milestone sprint_end "Sprint Complete" {
-    depends: future
+# ○ NOT STARTED - Future task
+task uat "User Acceptance Testing" {
+    duration: 3d
+    complete: 0%
+    depends: testing
+    assign: qa
+}
+
+# Milestone - tracks overall progress
+milestone launch "Product Launch" {
+    depends: uat, api_docs
 }
 "#;
 
