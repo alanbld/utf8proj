@@ -90,7 +90,7 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 
 ## Test Coverage
 
-~950 tests (including 60 E2E), ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
+~978 tests (including 60 E2E), ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
 
 ## Diagnostic System (Compiler-Grade)
 
@@ -194,6 +194,7 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 - `crates/utf8proj-solver/src/leveling.rs` - Resource leveling algorithm (heuristic + hybrid BDD)
 - `crates/utf8proj-solver/src/optimal.rs` - Optimal leveling solver (experimental)
 - `crates/utf8proj-solver/src/bdd.rs` - BDD-based conflict cluster analysis
+- `crates/utf8proj-solver/tests/complete_task_scheduling.rs` - Complete task scheduling edge cases (v0.15.1 bug fix)
 - `crates/utf8proj-parser/src/native/grammar.pest` - Native DSL grammar
 - `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
 - `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
