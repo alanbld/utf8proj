@@ -1,7 +1,7 @@
 # RFC-0018: Excel Progress Tracking
 
 **RFC Number:** 0018
-**Status:** Draft
+**Status:** Accepted (Phase 1 Implemented)
 **Created:** 2026-01-29
 **Related:** RFC-0008 (Progress-Aware CPM), RFC-0017 (Now Line), RFC-0009 (Excel Auto-Fit)
 

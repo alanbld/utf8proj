@@ -79,6 +79,38 @@ pub enum ScheduleGranularity {
     Weekly,
 }
 
+/// Progress visualization mode for Excel export (RFC-0018)
+///
+/// Controls how task progress information is displayed in the Schedule sheet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProgressMode {
+    /// No progress columns or visualization (default, backwards compatible)
+    #[default]
+    None,
+    /// Add progress columns only (Complete %, Remaining, Actual Start, Actual End)
+    Columns,
+    /// Add progress columns + visual progress bars in timeline cells
+    Visual,
+    /// Full progress view with status date marker and variance analysis
+    Full,
+}
+
+/// Progress data for a task (RFC-0018)
+///
+/// Used to pass progress information to row writing functions.
+#[derive(Clone, Debug, Default)]
+pub struct ProgressData {
+    /// Completion percentage (0-100)
+    pub percent_complete: u8,
+    /// Remaining duration in days
+    pub remaining_days: f64,
+    /// Actual start date (if task has started)
+    pub actual_start: Option<NaiveDate>,
+    /// Actual finish date (if task is complete)
+    pub actual_finish: Option<NaiveDate>,
+}
+
 /// Configuration for Excel export (RFC-0009)
 ///
 /// This struct is designed for JSON serialization to support WASM/browser usage.
@@ -131,6 +163,14 @@ pub struct ExcelConfig {
     /// Show dependency columns for formula-driven scheduling (default: true)
     #[serde(default = "default_true")]
     pub show_dependencies: bool,
+
+    /// Progress visualization mode (RFC-0018): "none", "columns", "visual", "full"
+    #[serde(default)]
+    pub progress_mode: ProgressMode,
+
+    /// Status date for progress calculations (optional, defaults to project.status_date)
+    #[serde(default)]
+    pub status_date: Option<NaiveDate>,
 }
 
 fn default_scale() -> String {
@@ -160,6 +200,8 @@ impl Default for ExcelConfig {
             hours_per_day: default_hours_per_day(),
             include_summary: true,
             show_dependencies: true,
+            progress_mode: ProgressMode::None,
+            status_date: None,
         }
     }
 }
@@ -197,6 +239,12 @@ impl ExcelConfig {
 
         if !self.show_dependencies {
             renderer = renderer.no_dependencies();
+        }
+
+        // Apply progress settings (RFC-0018)
+        renderer = renderer.with_progress_mode(self.progress_mode);
+        if let Some(date) = self.status_date {
+            renderer = renderer.with_status_date(date);
         }
 
         renderer
@@ -238,6 +286,10 @@ pub struct ExcelRenderer {
     calendar: Option<Calendar>,
     /// Auto-fit timeframe to project duration (default: true)
     pub auto_fit: bool,
+    /// Progress visualization mode (RFC-0018)
+    pub progress_mode: ProgressMode,
+    /// Status date for progress calculations
+    pub status_date: Option<NaiveDate>,
 }
 
 impl Default for ExcelRenderer {
@@ -259,6 +311,8 @@ impl Default for ExcelRenderer {
             schedule_days: 60,
             calendar: None,
             auto_fit: true, // Auto-fit to project duration by default
+            progress_mode: ProgressMode::None,
+            status_date: None,
         }
     }
 }
@@ -365,6 +419,27 @@ impl ExcelRenderer {
         self
     }
 
+    /// Set progress visualization mode (RFC-0018)
+    ///
+    /// Controls how task progress information is displayed:
+    /// - `None`: No progress columns (default, backwards compatible)
+    /// - `Columns`: Add Complete%, Remaining, Actual Start/End columns
+    /// - `Visual`: Add progress bars in timeline cells
+    /// - `Full`: Add status icons, variance, and status date marker
+    pub fn with_progress_mode(mut self, mode: ProgressMode) -> Self {
+        self.progress_mode = mode;
+        self
+    }
+
+    /// Set status date for progress calculations (RFC-0018)
+    ///
+    /// Used to determine which tasks are behind schedule (past status date
+    /// but not complete). If not set, defaults to project.status_date or today.
+    pub fn with_status_date(mut self, date: NaiveDate) -> Self {
+        self.status_date = Some(date);
+        self
+    }
+
     /// Calculate auto-fit weeks to cover project duration
     ///
     /// Returns the number of weeks needed to cover the full project
@@ -429,6 +504,17 @@ impl ExcelRenderer {
             self.calculate_auto_fit_days(schedule, project_start)
         } else {
             self.schedule_days
+        }
+    }
+
+    /// Get the number of extra columns added by progress mode (RFC-0018)
+    ///
+    /// Returns 4 for Columns/Visual/Full modes (Complete, Remaining, Act.Start, Act.End)
+    /// Returns 0 for None mode
+    fn progress_column_count(&self) -> u16 {
+        match self.progress_mode {
+            ProgressMode::None => 0,
+            ProgressMode::Columns | ProgressMode::Visual | ProgressMode::Full => 4,
         }
     }
 
@@ -802,14 +888,27 @@ impl ExcelRenderer {
         // Without:   Activity, M, Profile, pd, Start, End, W1...
 
         // Column layout with Lvl column added after Activity:
-        // With deps: Task ID(0), Activity(1), Lvl(2), M(3), Profile(4), Depends(5), Type(6), Lag(7), Effort(8), Start(9), End(10), Weeks(11+)
-        // Without:   Activity(0), Lvl(1), M(2), Profile(3), pd(4), Start(5), End(6), Weeks(7+)
+        // With deps (base): Task ID(0), Activity(1), Lvl(2), M(3), Profile(4), Depends(5), Type(6), Lag(7), Effort(8), Start(9), End(10), Weeks(11+)
+        // With deps + progress: ... M(3), [Complete(4), Remaining(5), ActStart(6), ActEnd(7)], Profile(8), ... Weeks(15+)
+        // Without (base): Activity(0), Lvl(1), M(2), Profile(3), pd(4), Start(5), End(6), Weeks(7+)
+        // Without + progress: ... M(2), [Complete(3), Remaining(4), ActStart(5), ActEnd(6)], Profile(7), ... Weeks(11+)
+        let progress_offset = self.progress_column_count();
         let (week_start_col, effort_col, start_col, end_col) = if self.show_dependencies {
             self.write_schedule_headers_with_deps(sheet, formats)?;
-            (11u16, 8u16, 9u16, 10u16) // Week columns start at L (col 11)
+            (
+                11u16 + progress_offset,
+                8u16 + progress_offset,
+                9u16 + progress_offset,
+                10u16 + progress_offset,
+            )
         } else {
             self.write_schedule_headers_simple(sheet, formats)?;
-            (7u16, 4u16, 5u16, 6u16) // Week columns start at H (col 7)
+            (
+                7u16 + progress_offset,
+                4u16 + progress_offset,
+                5u16 + progress_offset,
+                6u16 + progress_offset,
+            )
         };
 
         // Week column headers
@@ -947,6 +1046,18 @@ impl ExcelRenderer {
                 scheduled.duration.as_days()
             };
 
+            // Build progress data if progress mode is enabled (RFC-0018)
+            let progress_data = if self.progress_mode != ProgressMode::None {
+                Some(ProgressData {
+                    percent_complete: scheduled.percent_complete,
+                    remaining_days: scheduled.remaining_duration.as_days(),
+                    actual_start: task.and_then(|t| t.actual_start),
+                    actual_finish: task.and_then(|t| t.actual_finish),
+                })
+            } else {
+                None
+            };
+
             // If task has assignments, create a row per assignment
             if scheduled.assignments.is_empty() {
                 if self.show_dependencies {
@@ -974,6 +1085,7 @@ impl ExcelRenderer {
                         last_data_row,
                         is_odd,
                         effective_weeks,
+                        progress_data.as_ref(),
                     )?;
                 } else {
                     self.write_schedule_row_simple(
@@ -995,6 +1107,7 @@ impl ExcelRenderer {
                         end_col,
                         is_odd,
                         effective_weeks,
+                        progress_data.as_ref(),
                     )?;
                 }
                 row += 1;
@@ -1043,6 +1156,7 @@ impl ExcelRenderer {
                             last_data_row,
                             is_odd,
                             effective_weeks,
+                            progress_data.as_ref(),
                         )?;
                     } else {
                         self.write_schedule_row_simple(
@@ -1064,6 +1178,7 @@ impl ExcelRenderer {
                             end_col,
                             is_odd,
                             effective_weeks,
+                            progress_data.as_ref(),
                         )?;
                     }
                     first_assignment = false;
@@ -1713,18 +1828,37 @@ impl ExcelRenderer {
         sheet: &mut Worksheet,
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
-        let headers = [
-            "Activity",
-            "Lvl",
-            "M",
-            "Profile",
-            "pd",
-            "Start\nweek",
-            "End\nweek",
-        ];
-        for (col, header) in headers.iter().enumerate() {
+        let progress_offset = self.progress_column_count();
+
+        // Base headers (before progress columns)
+        let base_headers = ["Activity", "Lvl", "M"];
+
+        // Progress headers (RFC-0018)
+        let progress_headers = ["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"];
+
+        // Remaining headers (after progress columns)
+        let remaining_headers = ["Profile", "pd", "Start\nweek", "End\nweek"];
+
+        // Write base headers (0-2)
+        for (col, header) in base_headers.iter().enumerate() {
             sheet
                 .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Write progress headers (3-6) if enabled
+        if progress_offset > 0 {
+            for (i, header) in progress_headers.iter().enumerate() {
+                sheet
+                    .write_with_format(0, (3 + i) as u16, *header, &formats.header)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
+        }
+
+        // Write remaining headers (offset by progress columns)
+        for (i, header) in remaining_headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, 3 + progress_offset + i as u16, *header, &formats.header)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1732,10 +1866,19 @@ impl ExcelRenderer {
         sheet.set_column_width(0, 25).ok(); // Activity
         sheet.set_column_width(1, 3).ok(); // Lvl (nesting level)
         sheet.set_column_width(2, 3).ok(); // M (milestone marker)
-        sheet.set_column_width(3, 15).ok(); // Profile
-        sheet.set_column_width(4, 6).ok(); // pd
-        sheet.set_column_width(5, 6).ok(); // Start
-        sheet.set_column_width(6, 6).ok(); // End
+
+        if progress_offset > 0 {
+            sheet.set_column_width(3, 8).ok(); // Complete
+            sheet.set_column_width(4, 9).ok(); // Remaining
+            sheet.set_column_width(5, 10).ok(); // Act. Start
+            sheet.set_column_width(6, 10).ok(); // Act. End
+        }
+
+        let base = 3 + progress_offset;
+        sheet.set_column_width(base, 15).ok(); // Profile
+        sheet.set_column_width(base + 1, 6).ok(); // pd
+        sheet.set_column_width(base + 2, 6).ok(); // Start
+        sheet.set_column_width(base + 3, 6).ok(); // End
 
         Ok(())
     }
@@ -1746,11 +1889,16 @@ impl ExcelRenderer {
         sheet: &mut Worksheet,
         formats: &ExcelFormats,
     ) -> Result<(), RenderError> {
-        let headers = [
-            "Task ID",
-            "Activity",
-            "Lvl",
-            "M",
+        let progress_offset = self.progress_column_count();
+
+        // Base headers (before progress columns)
+        let base_headers = ["Task ID", "Activity", "Lvl", "M"];
+
+        // Progress headers (RFC-0018)
+        let progress_headers = ["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"];
+
+        // Remaining headers (after progress columns)
+        let remaining_headers = [
             "Profile",
             "Depends\nOn",
             "Type",
@@ -1759,9 +1907,27 @@ impl ExcelRenderer {
             "Start\nweek",
             "End\nweek",
         ];
-        for (col, header) in headers.iter().enumerate() {
+
+        // Write base headers (0-3)
+        for (col, header) in base_headers.iter().enumerate() {
             sheet
                 .write_with_format(0, col as u16, *header, &formats.header)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Write progress headers (4-7) if enabled
+        if progress_offset > 0 {
+            for (i, header) in progress_headers.iter().enumerate() {
+                sheet
+                    .write_with_format(0, (4 + i) as u16, *header, &formats.header)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
+        }
+
+        // Write remaining headers (offset by progress columns)
+        for (i, header) in remaining_headers.iter().enumerate() {
+            sheet
+                .write_with_format(0, 4 + progress_offset + i as u16, *header, &formats.header)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
@@ -1770,13 +1936,22 @@ impl ExcelRenderer {
         sheet.set_column_width(1, 25).ok(); // Activity
         sheet.set_column_width(2, 3).ok(); // Lvl (nesting level)
         sheet.set_column_width(3, 3).ok(); // M (milestone marker)
-        sheet.set_column_width(4, 12).ok(); // Profile
-        sheet.set_column_width(5, 10).ok(); // Depends On
-        sheet.set_column_width(6, 5).ok(); // Type
-        sheet.set_column_width(7, 5).ok(); // Lag
-        sheet.set_column_width(8, 7).ok(); // Effort
-        sheet.set_column_width(9, 6).ok(); // Start
-        sheet.set_column_width(10, 6).ok(); // End
+
+        if progress_offset > 0 {
+            sheet.set_column_width(4, 8).ok(); // Complete
+            sheet.set_column_width(5, 9).ok(); // Remaining
+            sheet.set_column_width(6, 10).ok(); // Act. Start
+            sheet.set_column_width(7, 10).ok(); // Act. End
+        }
+
+        let base = 4 + progress_offset;
+        sheet.set_column_width(base, 12).ok(); // Profile
+        sheet.set_column_width(base + 1, 10).ok(); // Depends On
+        sheet.set_column_width(base + 2, 5).ok(); // Type
+        sheet.set_column_width(base + 3, 5).ok(); // Lag
+        sheet.set_column_width(base + 4, 7).ok(); // Effort
+        sheet.set_column_width(base + 5, 6).ok(); // Start
+        sheet.set_column_width(base + 6, 6).ok(); // End
 
         Ok(())
     }
@@ -1802,8 +1977,11 @@ impl ExcelRenderer {
         start_col: u16,
         end_col: u16,
         is_odd: bool,
-        schedule_weeks: u32, // Effective weeks (auto-fit applied)
+        schedule_weeks: u32,
+        progress_data: Option<&ProgressData>,
     ) -> Result<(), RenderError> {
+        let progress_offset = self.progress_column_count();
+
         // Select formats: milestones use gold, otherwise alternate white/blue per task
         let (text_fmt, number_fmt) = if is_milestone {
             (&formats.milestone_text, &formats.milestone_number)
@@ -1840,22 +2018,56 @@ impl ExcelRenderer {
             .write_with_format(row, 2, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col D: Profile
+        // Progress columns (RFC-0018) - after M column
+        if let Some(progress) = progress_data {
+            // Col 3: Complete %
+            let complete_str = format!("{}%", progress.percent_complete);
+            sheet
+                .write_with_format(row, 3, &complete_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+
+            // Col 4: Remaining
+            let remaining_str = format!("{:.0}d", progress.remaining_days);
+            sheet
+                .write_with_format(row, 4, &remaining_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+
+            // Col 5: Actual Start
+            let actual_start_str = progress
+                .actual_start
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            sheet
+                .write_with_format(row, 5, &actual_start_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+
+            // Col 6: Actual End
+            let actual_end_str = progress
+                .actual_finish
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            sheet
+                .write_with_format(row, 6, &actual_end_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Profile column (offset by progress columns)
+        let profile_col = 3 + progress_offset;
         sheet
-            .write_with_format(row, 3, profile, text_fmt)
+            .write_with_format(row, profile_col, profile, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col E: pd (effort)
+        // pd (effort)
         sheet
             .write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col F: Start
+        // Start week
         sheet
             .write_with_format(row, start_col, start_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col G: End
+        // End week
         sheet
             .write_with_format(row, end_col, end_week as f64, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
@@ -1910,9 +2122,11 @@ impl ExcelRenderer {
         end_col: u16,
         last_data_row: u32,
         is_odd: bool,
-        schedule_weeks: u32, // Effective weeks (auto-fit applied)
+        schedule_weeks: u32,
+        progress_data: Option<&ProgressData>,
     ) -> Result<(), RenderError> {
         let excel_row = row + 1; // Excel is 1-indexed
+        let progress_offset = self.progress_column_count();
 
         // Select formats: milestones use gold, otherwise alternate white/blue per task
         let (text_fmt, number_fmt) = if is_milestone {
@@ -1955,62 +2169,110 @@ impl ExcelRenderer {
             .write_with_format(row, 3, milestone_marker, text_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col E: Profile
-        sheet
-            .write_with_format(row, 4, profile, text_fmt)
-            .map_err(|e| RenderError::Format(e.to_string()))?;
-
-        // Col F: Depends On
-        sheet
-            .write_with_format(row, 5, predecessor, text_fmt)
-            .map_err(|e| RenderError::Format(e.to_string()))?;
-
-        // Col G: Type (FS/SS/FF/SF)
-        let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
-        sheet
-            .write_with_format(row, 6, dep_type_val, text_fmt)
-            .map_err(|e| RenderError::Format(e.to_string()))?;
-
-        // Col H: Lag
-        if !predecessor.is_empty() {
+        // Progress columns (RFC-0018) - after M column
+        if let Some(progress) = progress_data {
+            // Col 4: Complete %
+            let complete_str = format!("{}%", progress.percent_complete);
             sheet
-                .write_with_format(row, 7, lag as f64, number_fmt)
+                .write_with_format(row, 4, &complete_str, text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
-        } else {
+
+            // Col 5: Remaining
+            let remaining_str = format!("{:.0}d", progress.remaining_days);
             sheet
-                .write_with_format(row, 7, "", text_fmt)
+                .write_with_format(row, 5, &remaining_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+
+            // Col 6: Actual Start
+            let actual_start_str = progress
+                .actual_start
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            sheet
+                .write_with_format(row, 6, &actual_start_str, text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+
+            // Col 7: Actual End
+            let actual_end_str = progress
+                .actual_finish
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+            sheet
+                .write_with_format(row, 7, &actual_end_str, text_fmt)
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Col I: Effort (pd)
+        // Calculate column positions with progress offset
+        let profile_col = 4 + progress_offset;
+        let depends_col = 5 + progress_offset;
+        let type_col = 6 + progress_offset;
+        let lag_col = 7 + progress_offset;
+
+        // Profile
+        sheet
+            .write_with_format(row, profile_col, profile, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Depends On
+        sheet
+            .write_with_format(row, depends_col, predecessor, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Type (FS/SS/FF/SF)
+        let dep_type_val = if predecessor.is_empty() { "" } else { dep_type };
+        sheet
+            .write_with_format(row, type_col, dep_type_val, text_fmt)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Lag
+        if !predecessor.is_empty() {
+            sheet
+                .write_with_format(row, lag_col, lag as f64, number_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        } else {
+            sheet
+                .write_with_format(row, lag_col, "", text_fmt)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+        }
+
+        // Effort (pd)
         sheet
             .write_with_format(row, effort_col, person_days, number_fmt)
             .map_err(|e| RenderError::Format(e.to_string()))?;
 
-        // Col J: Start Week - Formula-driven if has predecessor
-        // Column references with Lvl column:
-        // F=Depends On, G=Type, H=Lag, I=Effort, J=Start, K=End
-        // VLOOKUP range A:K, End=col 11, Start=col 10
+        // Start Week - Formula-driven if has predecessor
+        // Use dynamic column letters based on progress offset
+        let depends_letter = Self::col_to_letter(depends_col);
+        let type_letter = Self::col_to_letter(type_col);
+        let lag_letter = Self::col_to_letter(lag_col);
+        let effort_letter = Self::col_to_letter(effort_col);
+        let end_col_num = end_col + 1; // 1-indexed for VLOOKUP
+        let start_col_num = start_col + 1;
+        let end_letter = Self::col_to_letter(end_col);
+
         if self.use_formulas && !predecessor.is_empty() {
             let formula = format!(
-                "=IF(F{}=\"\",{},IF(G{}=\"FS\",VLOOKUP(F{},$A$2:$K${},11,0)+1+H{},\
-                IF(G{}=\"SS\",VLOOKUP(F{},$A$2:$K${},10,0)+H{},\
-                IF(G{}=\"FF\",VLOOKUP(F{},$A$2:$K${},11,0)-CEILING(I{}*{}/{},1)+1+H{},\
-                IF(G{}=\"SF\",VLOOKUP(F{},$A$2:$K${},10,0)-CEILING(I{}*{}/{},1)+1+H{},\
+                "=IF({d}{}=\"\",{},IF({t}{}=\"FS\",VLOOKUP({d}{},$A$2:${e}${},{},0)+1+{l}{},\
+                IF({t}{}=\"SS\",VLOOKUP({d}{},$A$2:${e}${},{},0)+{l}{},\
+                IF({t}{}=\"FF\",VLOOKUP({d}{},$A$2:${e}${},{},0)-CEILING({ef}{}*{}/{},1)+1+{l}{},\
+                IF({t}{}=\"SF\",VLOOKUP({d}{},$A$2:${e}${},{},0)-CEILING({ef}{}*{}/{},1)+1+{l}{},\
                 {})))))",
                 excel_row,
                 start_week,
                 excel_row,
                 excel_row,
                 last_data_row,
+                end_col_num,
                 excel_row,
                 excel_row,
                 excel_row,
                 last_data_row,
+                start_col_num,
                 excel_row,
                 excel_row,
                 excel_row,
                 last_data_row,
+                end_col_num,
                 excel_row,
                 self.hours_per_day,
                 self.hours_per_week,
@@ -2018,11 +2280,17 @@ impl ExcelRenderer {
                 excel_row,
                 excel_row,
                 last_data_row,
+                start_col_num,
                 excel_row,
                 self.hours_per_day,
                 self.hours_per_week,
                 excel_row,
-                start_week
+                start_week,
+                d = depends_letter,
+                t = type_letter,
+                l = lag_letter,
+                ef = effort_letter,
+                e = end_letter,
             );
             sheet
                 .write_formula_with_format(row, start_col, formula.as_str(), number_fmt)
@@ -2033,15 +2301,14 @@ impl ExcelRenderer {
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Col K: End Week - Formula: Start + CEILING(effort * hours_per_day / hours_per_week) - 1
+        // End Week - Formula: Start + CEILING(effort * hours_per_day / hours_per_week) - 1
         if self.use_formulas {
             let start_col_letter = Self::col_to_letter(start_col);
-            let effort_col_letter = Self::col_to_letter(effort_col);
             let formula = format!(
                 "={}{}+MAX(CEILING({}{}*{}/{},1)-1,0)",
                 start_col_letter,
                 excel_row,
-                effort_col_letter,
+                effort_letter,
                 excel_row,
                 self.hours_per_day,
                 self.hours_per_week

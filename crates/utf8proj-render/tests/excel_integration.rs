@@ -3,7 +3,7 @@
 use chrono::NaiveDate;
 use rust_decimal_macros::dec;
 use utf8proj_core::{Duration, Money, Project, Renderer, Resource, Scheduler, Task};
-use utf8proj_render::ExcelRenderer;
+use utf8proj_render::{ExcelRenderer, ProgressMode};
 use utf8proj_solver::CpmSolver;
 
 fn date(year: i32, month: u32, day: u32) -> NaiveDate {
@@ -137,4 +137,152 @@ fn render_excel_static_values() {
 
     let xlsx = renderer.render(&project, &schedule).unwrap();
     assert!(xlsx.len() > 100);
+}
+
+// =============================================================================
+// RFC-0018: Progress Mode Tests
+// =============================================================================
+
+/// Create a project with progress data for testing
+fn create_project_with_progress() -> Project {
+    let mut project = Project::new("Progress Test Project");
+    project.start = date(2026, 2, 1);
+    project.status_date = Some(date(2026, 2, 15));
+    project.currency = "EUR".to_string();
+
+    project.resources = vec![Resource::new("dev")
+        .name("Developer")
+        .rate(Money::new(dec!(600), "EUR"))];
+
+    project.tasks = vec![
+        Task::new("design")
+            .name("Design")
+            .duration(Duration::days(5))
+            .assign("dev")
+            .complete(100.0)
+            .actual_start(date(2026, 2, 3))
+            .actual_finish(date(2026, 2, 7)),
+        Task::new("impl")
+            .name("Implementation")
+            .duration(Duration::days(10))
+            .depends_on("design")
+            .assign("dev")
+            .complete(60.0)
+            .actual_start(date(2026, 2, 10)),
+        Task::new("test")
+            .name("Testing")
+            .duration(Duration::days(5))
+            .depends_on("impl")
+            .assign("dev")
+            .complete(0.0),
+    ];
+
+    project
+}
+
+#[test]
+fn render_excel_with_progress_mode_none() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode None should produce valid output (no progress columns)
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .with_progress_mode(ProgressMode::None);
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
+}
+
+#[test]
+fn render_excel_with_progress_mode_columns() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode Columns should add Complete%, Remaining, Act.Start, Act.End columns
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .with_progress_mode(ProgressMode::Columns);
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
+
+    // The file should be larger due to progress columns
+    // (we can't easily verify column content without parsing the XLSX)
+}
+
+#[test]
+fn render_excel_with_progress_mode_visual() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode Visual should work
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .with_progress_mode(ProgressMode::Visual);
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
+}
+
+#[test]
+fn render_excel_with_progress_mode_full() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode Full should work
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .with_progress_mode(ProgressMode::Full);
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
+}
+
+#[test]
+fn render_excel_with_progress_and_status_date() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode with explicit status date
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .with_progress_mode(ProgressMode::Columns)
+        .with_status_date(date(2026, 2, 20));
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
+}
+
+#[test]
+fn render_excel_progress_without_dependencies() {
+    let project = create_project_with_progress();
+    let solver = CpmSolver::new();
+    let schedule = solver.schedule(&project).unwrap();
+
+    // Progress mode should work with no_dependencies too
+    let renderer = ExcelRenderer::new()
+        .currency("EUR")
+        .weeks(20)
+        .no_dependencies()
+        .with_progress_mode(ProgressMode::Columns);
+
+    let xlsx = renderer.render(&project, &schedule).unwrap();
+    assert!(xlsx.len() > 100);
+    assert_eq!(&xlsx[0..2], b"PK");
 }

@@ -543,7 +543,7 @@ impl Playground {
         }
     }
 
-    /// Render as Excel workbook with configuration (RFC-0009)
+    /// Render as Excel workbook with configuration (RFC-0009, RFC-0018)
     ///
     /// # Arguments
     /// * `config` - JSON configuration object (ExcelConfig)
@@ -555,6 +555,8 @@ impl Playground {
     ///   - `hours_per_day`: working hours per day (default: 8.0)
     ///   - `include_summary`: include executive summary sheet (default: true)
     ///   - `show_dependencies`: show dependency columns (default: true)
+    ///   - `progress_mode`: "none" | "columns" | "visual" | "full" (default: "none", RFC-0018)
+    ///   - `status_date`: "YYYY-MM-DD" date for progress calculations (optional)
     ///
     /// # Returns
     /// Raw bytes of the XLSX file as a Vec<u8>, or empty if no schedule

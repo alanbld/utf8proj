@@ -217,6 +217,11 @@ enum Commands {
         /// Show today line separately when status_date differs from today (RFC-0017)
         #[arg(long)]
         show_today: bool,
+
+        /// Progress visualization mode for Excel export (RFC-0018).
+        /// Options: none, columns, visual, full
+        #[arg(long, default_value = "none")]
+        progress: String,
     },
 
     /// Run performance benchmarks
@@ -471,6 +476,7 @@ fn main() -> Result<()> {
             as_of,
             no_now_line,
             show_today,
+            progress,
         }) => cmd_gantt(
             &file,
             &output,
@@ -489,6 +495,7 @@ fn main() -> Result<()> {
             as_of.as_deref(),
             no_now_line,
             show_today,
+            &progress,
         ),
         Some(Commands::Benchmark {
             topology,
@@ -1062,6 +1069,7 @@ fn cmd_gantt(
     as_of: Option<&str>,
     no_now_line: bool,
     show_today: bool,
+    progress: &str,
 ) -> Result<()> {
     use utf8proj_render::DisplayMode;
     // Parse the file
@@ -1158,6 +1166,27 @@ fn cmd_gantt(
 
             let diagnostics: Vec<_> = emitter.diagnostics.into_iter().collect();
             renderer = renderer.with_diagnostics(diagnostics);
+        }
+
+        // Apply progress mode (RFC-0018)
+        {
+            use utf8proj_render::ProgressMode;
+            let progress_mode = match progress.to_lowercase().as_str() {
+                "columns" => ProgressMode::Columns,
+                "visual" => ProgressMode::Visual,
+                "full" => ProgressMode::Full,
+                _ => ProgressMode::None,
+            };
+            renderer = renderer.with_progress_mode(progress_mode);
+
+            // Set status date for progress calculations
+            if let Some(date_str) = as_of {
+                if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                    renderer = renderer.with_status_date(date);
+                }
+            } else if let Some(status_date) = project.status_date {
+                renderer = renderer.with_status_date(status_date);
+            }
         }
 
         let bytes = renderer
