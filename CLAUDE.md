@@ -163,8 +163,9 @@ Example: 40h effort with 1 resource @ 50% = 10 days. Use `assign_with_units("dev
 
 ### Progress-Aware Scheduling (RFC-0008)
 - **Status Date Resolution**: CLI `--as-of` > `project.status_date` > `today()`
-- **Task States**: Complete (100%, locked), InProgress (remaining work from status date), NotStarted
+- **Task States**: Complete (100%, locked to actual dates if provided, otherwise derived from predecessors), InProgress (remaining work from status date), NotStarted
 - **Remaining Duration**: `duration * (1 - complete%)` or explicit `remaining:` override
+- **Complete Tasks**: Tasks at 100% with `actual_start`/`actual_finish` lock to those dates; without actual dates, ES/EF derived from dependencies (v0.15.1 fix)
 
 ## Render Formats
 
