@@ -113,6 +113,39 @@ pub struct ProgressData {
     pub task_start: Option<NaiveDate>,
     /// Scheduled task finish date (for visual progress calculation)
     pub task_finish: Option<NaiveDate>,
+    /// Schedule variance in days (positive = ahead, negative = behind)
+    pub variance_days: i32,
+    /// Task status for Full mode
+    pub status: TaskStatus,
+}
+
+/// Task status for Full progress mode (RFC-0018)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TaskStatus {
+    /// Task is 100% complete
+    Complete,
+    /// Task is in progress (0% < complete < 100%)
+    InProgress,
+    /// Task has not started yet (0% complete, start > status_date)
+    #[default]
+    NotStarted,
+    /// Task is behind schedule (incomplete work past status_date)
+    Behind,
+    /// Task should have started but hasn't (0% complete, start <= status_date)
+    Overdue,
+}
+
+impl TaskStatus {
+    /// Get the icon representation for this status
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Complete => "✓",
+            Self::InProgress => "●",
+            Self::NotStarted => "○",
+            Self::Behind => "⚠",
+            Self::Overdue => "⚠",
+        }
+    }
 }
 
 /// Configuration for Excel export (RFC-0009)
@@ -513,12 +546,14 @@ impl ExcelRenderer {
 
     /// Get the number of extra columns added by progress mode (RFC-0018)
     ///
-    /// Returns 4 for Columns/Visual/Full modes (Complete, Remaining, Act.Start, Act.End)
+    /// Returns 4 for Columns/Visual modes (Complete, Remaining, Act.Start, Act.End)
+    /// Returns 6 for Full mode (adds Status, Variance)
     /// Returns 0 for None mode
     fn progress_column_count(&self) -> u16 {
         match self.progress_mode {
             ProgressMode::None => 0,
-            ProgressMode::Columns | ProgressMode::Visual | ProgressMode::Full => 4,
+            ProgressMode::Columns | ProgressMode::Visual => 4,
+            ProgressMode::Full => 6,
         }
     }
 
@@ -1071,6 +1106,45 @@ impl ExcelRenderer {
 
             // Build progress data if progress mode is enabled (RFC-0018)
             let progress_data = if self.progress_mode != ProgressMode::None {
+                // Get status date for variance/status calculation
+                let status_date = self
+                    .status_date
+                    .unwrap_or_else(|| chrono::Local::now().date_naive());
+
+                // Calculate variance: how many days ahead/behind based on expected progress
+                // Expected progress = (status_date - start) / duration * 100
+                // Variance = (actual_progress - expected_progress) * duration / 100
+                let duration_total = (scheduled.finish - scheduled.start).num_days() as f64;
+                let variance_days = if duration_total > 0.0 && status_date >= scheduled.start {
+                    let days_elapsed =
+                        (status_date.min(scheduled.finish) - scheduled.start).num_days() as f64;
+                    let expected_pct = (days_elapsed / duration_total * 100.0).min(100.0);
+                    let actual_pct = scheduled.percent_complete as f64;
+                    // Positive = ahead, negative = behind
+                    ((actual_pct - expected_pct) * duration_total / 100.0).round() as i32
+                } else {
+                    0
+                };
+
+                // Determine task status
+                let status = if scheduled.percent_complete >= 100 {
+                    TaskStatus::Complete
+                } else if scheduled.percent_complete > 0 {
+                    // In progress - check if behind
+                    if variance_days < 0 {
+                        TaskStatus::Behind
+                    } else {
+                        TaskStatus::InProgress
+                    }
+                } else {
+                    // Not started (0%)
+                    if scheduled.start <= status_date {
+                        TaskStatus::Overdue // Should have started
+                    } else {
+                        TaskStatus::NotStarted
+                    }
+                };
+
                 Some(ProgressData {
                     percent_complete: scheduled.percent_complete,
                     remaining_days: scheduled.remaining_duration.as_days(),
@@ -1078,6 +1152,8 @@ impl ExcelRenderer {
                     actual_finish: task.and_then(|t| t.actual_finish),
                     task_start: Some(scheduled.start),
                     task_finish: Some(scheduled.finish),
+                    variance_days,
+                    status,
                 })
             } else {
                 None
@@ -1862,8 +1938,14 @@ impl ExcelRenderer {
         // Base headers (before progress columns)
         let base_headers = ["Activity", "Lvl", "M"];
 
-        // Progress headers (RFC-0018)
-        let progress_headers = ["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"];
+        // Progress headers (RFC-0018) - Full mode adds Status and Variance
+        let progress_headers: Vec<&str> = if self.progress_mode == ProgressMode::Full {
+            vec![
+                "Status", "Complete", "Remaining", "Variance", "Act.\nStart", "Act.\nEnd",
+            ]
+        } else {
+            vec!["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"]
+        };
 
         // Remaining headers (after progress columns)
         let remaining_headers = ["Profile", "pd", "Start\nweek", "End\nweek"];
@@ -1875,7 +1957,7 @@ impl ExcelRenderer {
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Write progress headers (3-6) if enabled
+        // Write progress headers if enabled
         if progress_offset > 0 {
             for (i, header) in progress_headers.iter().enumerate() {
                 sheet
@@ -1896,7 +1978,14 @@ impl ExcelRenderer {
         sheet.set_column_width(1, 3).ok(); // Lvl (nesting level)
         sheet.set_column_width(2, 3).ok(); // M (milestone marker)
 
-        if progress_offset > 0 {
+        if self.progress_mode == ProgressMode::Full {
+            sheet.set_column_width(3, 6).ok(); // Status
+            sheet.set_column_width(4, 8).ok(); // Complete
+            sheet.set_column_width(5, 9).ok(); // Remaining
+            sheet.set_column_width(6, 8).ok(); // Variance
+            sheet.set_column_width(7, 10).ok(); // Act. Start
+            sheet.set_column_width(8, 10).ok(); // Act. End
+        } else if progress_offset > 0 {
             sheet.set_column_width(3, 8).ok(); // Complete
             sheet.set_column_width(4, 9).ok(); // Remaining
             sheet.set_column_width(5, 10).ok(); // Act. Start
@@ -1923,8 +2012,14 @@ impl ExcelRenderer {
         // Base headers (before progress columns)
         let base_headers = ["Task ID", "Activity", "Lvl", "M"];
 
-        // Progress headers (RFC-0018)
-        let progress_headers = ["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"];
+        // Progress headers (RFC-0018) - Full mode adds Status and Variance
+        let progress_headers: Vec<&str> = if self.progress_mode == ProgressMode::Full {
+            vec![
+                "Status", "Complete", "Remaining", "Variance", "Act.\nStart", "Act.\nEnd",
+            ]
+        } else {
+            vec!["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"]
+        };
 
         // Remaining headers (after progress columns)
         let remaining_headers = [
@@ -1944,7 +2039,7 @@ impl ExcelRenderer {
                 .map_err(|e| RenderError::Format(e.to_string()))?;
         }
 
-        // Write progress headers (4-7) if enabled
+        // Write progress headers if enabled
         if progress_offset > 0 {
             for (i, header) in progress_headers.iter().enumerate() {
                 sheet
@@ -1966,7 +2061,14 @@ impl ExcelRenderer {
         sheet.set_column_width(2, 3).ok(); // Lvl (nesting level)
         sheet.set_column_width(3, 3).ok(); // M (milestone marker)
 
-        if progress_offset > 0 {
+        if self.progress_mode == ProgressMode::Full {
+            sheet.set_column_width(4, 6).ok(); // Status
+            sheet.set_column_width(5, 8).ok(); // Complete
+            sheet.set_column_width(6, 9).ok(); // Remaining
+            sheet.set_column_width(7, 8).ok(); // Variance
+            sheet.set_column_width(8, 10).ok(); // Act. Start
+            sheet.set_column_width(9, 10).ok(); // Act. End
+        } else if progress_offset > 0 {
             sheet.set_column_width(4, 8).ok(); // Complete
             sheet.set_column_width(5, 9).ok(); // Remaining
             sheet.set_column_width(6, 10).ok(); // Act. Start
@@ -2050,35 +2152,84 @@ impl ExcelRenderer {
 
         // Progress columns (RFC-0018) - after M column
         if let Some(progress) = progress_data {
-            // Col 3: Complete %
-            let complete_str = format!("{}%", progress.percent_complete);
-            sheet
-                .write_with_format(row, 3, &complete_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+            if self.progress_mode == ProgressMode::Full {
+                // Full mode: Status, Complete, Remaining, Variance, Act.Start, Act.End
+                // Col 3: Status icon
+                sheet
+                    .write_with_format(row, 3, progress.status.icon(), text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 4: Remaining
-            let remaining_str = format!("{:.0}d", progress.remaining_days);
-            sheet
-                .write_with_format(row, 4, &remaining_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 4: Complete %
+                let complete_str = format!("{}%", progress.percent_complete);
+                sheet
+                    .write_with_format(row, 4, &complete_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 5: Actual Start
-            let actual_start_str = progress
-                .actual_start
-                .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_default();
-            sheet
-                .write_with_format(row, 5, &actual_start_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 5: Remaining
+                let remaining_str = format!("{:.0}d", progress.remaining_days);
+                sheet
+                    .write_with_format(row, 5, &remaining_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 6: Actual End
-            let actual_end_str = progress
-                .actual_finish
-                .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_default();
-            sheet
-                .write_with_format(row, 6, &actual_end_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 6: Variance (positive = ahead, negative = behind)
+                let variance_str = if progress.variance_days >= 0 {
+                    format!("+{}d", progress.variance_days)
+                } else {
+                    format!("{}d", progress.variance_days)
+                };
+                sheet
+                    .write_with_format(row, 6, &variance_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 7: Actual Start
+                let actual_start_str = progress
+                    .actual_start
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 7, &actual_start_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 8: Actual End
+                let actual_end_str = progress
+                    .actual_finish
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 8, &actual_end_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            } else {
+                // Columns/Visual mode: Complete, Remaining, Act.Start, Act.End
+                // Col 3: Complete %
+                let complete_str = format!("{}%", progress.percent_complete);
+                sheet
+                    .write_with_format(row, 3, &complete_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 4: Remaining
+                let remaining_str = format!("{:.0}d", progress.remaining_days);
+                sheet
+                    .write_with_format(row, 4, &remaining_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 5: Actual Start
+                let actual_start_str = progress
+                    .actual_start
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 5, &actual_start_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 6: Actual End
+                let actual_end_str = progress
+                    .actual_finish
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 6, &actual_end_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
         }
 
         // Profile column (offset by progress columns)
@@ -2204,35 +2355,84 @@ impl ExcelRenderer {
 
         // Progress columns (RFC-0018) - after M column
         if let Some(progress) = progress_data {
-            // Col 4: Complete %
-            let complete_str = format!("{}%", progress.percent_complete);
-            sheet
-                .write_with_format(row, 4, &complete_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+            if self.progress_mode == ProgressMode::Full {
+                // Full mode: Status, Complete, Remaining, Variance, Act.Start, Act.End
+                // Col 4: Status icon
+                sheet
+                    .write_with_format(row, 4, progress.status.icon(), text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 5: Remaining
-            let remaining_str = format!("{:.0}d", progress.remaining_days);
-            sheet
-                .write_with_format(row, 5, &remaining_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 5: Complete %
+                let complete_str = format!("{}%", progress.percent_complete);
+                sheet
+                    .write_with_format(row, 5, &complete_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 6: Actual Start
-            let actual_start_str = progress
-                .actual_start
-                .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_default();
-            sheet
-                .write_with_format(row, 6, &actual_start_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 6: Remaining
+                let remaining_str = format!("{:.0}d", progress.remaining_days);
+                sheet
+                    .write_with_format(row, 6, &remaining_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
 
-            // Col 7: Actual End
-            let actual_end_str = progress
-                .actual_finish
-                .map(|d| d.format("%Y-%m-%d").to_string())
-                .unwrap_or_default();
-            sheet
-                .write_with_format(row, 7, &actual_end_str, text_fmt)
-                .map_err(|e| RenderError::Format(e.to_string()))?;
+                // Col 7: Variance (positive = ahead, negative = behind)
+                let variance_str = if progress.variance_days >= 0 {
+                    format!("+{}d", progress.variance_days)
+                } else {
+                    format!("{}d", progress.variance_days)
+                };
+                sheet
+                    .write_with_format(row, 7, &variance_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 8: Actual Start
+                let actual_start_str = progress
+                    .actual_start
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 8, &actual_start_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 9: Actual End
+                let actual_end_str = progress
+                    .actual_finish
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 9, &actual_end_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            } else {
+                // Columns/Visual mode: Complete, Remaining, Act.Start, Act.End
+                // Col 4: Complete %
+                let complete_str = format!("{}%", progress.percent_complete);
+                sheet
+                    .write_with_format(row, 4, &complete_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 5: Remaining
+                let remaining_str = format!("{:.0}d", progress.remaining_days);
+                sheet
+                    .write_with_format(row, 5, &remaining_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 6: Actual Start
+                let actual_start_str = progress
+                    .actual_start
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 6, &actual_start_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+
+                // Col 7: Actual End
+                let actual_end_str = progress
+                    .actual_finish
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+                sheet
+                    .write_with_format(row, 7, &actual_end_str, text_fmt)
+                    .map_err(|e| RenderError::Format(e.to_string()))?;
+            }
         }
 
         // Calculate column positions with progress offset
@@ -3591,5 +3791,49 @@ mod tests {
 
         let result = renderer.render(&project, &schedule);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn task_status_icons() {
+        // RFC-0018: Test TaskStatus icons for Full mode
+        use super::TaskStatus as ExcelTaskStatus;
+
+        assert_eq!(ExcelTaskStatus::Complete.icon(), "✓");
+        assert_eq!(ExcelTaskStatus::InProgress.icon(), "●");
+        assert_eq!(ExcelTaskStatus::NotStarted.icon(), "○");
+        assert_eq!(ExcelTaskStatus::Behind.icon(), "⚠");
+        assert_eq!(ExcelTaskStatus::Overdue.icon(), "⚠");
+    }
+
+    #[test]
+    fn progress_column_count_by_mode() {
+        // RFC-0018: Test column counts for different progress modes
+        let renderer_none = ExcelRenderer::new().with_progress_mode(ProgressMode::None);
+        let renderer_columns = ExcelRenderer::new().with_progress_mode(ProgressMode::Columns);
+        let renderer_visual = ExcelRenderer::new().with_progress_mode(ProgressMode::Visual);
+        let renderer_full = ExcelRenderer::new().with_progress_mode(ProgressMode::Full);
+
+        assert_eq!(renderer_none.progress_column_count(), 0);
+        assert_eq!(renderer_columns.progress_column_count(), 4);
+        assert_eq!(renderer_visual.progress_column_count(), 4);
+        assert_eq!(renderer_full.progress_column_count(), 6); // +Status, +Variance
+    }
+
+    #[test]
+    fn excel_full_mode_produces_valid_output() {
+        // RFC-0018: Test Full progress mode produces valid Excel
+        let renderer = ExcelRenderer::new()
+            .with_progress_mode(ProgressMode::Full)
+            .with_status_date(NaiveDate::from_ymd_opt(2025, 1, 20).unwrap());
+
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let result = renderer.render(&project, &schedule);
+        assert!(result.is_ok());
+
+        let bytes = result.unwrap();
+        assert!(bytes.len() > 100);
+        assert_eq!(&bytes[0..2], b"PK"); // Valid XLSX
     }
 }
