@@ -91,7 +91,65 @@
                             <option value="mermaid">Mermaid</option>
                             <option value="plantuml">PlantUML</option>
                         </select>
+                        <button id="excel-options-btn" class="btn-small hidden" title="Excel Options">⚙</button>
                         <button id="export-btn" class="btn-small" title="Export Gantt chart">Export</button>
+                    </div>
+                </div>
+                <!-- Excel Options Panel (RFC-0018 Phase 4) -->
+                <div id="excel-options-panel" class="excel-options hidden">
+                    <div class="option-group">
+                        <label class="option-group-title">Timescale</label>
+                        <div class="option-row">
+                            <label><input type="radio" name="excel-scale" value="weekly" checked> Weekly</label>
+                            <label><input type="radio" name="excel-scale" value="daily"> Daily</label>
+                        </div>
+                        <div class="option-row">
+                            <label>
+                                <input type="checkbox" id="excel-autofit" checked>
+                                Auto-fit to project duration
+                            </label>
+                        </div>
+                        <div class="option-row hidden" id="excel-manual-weeks">
+                            <label>Weeks: <input type="number" id="excel-weeks" value="20" min="1" max="104"></label>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label class="option-group-title">Formatting</label>
+                        <div class="option-row">
+                            <label>Currency:
+                                <select id="excel-currency">
+                                    <option value="EUR">EUR (€)</option>
+                                    <option value="USD">USD ($)</option>
+                                    <option value="GBP">GBP (£)</option>
+                                    <option value="CHF">CHF</option>
+                                    <option value="JPY">JPY (¥)</option>
+                                </select>
+                            </label>
+                            <label>Hours/Day: <input type="number" id="excel-hours" value="8" min="1" max="24" step="0.5"></label>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label class="option-group-title">Content</label>
+                        <div class="option-row">
+                            <label><input type="checkbox" id="excel-summary" checked> Include Summary Sheet</label>
+                            <label><input type="checkbox" id="excel-deps" checked> Show Dependencies</label>
+                        </div>
+                    </div>
+                    <div class="option-group">
+                        <label class="option-group-title">Progress Tracking (RFC-0018)</label>
+                        <div class="option-row">
+                            <label>Progress Mode:
+                                <select id="excel-progress">
+                                    <option value="none">None</option>
+                                    <option value="columns">Columns</option>
+                                    <option value="visual">Visual</option>
+                                    <option value="full">Full</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="option-hint" id="excel-progress-hint">
+                            No progress information (clean schedule view)
+                        </div>
                     </div>
                 </div>
                 <div id="preview-gantt" class="preview-container active">

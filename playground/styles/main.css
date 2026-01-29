@@ -392,6 +392,11 @@ kbd {
     color: var(--border-color);
 }
 
+/* Utility classes */
+.hidden {
+    display: none !important;
+}
+
 /* Modal */
 .modal {
     position: fixed;
@@ -466,6 +471,92 @@ kbd {
     width: 100%;
     height: 100%;
     min-height: 400px;
+}
+
+/* Excel Options Panel (RFC-0018 Phase 4) */
+.excel-options {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 12px 16px;
+    font-size: 13px;
+}
+
+.excel-options.hidden {
+    display: none;
+}
+
+.option-group {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.option-group:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.option-group-title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+}
+
+.option-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin: 6px 0;
+}
+
+.option-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: var(--text-primary);
+}
+
+.option-row input[type="number"],
+.option-row select {
+    width: 80px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.option-row input[type="number"]:focus,
+.option-row select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.option-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-top: 4px;
+    padding-left: 2px;
+}
+
+#excel-options-btn {
+    font-size: 14px;
+    padding: 4px 8px;
+}
+
+#excel-options-btn.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
 }
 
 /* Error display */

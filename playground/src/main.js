@@ -569,6 +569,9 @@ function setupEventListeners() {
         });
     });
 
+    // Excel options (RFC-0018 Phase 4)
+    setupExcelOptions();
+
     // Resize handle
     setupResizeHandle();
 
@@ -585,6 +588,67 @@ function switchTab(tabName) {
     // Show/hide containers
     document.getElementById('preview-gantt').classList.toggle('active', tabName === 'gantt');
     document.getElementById('preview-json').classList.toggle('active', tabName === 'json');
+}
+
+// ============================================================================
+// Excel Options (RFC-0018 Phase 4)
+// ============================================================================
+
+function setupExcelOptions() {
+    const formatSelect = document.getElementById('export-format-select');
+    const optionsBtn = document.getElementById('excel-options-btn');
+    const optionsPanel = document.getElementById('excel-options-panel');
+    const autoFitCheckbox = document.getElementById('excel-autofit');
+    const manualWeeksRow = document.getElementById('excel-manual-weeks');
+    const progressSelect = document.getElementById('excel-progress');
+
+    // Show/hide Excel options button based on format selection
+    formatSelect.addEventListener('change', (e) => {
+        const isExcel = e.target.value === 'xlsx';
+        optionsBtn.classList.toggle('hidden', !isExcel);
+        if (!isExcel) {
+            optionsPanel.classList.add('hidden');
+            optionsBtn.classList.remove('active');
+        }
+    });
+
+    // Toggle options panel
+    optionsBtn.addEventListener('click', () => {
+        optionsPanel.classList.toggle('hidden');
+        optionsBtn.classList.toggle('active');
+    });
+
+    // Toggle manual weeks input based on auto-fit
+    autoFitCheckbox.addEventListener('change', (e) => {
+        manualWeeksRow.classList.toggle('hidden', e.target.checked);
+    });
+
+    // Update progress mode hint
+    progressSelect.addEventListener('change', (e) => {
+        const hints = {
+            'none': 'No progress information (clean schedule view)',
+            'columns': 'Adds Complete%, Remaining, Actual Start/End columns',
+            'visual': 'Progress bars showing completed vs remaining work',
+            'full': 'Full tracking with status icons, variance, and markers'
+        };
+        document.getElementById('excel-progress-hint').textContent = hints[e.target.value] || '';
+    });
+}
+
+/**
+ * Get Excel export configuration from UI controls
+ */
+function getExcelConfig() {
+    return {
+        scale: document.querySelector('input[name="excel-scale"]:checked')?.value || 'weekly',
+        auto_fit: document.getElementById('excel-autofit')?.checked ?? true,
+        weeks: parseInt(document.getElementById('excel-weeks')?.value || '20', 10),
+        currency: document.getElementById('excel-currency')?.value || 'EUR',
+        hours_per_day: parseFloat(document.getElementById('excel-hours')?.value || '8'),
+        include_summary: document.getElementById('excel-summary')?.checked ?? true,
+        show_dependencies: document.getElementById('excel-deps')?.checked ?? true,
+        progress_mode: document.getElementById('excel-progress')?.value || 'none'
+    };
 }
 
 function toggleTheme() {
@@ -634,7 +698,8 @@ function showShareModal() {
         format,
         leveling,
         optimal,
-        nowLine  // RFC-0017
+        nowLine,  // RFC-0017
+        excel: getExcelConfig()  // RFC-0018: Include Excel options
     };
 
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(data));
@@ -714,6 +779,45 @@ function loadFromUrl() {
                 document.getElementById('nowline-checkbox').checked = data.nowLine;
             }
 
+            // Restore Excel options (RFC-0018)
+            if (data.excel) {
+                const excel = data.excel;
+                if (excel.scale) {
+                    const scaleRadio = document.querySelector(`input[name="excel-scale"][value="${excel.scale}"]`);
+                    if (scaleRadio) scaleRadio.checked = true;
+                }
+                if (excel.auto_fit !== undefined) {
+                    document.getElementById('excel-autofit').checked = excel.auto_fit;
+                    document.getElementById('excel-manual-weeks').classList.toggle('hidden', excel.auto_fit);
+                }
+                if (excel.weeks) {
+                    document.getElementById('excel-weeks').value = excel.weeks;
+                }
+                if (excel.currency) {
+                    document.getElementById('excel-currency').value = excel.currency;
+                }
+                if (excel.hours_per_day) {
+                    document.getElementById('excel-hours').value = excel.hours_per_day;
+                }
+                if (excel.include_summary !== undefined) {
+                    document.getElementById('excel-summary').checked = excel.include_summary;
+                }
+                if (excel.show_dependencies !== undefined) {
+                    document.getElementById('excel-deps').checked = excel.show_dependencies;
+                }
+                if (excel.progress_mode) {
+                    document.getElementById('excel-progress').value = excel.progress_mode;
+                    // Update hint text
+                    const hints = {
+                        'none': 'No progress information (clean schedule view)',
+                        'columns': 'Adds Complete%, Remaining, Actual Start/End columns',
+                        'visual': 'Progress bars showing completed vs remaining work',
+                        'full': 'Full tracking with status icons, variance, and markers'
+                    };
+                    document.getElementById('excel-progress-hint').textContent = hints[excel.progress_mode] || '';
+                }
+            }
+
             // Auto-run if we have a shared project
             setTimeout(() => {
                 if (wasmReady) runSchedule();
@@ -752,22 +856,16 @@ function exportGantt() {
             mimeType = 'text/html';
             break;
         case 'xlsx':
-            // Excel export with auto-fit configuration (RFC-0009)
-            const excelConfig = {
-                scale: 'weekly',           // 'weekly' or 'daily'
-                currency: 'EUR',           // Currency symbol
-                auto_fit: true,            // Auto-fit timeframe to project duration
-                hours_per_day: 8.0,        // Working hours per day
-                include_summary: true,     // Include executive summary sheet
-                show_dependencies: true    // Show dependency columns
-            };
+            // Excel export with configuration from UI (RFC-0009, RFC-0018)
+            const excelConfig = getExcelConfig();
             const xlsxBytes = playground.render_xlsx_with_config(excelConfig);
             if (xlsxBytes.length === 0) {
                 setStatus('Failed to generate Excel file', 'error');
                 return;
             }
             downloadBinaryFile('project.xlsx', xlsxBytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            setStatus('Exported Excel successfully', 'success');
+            const progressInfo = excelConfig.progress_mode !== 'none' ? ` (${excelConfig.progress_mode} progress)` : '';
+            setStatus(`Exported Excel successfully${progressInfo}`, 'success');
             return;
         case 'mermaid':
             content = playground.render_mermaid();
