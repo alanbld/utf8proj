@@ -109,6 +109,10 @@ pub struct ProgressData {
     pub actual_start: Option<NaiveDate>,
     /// Actual finish date (if task is complete)
     pub actual_finish: Option<NaiveDate>,
+    /// Scheduled task start date (for visual progress calculation)
+    pub task_start: Option<NaiveDate>,
+    /// Scheduled task finish date (for visual progress calculation)
+    pub task_finish: Option<NaiveDate>,
 }
 
 /// Configuration for Excel export (RFC-0009)
@@ -697,6 +701,22 @@ impl ExcelRenderer {
             .set_background_color(0xFCE4D6) // Light orange/peach
             .set_border(FormatBorder::Thin);
 
+        // Progress formats (RFC-0018 Visual mode)
+        let progress_complete = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xC6EFCE) // Light green
+            .set_border(FormatBorder::Thin);
+
+        let progress_behind = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xFFC7CE) // Light red
+            .set_border(FormatBorder::Thin);
+
+        let progress_remaining = Format::new()
+            .set_align(FormatAlign::Center)
+            .set_background_color(0xBDD7EE) // Light blue
+            .set_border(FormatBorder::Thin);
+
         ExcelFormats {
             header,
             currency,
@@ -721,6 +741,9 @@ impl ExcelRenderer {
             weekend_cell,
             holiday_header,
             holiday_cell,
+            progress_complete,
+            progress_behind,
+            progress_remaining,
         }
     }
 
@@ -1053,6 +1076,8 @@ impl ExcelRenderer {
                     remaining_days: scheduled.remaining_duration.as_days(),
                     actual_start: task.and_then(|t| t.actual_start),
                     actual_finish: task.and_then(|t| t.actual_finish),
+                    task_start: Some(scheduled.start),
+                    task_finish: Some(scheduled.finish),
                 })
             } else {
                 None
@@ -1086,6 +1111,7 @@ impl ExcelRenderer {
                         is_odd,
                         effective_weeks,
                         progress_data.as_ref(),
+                        project_start,
                     )?;
                 } else {
                     self.write_schedule_row_simple(
@@ -1108,6 +1134,7 @@ impl ExcelRenderer {
                         is_odd,
                         effective_weeks,
                         progress_data.as_ref(),
+                        project_start,
                     )?;
                 }
                 row += 1;
@@ -1157,6 +1184,7 @@ impl ExcelRenderer {
                             is_odd,
                             effective_weeks,
                             progress_data.as_ref(),
+                            project_start,
                         )?;
                     } else {
                         self.write_schedule_row_simple(
@@ -1179,6 +1207,7 @@ impl ExcelRenderer {
                             is_odd,
                             effective_weeks,
                             progress_data.as_ref(),
+                            project_start,
                         )?;
                     }
                     first_assignment = false;
@@ -1979,6 +2008,7 @@ impl ExcelRenderer {
         is_odd: bool,
         schedule_weeks: u32,
         progress_data: Option<&ProgressData>,
+        project_start: NaiveDate,
     ) -> Result<(), RenderError> {
         let progress_offset = self.progress_column_count();
 
@@ -2091,6 +2121,8 @@ impl ExcelRenderer {
             end_col,
             person_days,
             schedule_weeks,
+            project_start,
+            progress_data,
         )?;
 
         Ok(())
@@ -2124,6 +2156,7 @@ impl ExcelRenderer {
         is_odd: bool,
         schedule_weeks: u32,
         progress_data: Option<&ProgressData>,
+        project_start: NaiveDate,
     ) -> Result<(), RenderError> {
         let excel_row = row + 1; // Excel is 1-indexed
         let progress_offset = self.progress_column_count();
@@ -2341,6 +2374,8 @@ impl ExcelRenderer {
             end_col,
             person_days,
             schedule_weeks,
+            project_start,
+            progress_data,
         )?;
 
         Ok(())
@@ -2352,6 +2387,11 @@ impl ExcelRenderer {
     /// - Milestones: derived from M column ("◆"), shows "◆" in milestone week, "" elsewhere
     /// - Tasks: shows hours when > 0, "" when zero (no hidden zeros)
     /// - Container tasks: always empty (no effort to display)
+    ///
+    /// Visual mode (RFC-0018): Uses progress-aware formatting:
+    /// - Completed weeks: green fill
+    /// - Remaining weeks (behind schedule): red fill
+    /// - Remaining weeks (on schedule): blue fill
     #[allow(clippy::too_many_arguments)]
     fn write_week_columns(
         &self,
@@ -2370,7 +2410,9 @@ impl ExcelRenderer {
         start_col: u16,
         end_col: u16,
         person_days: f64,
-        schedule_weeks: u32, // Effective weeks (auto-fit applied)
+        schedule_weeks: u32,
+        project_start: NaiveDate,
+        progress_data: Option<&ProgressData>,
     ) -> Result<(), RenderError> {
         let excel_row = row + 1;
         let weeks_span = (end_week.saturating_sub(start_week) + 1).max(1);
@@ -2380,6 +2422,19 @@ impl ExcelRenderer {
         let effort_col_letter = Self::col_to_letter(effort_col);
         let start_col_letter = Self::col_to_letter(start_col);
         let end_col_letter = Self::col_to_letter(end_col);
+
+        // Get status date for progress calculation
+        let status_date = self
+            .status_date
+            .unwrap_or_else(|| chrono::Local::now().date_naive());
+
+        // Check if we should use visual progress rendering
+        let use_visual_progress = matches!(
+            self.progress_mode,
+            ProgressMode::Visual | ProgressMode::Full
+        ) && progress_data.is_some()
+            && !is_milestone
+            && !is_container;
 
         // Select format based on milestone status and row alternation
         // Milestones get gold background, others get alternating white/blue
@@ -2404,7 +2459,41 @@ impl ExcelRenderer {
                 continue;
             }
 
-            if self.use_formulas {
+            // Visual progress mode: use progress-aware formatting
+            if use_visual_progress && in_range {
+                let progress = progress_data.unwrap();
+                let percent = progress.percent_complete as f64;
+
+                // Calculate the week's date range
+                let week_start_date =
+                    project_start + chrono::Duration::days(((week - 1) * 7) as i64);
+
+                // Determine if this week is complete, remaining-behind, or remaining-ontrack
+                // Simple linear progress model: if we're X% complete, assume first X% of weeks are done
+                let week_position_pct =
+                    ((week - start_week) as f64 / weeks_span as f64) * 100.0;
+                let is_completed_week = week_position_pct < percent;
+                let is_behind = week_start_date <= status_date && !is_completed_week;
+
+                let fmt = if is_completed_week {
+                    &formats.progress_complete
+                } else if is_behind {
+                    &formats.progress_behind
+                } else {
+                    &formats.progress_remaining
+                };
+
+                let hours = hours_per_week_val.round();
+                if hours > 0.0 {
+                    sheet
+                        .write_with_format(row, col, hours, fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                } else {
+                    sheet
+                        .write_with_format(row, col, "", fmt)
+                        .map_err(|e| RenderError::Format(e.to_string()))?;
+                }
+            } else if self.use_formulas && !use_visual_progress {
                 // Unified formula checking M column for milestone status:
                 // =IF($M2="◆",
                 //     IF(AND(week>=Start, week<=End), "◆", ""),
@@ -3106,6 +3195,10 @@ struct ExcelFormats {
     // Daily schedule: holiday formats (gold/orange background)
     holiday_header: Format,
     holiday_cell: Format,
+    // Progress formats (RFC-0018 Visual mode)
+    progress_complete: Format,   // Green for completed work
+    progress_behind: Format,     // Red for remaining work past status date
+    progress_remaining: Format,  // Blue for remaining work on schedule
 }
 
 /// Renderer implementation that saves to file path
