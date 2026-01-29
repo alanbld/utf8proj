@@ -84,11 +84,12 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 - **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
 - **Baseline management**: RFC-0013 schedule snapshots with variance analysis (`baseline save/list/compare`)
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
+- **Now line rendering**: RFC-0017 vertical status date marker on Gantt charts (all formats)
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor
 
 ## Test Coverage
 
-~940 tests, ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
+~950 tests (including 60 E2E), ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
 
 ## Diagnostic System (Compiler-Grade)
 
@@ -168,12 +169,17 @@ Example: 40h effort with 1 resource @ 50% = 10 days. Use `assign_with_units("dev
 
 | Format | CLI Flag | Key Features |
 |--------|----------|--------------|
-| HTML/SVG | `-f html` (default) | Interactive: zoom, tooltips, dependency arrows, dark theme |
-| MermaidJS | `-f mermaid` | Markdown-embeddable, critical path markers, section grouping |
-| PlantUML | `-f plantuml` | Wiki-friendly, scale options, today marker |
+| HTML/SVG | `-f html` (default) | Interactive: zoom, tooltips, dependency arrows, dark theme, now line |
+| MermaidJS | `-f mermaid` | Markdown-embeddable, critical path markers, section grouping, todayMarker |
+| PlantUML | `-f plantuml` | Wiki-friendly, scale options, status date coloring |
 | Excel | `-f xlsx` | Formula-driven scheduling, VLOOKUP dependencies, cost sheets |
 
 All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose), `--task-ids`, `-w` (label width).
+
+**Now Line (RFC-0017)**: All Gantt renderers show a vertical line at the status date. CLI flags:
+- `--as-of DATE` - Override status date
+- `--no-now-line` - Disable now line
+- `--show-today` - Show today line separately when status_date differs
 
 ## Important Files
 
@@ -188,6 +194,7 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 - `docs/MS_PROJECT_COMPARISON.md` - Feature comparison with MS Project
 - `docs/rfc/RFC-0014-SCALING-RESOURCE-LEVELING.md` - Hybrid BDD leveling design
 - `docs/rfc/RFC-0015-BENCHMARKING-VALIDATION.md` - PSPLIB benchmark framework
+- `docs/rfc/RFC-0017-NOW-LINE.md` - Now line rendering for Gantt charts
 
 ## MS Project Compatibility
 
@@ -249,6 +256,11 @@ utf8proj gantt project.tjp -o chart.puml -f plantuml # PlantUML
 utf8proj gantt project.tjp -o chart.xlsx -f xlsx     # Excel workbook
 utf8proj gantt project.tjp -o chart.xlsx --currency EUR --weeks 40
 
+# Now line options (RFC-0017)
+utf8proj gantt project.proj --as-of 2026-01-20       # Override status date
+utf8proj gantt project.proj --no-now-line            # Disable now line
+utf8proj gantt project.proj --show-today             # Show both status date and today
+
 # Baseline management (RFC-0013)
 utf8proj baseline save --name original project.proj   # Save baseline
 utf8proj baseline list project.proj                   # List baselines
@@ -289,7 +301,8 @@ Strict linting with `pedantic` and `nursery` enabled. CI runs `cargo clippy --wo
 ### Native DSL (.proj)
 
 **Project attributes:**
-- `start:`, `end:`, `currency:`, `calendar:`, `timezone:`, `status_date:`
+- `start:`, `end:`, `currency:`, `calendar:`, `timezone:`
+- `status_date:` - Reporting "as-of" date for progress calculations and now line (RFC-0017)
 
 **Resource attributes:**
 - `rate: 850/day` or `rate: 100/hour`
