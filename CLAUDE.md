@@ -21,7 +21,7 @@ This project follows **Semantic Versioning** (SemVer):
 
 Version is set in `Cargo.toml` under `[workspace.package]`:
 ```toml
-version = "0.13.0"
+version = "0.15.0"
 ```
 
 All crates inherit this version via `version.workspace = true`.
@@ -84,8 +84,9 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 - **Focus view**: RFC-0006 pattern-based filtering for large Gantt charts (`--focus`, `--context-depth`)
 - **Baseline management**: RFC-0013 schedule snapshots with variance analysis (`baseline save/list/compare`)
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
+- **Excel progress tracking**: RFC-0018 progress columns, visual formatting, status icons, variance
 - **Now line rendering**: RFC-0017 vertical status date marker on Gantt charts (all formats)
-- **Browser playground**: WASM-based in-browser scheduler with Monaco editor
+- **Browser playground**: WASM-based in-browser scheduler with Monaco editor, Excel options panel
 
 ## Test Coverage
 
@@ -172,9 +173,15 @@ Example: 40h effort with 1 resource @ 50% = 10 days. Use `assign_with_units("dev
 | HTML/SVG | `-f html` (default) | Interactive: zoom, tooltips, dependency arrows, dark theme, now line |
 | MermaidJS | `-f mermaid` | Markdown-embeddable, critical path markers, section grouping, todayMarker |
 | PlantUML | `-f plantuml` | Wiki-friendly, scale options, status date coloring |
-| Excel | `-f xlsx` | Formula-driven scheduling, VLOOKUP dependencies, cost sheets |
+| Excel | `-f xlsx` | Formula-driven scheduling, VLOOKUP dependencies, cost sheets, progress tracking |
 
 All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose), `--task-ids`, `-w` (label width).
+
+**Excel Progress Tracking (RFC-0018)**: Use `--progress MODE` with Excel exports:
+- `none` - Clean schedule view (default)
+- `columns` - Adds Complete%, Remaining, Actual Start/End columns
+- `visual` - Color-coded timeline (green=done, red=behind, blue=remaining)
+- `full` - Status icons (✓●○⚠), variance column, full tracking
 
 **Now Line (RFC-0017)**: All Gantt renderers show a vertical line at the status date. CLI flags:
 - `--as-of DATE` - Override status date
@@ -195,6 +202,7 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 - `docs/rfc/RFC-0014-SCALING-RESOURCE-LEVELING.md` - Hybrid BDD leveling design
 - `docs/rfc/RFC-0015-BENCHMARKING-VALIDATION.md` - PSPLIB benchmark framework
 - `docs/rfc/RFC-0017-NOW-LINE.md` - Now line rendering for Gantt charts
+- `docs/rfc/RFC-0018-EXCEL-PROGRESS-TRACKING.md` - Excel progress columns and visual formatting
 
 ## MS Project Compatibility
 
@@ -255,6 +263,12 @@ utf8proj gantt project.tjp -o chart.mmd -f mermaid   # MermaidJS
 utf8proj gantt project.tjp -o chart.puml -f plantuml # PlantUML
 utf8proj gantt project.tjp -o chart.xlsx -f xlsx     # Excel workbook
 utf8proj gantt project.tjp -o chart.xlsx --currency EUR --weeks 40
+
+# Excel progress tracking (RFC-0018)
+utf8proj gantt project.proj -o out.xlsx -f xlsx --progress none     # Clean view
+utf8proj gantt project.proj -o out.xlsx -f xlsx --progress columns  # Data columns
+utf8proj gantt project.proj -o out.xlsx -f xlsx --progress visual   # Color-coded
+utf8proj gantt project.proj -o out.xlsx -f xlsx --progress full     # Full tracking
 
 # Now line options (RFC-0017)
 utf8proj gantt project.proj --as-of 2026-01-20       # Override status date
