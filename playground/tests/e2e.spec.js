@@ -709,4 +709,28 @@ test.describe('RFC-0017: Now Line', () => {
         const count = await statusLine.count();
         expect(count).toBe(1);
     });
+
+    test('progress example shows now line at status_date', async ({ page }) => {
+        // Load Progress Tracking example which has status_date: 2026-01-20
+        await page.selectOption('#example-select', 'progress');
+        await page.waitForTimeout(500);
+
+        // Verify editor contains status_date
+        const editorContent = await page.evaluate(() => {
+            return window.monaco?.editor?.getModels()[0]?.getValue() || '';
+        });
+        expect(editorContent).toContain('status_date');
+
+        // Schedule and render Gantt
+        await clickSchedule(page);
+        await waitForSchedule(page);
+        await clickGanttTab(page);
+        await waitForGantt(page);
+
+        // Verify now line is rendered
+        const iframe = page.frameLocator('#gantt-output iframe');
+        const statusLine = iframe.locator('.now-line.status-date');
+        const count = await statusLine.count();
+        expect(count).toBe(1);
+    });
 });
