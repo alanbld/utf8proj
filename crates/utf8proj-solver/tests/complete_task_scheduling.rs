@@ -44,7 +44,9 @@ fn complete_tasks_without_actual_start_respect_dependencies() {
     project.tasks.push(task_b);
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Should schedule without error");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Should schedule without error");
 
     let a = schedule.tasks.get("task_a").expect("task_a");
     let b = schedule.tasks.get("task_b").expect("task_b");
@@ -106,11 +108,11 @@ fn complete_tasks_same_resource_schedule_correctly() {
     project.start = date(2026, 1, 6);
     project.status_date = Some(date(2026, 1, 27));
 
-    project.resources.push(Resource::new("dev").name("Developer"));
+    project
+        .resources
+        .push(Resource::new("dev").name("Developer"));
 
-    let mut task_a = Task::new("a")
-        .duration(Duration::days(5))
-        .assign("dev");
+    let mut task_a = Task::new("a").duration(Duration::days(5)).assign("dev");
     task_a.complete = Some(100.0);
 
     let mut task_b = Task::new("b")
@@ -442,7 +444,10 @@ fn multiple_complete_predecessors() {
     assert_eq!(c_s.forecast_start, date(2026, 1, 6));
 
     // D starts after the latest predecessor finishes
-    let latest = a_s.forecast_finish.max(b_s.forecast_finish).max(c_s.forecast_finish);
+    let latest = a_s
+        .forecast_finish
+        .max(b_s.forecast_finish)
+        .max(c_s.forecast_finish);
     assert!(d_s.forecast_start > latest);
 }
 
@@ -459,7 +464,9 @@ fn container_all_complete_children_no_dates() {
     let mut child1 = Task::new("child1").duration(Duration::days(5));
     child1.complete = Some(100.0);
 
-    let mut child2 = Task::new("child2").duration(Duration::days(5)).depends_on("child1");
+    let mut child2 = Task::new("child2")
+        .duration(Duration::days(5))
+        .depends_on("child1");
     child2.complete = Some(100.0);
 
     let container = Task::new("container")
@@ -523,7 +530,10 @@ fn complete_tasks_have_correct_slack() {
     // Critical path tasks (a -> b -> d) should have 0 slack
     // c should have positive slack (it's shorter than b)
     let c_s = schedule.tasks.get("c").unwrap();
-    assert!(c_s.slack.as_days() > 0.0, "Task c should have positive slack");
+    assert!(
+        c_s.slack.as_days() > 0.0,
+        "Task c should have positive slack"
+    );
 }
 
 // =============================================================================
@@ -547,7 +557,9 @@ fn long_chain_complete_tasks() {
     }
 
     let solver = CpmSolver::new();
-    let schedule = solver.schedule(&project).expect("Should schedule long chain");
+    let schedule = solver
+        .schedule(&project)
+        .expect("Should schedule long chain");
 
     // Verify chain is sequential
     for i in 1..20 {

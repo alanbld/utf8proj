@@ -1941,7 +1941,12 @@ impl ExcelRenderer {
         // Progress headers (RFC-0018) - Full mode adds Status and Variance
         let progress_headers: Vec<&str> = if self.progress_mode == ProgressMode::Full {
             vec![
-                "Status", "Complete", "Remaining", "Variance", "Act.\nStart", "Act.\nEnd",
+                "Status",
+                "Complete",
+                "Remaining",
+                "Variance",
+                "Act.\nStart",
+                "Act.\nEnd",
             ]
         } else {
             vec!["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"]
@@ -2015,7 +2020,12 @@ impl ExcelRenderer {
         // Progress headers (RFC-0018) - Full mode adds Status and Variance
         let progress_headers: Vec<&str> = if self.progress_mode == ProgressMode::Full {
             vec![
-                "Status", "Complete", "Remaining", "Variance", "Act.\nStart", "Act.\nEnd",
+                "Status",
+                "Complete",
+                "Remaining",
+                "Variance",
+                "Act.\nStart",
+                "Act.\nEnd",
             ]
         } else {
             vec!["Complete", "Remaining", "Act.\nStart", "Act.\nEnd"]
@@ -2670,8 +2680,7 @@ impl ExcelRenderer {
 
                 // Determine if this week is complete, remaining-behind, or remaining-ontrack
                 // Simple linear progress model: if we're X% complete, assume first X% of weeks are done
-                let week_position_pct =
-                    ((week - start_week) as f64 / weeks_span as f64) * 100.0;
+                let week_position_pct = ((week - start_week) as f64 / weeks_span as f64) * 100.0;
                 let is_completed_week = week_position_pct < percent;
                 let is_behind = week_start_date <= status_date && !is_completed_week;
 
@@ -3396,9 +3405,9 @@ struct ExcelFormats {
     holiday_header: Format,
     holiday_cell: Format,
     // Progress formats (RFC-0018 Visual mode)
-    progress_complete: Format,   // Green for completed work
-    progress_behind: Format,     // Red for remaining work past status date
-    progress_remaining: Format,  // Blue for remaining work on schedule
+    progress_complete: Format,  // Green for completed work
+    progress_behind: Format,    // Red for remaining work past status date
+    progress_remaining: Format, // Blue for remaining work on schedule
 }
 
 /// Renderer implementation that saves to file path

@@ -801,8 +801,8 @@ mod tests {
         // RFC-0017: Custom status date via with_now_line()
         use crate::NowLineConfig;
         let status_date = chrono::NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
-        let renderer = PlantUmlRenderer::new()
-            .with_now_line(NowLineConfig::with_status_date(status_date));
+        let renderer =
+            PlantUmlRenderer::new().with_now_line(NowLineConfig::with_status_date(status_date));
         let project = create_test_project();
         let schedule = create_test_schedule();
 

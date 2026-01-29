@@ -1255,8 +1255,9 @@ fn cmd_gantt(
             } else {
                 // Resolve status date: --as-of > project.status_date > today
                 let status_date = if let Some(date_str) = as_of {
-                    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                        .with_context(|| format!("Invalid date format '{}', expected YYYY-MM-DD", date_str))?
+                    chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").with_context(|| {
+                        format!("Invalid date format '{}', expected YYYY-MM-DD", date_str)
+                    })?
                 } else if let Some(date) = project.status_date {
                     date
                 } else {

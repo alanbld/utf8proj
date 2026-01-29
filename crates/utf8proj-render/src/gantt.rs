@@ -596,12 +596,7 @@ impl HtmlGanttRenderer {
         }
 
         // Now line (RFC-0017) - rendered on top of everything
-        svg.push_str(&self.render_now_line(
-            project_start,
-            project_end,
-            tasks.len(),
-            px_per_day,
-        ));
+        svg.push_str(&self.render_now_line(project_start, project_end, tasks.len(), px_per_day));
 
         svg
     }
@@ -1089,8 +1084,7 @@ impl HtmlGanttRenderer {
         }
 
         let mut svg = String::new();
-        let chart_height =
-            self.header_height as f64 + (task_count as f64 * self.row_height as f64);
+        let chart_height = self.header_height as f64 + (task_count as f64 * self.row_height as f64);
 
         // Status date line (primary)
         if let Some(status_date) = self.now_line.status_date {
@@ -2176,16 +2170,22 @@ mod tests {
 
         // Status date is Jan 15, project runs Jan 6-29
         let status_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
-        let renderer = HtmlGanttRenderer::new()
-            .with_now_line(NowLineConfig::with_status_date(status_date));
+        let renderer =
+            HtmlGanttRenderer::new().with_now_line(NowLineConfig::with_status_date(status_date));
 
         let html = renderer.render(&project, &schedule).unwrap();
 
         // Should contain the now line SVG element
         assert!(html.contains("now-line"), "Should contain now-line class");
-        assert!(html.contains("status-date"), "Should contain status-date class");
+        assert!(
+            html.contains("status-date"),
+            "Should contain status-date class"
+        );
         // Should contain the date label
-        assert!(html.contains("2025-01-15"), "Should contain the status date label");
+        assert!(
+            html.contains("2025-01-15"),
+            "Should contain the status date label"
+        );
     }
 
     #[test]
@@ -2196,8 +2196,8 @@ mod tests {
 
         // Status date is Feb 15, but project ends Jan 29
         let status_date = NaiveDate::from_ymd_opt(2025, 2, 15).unwrap();
-        let renderer = HtmlGanttRenderer::new()
-            .with_now_line(NowLineConfig::with_status_date(status_date));
+        let renderer =
+            HtmlGanttRenderer::new().with_now_line(NowLineConfig::with_status_date(status_date));
 
         let html = renderer.render(&project, &schedule).unwrap();
 
@@ -2214,8 +2214,7 @@ mod tests {
         let project = create_test_project();
         let schedule = create_test_schedule();
 
-        let renderer =
-            HtmlGanttRenderer::new().with_now_line(NowLineConfig::disabled());
+        let renderer = HtmlGanttRenderer::new().with_now_line(NowLineConfig::disabled());
 
         let html = renderer.render(&project, &schedule).unwrap();
 
@@ -2233,13 +2232,16 @@ mod tests {
         let schedule = create_test_schedule();
 
         let status_date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
-        let renderer = HtmlGanttRenderer::new()
-            .with_now_line(NowLineConfig::with_status_date(status_date));
+        let renderer =
+            HtmlGanttRenderer::new().with_now_line(NowLineConfig::with_status_date(status_date));
 
         let html = renderer.render(&project, &schedule).unwrap();
 
         // Should contain CSS styling for now-line
-        assert!(html.contains(".now-line"), "Should contain .now-line CSS rule");
+        assert!(
+            html.contains(".now-line"),
+            "Should contain .now-line CSS rule"
+        );
     }
 
     #[test]
@@ -2262,8 +2264,8 @@ mod tests {
     #[test]
     fn now_line_builder_method() {
         let date = NaiveDate::from_ymd_opt(2025, 1, 15).unwrap();
-        let renderer = HtmlGanttRenderer::new()
-            .with_now_line(NowLineConfig::with_status_date(date));
+        let renderer =
+            HtmlGanttRenderer::new().with_now_line(NowLineConfig::with_status_date(date));
 
         assert_eq!(renderer.now_line.status_date, Some(date));
     }

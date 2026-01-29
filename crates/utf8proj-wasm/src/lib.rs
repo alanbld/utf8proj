@@ -2165,7 +2165,10 @@ task c "Task C" { effort: 3d depends: b assign: dev }
         // RFC-0017: Now line should be enabled by default
         let pg = Playground::new();
         assert!(pg.show_now_line, "Now line should be enabled by default");
-        assert!(pg.get_show_now_line(), "get_show_now_line should return true");
+        assert!(
+            pg.get_show_now_line(),
+            "get_show_now_line should return true"
+        );
     }
 
     #[test]
@@ -2174,7 +2177,10 @@ task c "Task C" { effort: 3d depends: b assign: dev }
         let mut pg = Playground::new();
         pg.set_show_now_line(false);
         assert!(!pg.show_now_line, "Now line should be disabled");
-        assert!(!pg.get_show_now_line(), "get_show_now_line should return false");
+        assert!(
+            !pg.get_show_now_line(),
+            "get_show_now_line should return false"
+        );
     }
 
     #[test]
@@ -2226,10 +2232,7 @@ task b "Task B" { duration: 5d depends: a }
         assert!(pg.has_schedule(), "Schedule should succeed");
 
         let html = pg.render_gantt();
-        assert!(
-            html.contains("now-line"),
-            "Gantt should contain now-line"
-        );
+        assert!(html.contains("now-line"), "Gantt should contain now-line");
         // The status date should appear in the label
         assert!(
             html.contains("2026-01-10"),

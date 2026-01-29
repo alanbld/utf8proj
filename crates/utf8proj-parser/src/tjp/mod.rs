@@ -709,7 +709,10 @@ mod tests {
         "#;
 
         let project = parse(input).unwrap();
-        assert!(project.status_date.is_some(), "status_date should be set from 'now'");
+        assert!(
+            project.status_date.is_some(),
+            "status_date should be set from 'now'"
+        );
         assert_eq!(
             project.status_date.unwrap(),
             chrono::NaiveDate::from_ymd_opt(2025, 3, 15).unwrap()
