@@ -1101,7 +1101,11 @@ const EXAMPLE_PROGRESS: &str = r#"# Progress Tracking Example (RFC-0008, RFC-001
 
 project "Q1 Product Launch" {
     start: 2026-01-06
-    status_date: 2026-01-20  # Report "as of" this date
+    status_date: 2026-01-27  # Report "as of" this date
+}
+
+resource pm "Project Manager" {
+    rate: 800/day
 }
 
 resource dev1 "Senior Developer" {
@@ -1117,17 +1121,25 @@ resource qa "QA Engineer" {
 }
 
 # ✓ COMPLETE - 100% done
-task planning "Planning & Design" {
+task requirements "Requirements Analysis" {
     duration: 5d
     complete: 100%
-    assign: dev1
+    assign: pm
+}
+
+# ✓ COMPLETE - 100% done
+task design "System Design" {
+    duration: 5d
+    complete: 100%
+    depends: requirements
+    assign: pm
 }
 
 # ● IN PROGRESS - 60% done (on track)
 task backend "Backend Development" {
     duration: 10d
     complete: 60%
-    depends: planning
+    depends: design
     assign: dev1
 }
 
@@ -1135,7 +1147,7 @@ task backend "Backend Development" {
 task frontend "Frontend Development" {
     duration: 10d
     complete: 30%
-    depends: planning
+    depends: design
     assign: dev2
 }
 
@@ -1143,8 +1155,8 @@ task frontend "Frontend Development" {
 task api_docs "API Documentation" {
     duration: 3d
     complete: 0%
-    depends: planning
-    assign: dev2
+    depends: design
+    assign: pm
 }
 
 # ○ NOT STARTED - Scheduled after status_date
@@ -1160,7 +1172,7 @@ task uat "User Acceptance Testing" {
     duration: 3d
     complete: 0%
     depends: testing
-    assign: qa
+    assign: qa, pm
 }
 
 # Milestone - tracks overall progress

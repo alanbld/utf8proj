@@ -418,17 +418,21 @@ struct TaskNode<'a> {
 /// Progress state classification for a task (RFC-0004)
 ///
 /// Used in forward pass to determine scheduling behavior:
-/// - Complete: locked to actual dates
+/// - Complete: locked to actual dates (if provided) or derived from predecessors
 /// - InProgress: remaining work schedules from status_date
 /// - NotStarted: normal CPM forward pass
 #[derive(Clone, Debug)]
 enum ProgressState {
-    /// Task is 100% complete - use actual dates
+    /// Task is 100% complete - use actual dates if provided
     Complete {
         /// Actual start date (converted to working days from project start)
-        actual_start_days: i64,
-        /// Actual finish date (converted to working days from project start)
-        actual_finish_days: i64,
+        /// None if no actual_start was provided - ES should be derived from predecessors
+        actual_start_days: Option<i64>,
+        /// Actual finish date (converted to working days from project start, exclusive)
+        /// None if no actual_finish was provided - EF = ES + duration
+        actual_finish_days: Option<i64>,
+        /// Original duration in working days (for fallback when actual dates not provided)
+        duration_days: i64,
     },
     /// Task is in progress (0 < complete < 100)
     InProgress {
@@ -459,19 +463,19 @@ fn classify_progress_state(
     let complete_pct = task.complete.unwrap_or(0.0);
 
     if complete_pct >= 100.0 || task.actual_finish.is_some() {
-        // Complete: use actual dates or derive from progress
+        // Complete: use actual dates if provided, otherwise derive from predecessors
         let actual_start_days = task
             .actual_start
-            .map(|d| date_to_working_days(project_start, d, calendar))
-            .unwrap_or(0);
+            .map(|d| date_to_working_days(project_start, d, calendar));
+
         let actual_finish_days = task
             .actual_finish
-            .map(|d| date_to_working_days(project_start, d, calendar) + 1) // +1 for exclusive end
-            .unwrap_or(actual_start_days + duration_days);
+            .map(|d| date_to_working_days(project_start, d, calendar) + 1); // +1 for exclusive end
 
         ProgressState::Complete {
             actual_start_days,
             actual_finish_days,
+            duration_days,
         }
     } else if complete_pct > 0.0 && task.actual_start.is_some() {
         // InProgress: use explicit_remaining if set, otherwise linear interpolation
@@ -2911,11 +2915,14 @@ impl Scheduler for CpmSolver {
                     ProgressState::Complete {
                         actual_start_days,
                         actual_finish_days,
+                        duration_days,
                     } => {
-                        // Complete: lock to actual dates (RFC-0004 Rule 1)
-                        // Ignore dependencies and constraints - reality wins
+                        // Complete: lock to actual dates if provided (RFC-0004 Rule 1)
+                        // If no actual dates, derive from predecessors (task is done but dates unknown)
                         // remaining = 0 for complete tasks
-                        (actual_start_days, actual_finish_days, 0i64)
+                        let es = actual_start_days.unwrap_or(forecast_es);
+                        let ef = actual_finish_days.unwrap_or(es + duration_days);
+                        (es, ef, 0i64)
                     }
                     ProgressState::InProgress {
                         actual_start_days,
