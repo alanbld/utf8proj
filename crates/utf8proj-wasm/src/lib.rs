@@ -494,7 +494,14 @@ impl Playground {
     pub fn render_mermaid(&self) -> String {
         match (&self.project, &self.schedule) {
             (Some(project), Some(schedule)) => {
-                let renderer = MermaidRenderer::new();
+                let mut renderer = MermaidRenderer::new();
+                // RFC-0017: Pass now line config
+                if self.show_now_line {
+                    let status_date = project
+                        .status_date
+                        .unwrap_or_else(|| chrono::Local::now().date_naive());
+                    renderer = renderer.with_now_line(NowLineConfig::with_status_date(status_date));
+                }
                 renderer.render(project, schedule).unwrap_or_default()
             }
             _ => String::new(),
@@ -508,7 +515,14 @@ impl Playground {
     pub fn render_plantuml(&self) -> String {
         match (&self.project, &self.schedule) {
             (Some(project), Some(schedule)) => {
-                let renderer = PlantUmlRenderer::new();
+                let mut renderer = PlantUmlRenderer::new();
+                // RFC-0017: Pass now line config
+                if self.show_now_line {
+                    let status_date = project
+                        .status_date
+                        .unwrap_or_else(|| chrono::Local::now().date_naive());
+                    renderer = renderer.with_now_line(NowLineConfig::with_status_date(status_date));
+                }
                 renderer.render(project, schedule).unwrap_or_default()
             }
             _ => String::new(),

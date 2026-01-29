@@ -22,6 +22,8 @@ async function initWasm() {
         await wasmModule.default();
         playground = new wasmModule.Playground();
         wasmReady = true;
+        // Expose playground to window for E2E testing
+        window.playground = playground;
         setStatus('Ready', 'success');
         console.log('WASM module loaded successfully');
     } catch (error) {

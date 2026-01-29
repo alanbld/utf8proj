@@ -466,6 +466,51 @@ test.describe('Export Functionality', () => {
         const format = await page.locator('#export-format-select').inputValue();
         expect(format).toBe('mermaid');
     });
+
+    test('can select PlantUML export format', async ({ page }) => {
+        await page.selectOption('#export-format-select', 'plantuml');
+        const format = await page.locator('#export-format-select').inputValue();
+        expect(format).toBe('plantuml');
+    });
+});
+
+test.describe('Mermaid/PlantUML Export', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/');
+        await waitForWasm(page);
+        await waitForEditor(page);
+        // Use project with status_date for now line testing
+        await typeProject(page, SAMPLE_PROJECTS.withStatusDate);
+        await clickSchedule(page);
+        await waitForSchedule(page);
+    });
+
+    test('Mermaid export contains todayMarker directive', async ({ page }) => {
+        // Select Mermaid format and get rendered output
+        await page.selectOption('#export-format-select', 'mermaid');
+
+        // Get the Mermaid output via WASM
+        const mermaidOutput = await page.evaluate(() => {
+            return window.playground?.render_mermaid() || '';
+        });
+
+        // RFC-0017: Mermaid should contain todayMarker directive for now line
+        expect(mermaidOutput).toContain('todayMarker');
+    });
+
+    test('PlantUML export contains date coloring for status_date', async ({ page }) => {
+        // Select PlantUML format and get rendered output
+        await page.selectOption('#export-format-select', 'plantuml');
+
+        // Get the PlantUML output via WASM
+        const plantumlOutput = await page.evaluate(() => {
+            return window.playground?.render_plantuml() || '';
+        });
+
+        // RFC-0017: PlantUML should contain date coloring for status_date (2025-02-10)
+        expect(plantumlOutput).toContain('is colored');
+        expect(plantumlOutput).toContain('2025-02-10');
+    });
 });
 
 test.describe('Share Functionality', () => {
