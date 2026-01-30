@@ -1,286 +1,201 @@
 # utf8proj Roadmap
 
-## Future Features
-
-### 1. Interactive Gantt Chart (HTML/SVG)
-
-**Goal:** Generate standalone HTML files with interactive SVG Gantt charts.
-
-#### Technical Design
-
-**Output Structure:**
-```
-output.html (single file, no dependencies)
-├── Embedded CSS (styles)
-├── SVG Gantt chart
-│   ├── Timeline header (dates/weeks/months)
-│   ├── Task bars (colored by status/critical path)
-│   ├── Dependency arrows (SVG paths)
-│   ├── Milestones (diamond shapes)
-│   └── Resource labels
-└── Embedded JS (interactivity)
-```
-
-**Core Components:**
-
-1. **Timeline Renderer** (`crates/utf8proj-render/src/gantt/timeline.rs`)
-   - Calculate visible date range from schedule
-   - Support day/week/month granularity based on project duration
-   - Generate SVG `<text>` and `<line>` elements for grid
-
-2. **Task Bar Renderer** (`crates/utf8proj-render/src/gantt/tasks.rs`)
-   - Calculate x position from start date
-   - Calculate width from duration
-   - Color coding: critical path (red), normal (blue), complete (green)
-   - Progress bar overlay for % complete
-   - Hover tooltips with task details
-
-3. **Dependency Arrow Renderer** (`crates/utf8proj-render/src/gantt/deps.rs`)
-   - SVG `<path>` elements with bezier curves
-   - Arrow types: FS (end→start), SS (start→start), FF (end→end), SF (start→end)
-   - Avoid overlapping arrows using vertical offset algorithm
-
-4. **Hierarchy Renderer** (`crates/utf8proj-render/src/gantt/hierarchy.rs`)
-   - Collapsible container tasks
-   - Indentation for nested tasks
-   - Summary bars for containers
-
-**SVG Layout Algorithm:**
-```
-Row height: 30px
-Task bar height: 20px (centered in row)
-Left panel width: 250px (task names)
-Timeline width: calculated from date range
-Padding: 10px
-
-For each task:
-  y = row_index * row_height + padding
-  x = left_panel_width + (task.start - project.start).days * pixels_per_day
-  width = task.duration.days * pixels_per_day
-```
-
-**Interactivity (Vanilla JS):**
-- Click task → highlight dependencies
-- Hover → show tooltip with dates, resources, % complete
-- Click container → collapse/expand children
-- Zoom controls → change time scale
-
-**File Structure:**
-```
-crates/utf8proj-render/src/
-├── lib.rs (add GanttRenderer)
-├── gantt/
-│   ├── mod.rs
-│   ├── timeline.rs
-│   ├── tasks.rs
-│   ├── deps.rs
-│   ├── hierarchy.rs
-│   └── template.html (embedded via include_str!)
-```
-
-**CLI Integration:**
-```bash
-utf8proj render project.tjp --format gantt -o schedule.html
-utf8proj render project.tjp --format gantt --theme dark -o schedule.html
-```
-
-**Estimated Scope:** ~1500 lines of Rust + ~200 lines HTML/CSS/JS template
+**Last Updated:** 2026-01-30
+**Current Version:** 0.15.1
 
 ---
 
-### 2. WASM + Browser Playground
+## Completed Features
 
-**Goal:** Run utf8proj entirely in the browser via WebAssembly.
+All original v1.0 roadmap items have been implemented:
 
-#### Technical Design
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────┐
-│           Browser Playground UI             │
-├─────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌───────────────────┐   │
-│  │ Code Editor │    │   Gantt Preview   │   │
-│  │  (Monaco)   │    │   (SVG output)    │   │
-│  └─────────────┘    └───────────────────┘   │
-├─────────────────────────────────────────────┤
-│              WASM Bridge (JS)               │
-├─────────────────────────────────────────────┤
-│         utf8proj-wasm (Rust/WASM)           │
-│  ┌─────────┐ ┌────────┐ ┌────────────────┐  │
-│  │ Parser  │ │ Solver │ │ Gantt Renderer │  │
-│  └─────────┘ └────────┘ └────────────────┘  │
-└─────────────────────────────────────────────┘
-```
-
-**New Crate:** `crates/utf8proj-wasm/`
-
-```rust
-// crates/utf8proj-wasm/src/lib.rs
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-pub struct Playground {
-    // Cached state
-}
-
-#[wasm_bindgen]
-impl Playground {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self { ... }
-
-    /// Parse and schedule, return JSON result
-    #[wasm_bindgen]
-    pub fn schedule(&mut self, input: &str, format: &str) -> Result<JsValue, JsError> {
-        // format: "tjp" | "native"
-        // Returns: { tasks: [...], critical_path: [...], errors: [] }
-    }
-
-    /// Render to SVG Gantt chart
-    #[wasm_bindgen]
-    pub fn render_gantt(&self) -> Result<String, JsError> {
-        // Returns SVG string
-    }
-
-    /// Get validation errors
-    #[wasm_bindgen]
-    pub fn validate(&self, input: &str, format: &str) -> JsValue {
-        // Returns: { errors: [{ line, column, message }] }
-    }
-}
-```
-
-**Playground UI Components:**
-
-1. **Editor Panel** (left side)
-   - Monaco editor with custom TJP/native syntax highlighting
-   - Real-time error markers from `validate()`
-   - Example templates dropdown
-   - File upload for .tjp/.proj files
-
-2. **Preview Panel** (right side)
-   - SVG Gantt chart (from `render_gantt()`)
-   - Toggle: Gantt / JSON output / TJP output
-   - Zoom/pan controls
-
-3. **Toolbar**
-   - Format selector (TJP / Native DSL)
-   - Download buttons (HTML, TJP, JSON)
-   - Share link (encodes project in URL)
-   - Theme toggle (light/dark)
-
-**Build Pipeline:**
-```bash
-# Build WASM
-cd crates/utf8proj-wasm
-wasm-pack build --target web --out-dir ../../playground/pkg
-
-# Serve playground
-cd playground
-npm run dev
-```
-
-**Workspace Changes:**
-```toml
-# Cargo.toml (workspace)
-[workspace]
-members = [
-    "crates/utf8proj-core",
-    "crates/utf8proj-parser",
-    "crates/utf8proj-solver",
-    "crates/utf8proj-render",
-    "crates/utf8proj-cli",
-    "crates/utf8proj-wasm",  # NEW
-]
-
-# crates/utf8proj-wasm/Cargo.toml
-[package]
-name = "utf8proj-wasm"
-version = "0.1.0"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-utf8proj-core.workspace = true
-utf8proj-parser.workspace = true
-utf8proj-solver.workspace = true
-utf8proj-render.workspace = true
-wasm-bindgen = "0.2"
-serde = { version = "1", features = ["derive"] }
-serde-wasm-bindgen = "0.6"
-
-[dependencies.web-sys]
-version = "0.3"
-features = ["console"]
-```
-
-**Playground File Structure:**
-```
-playground/
-├── index.html
-├── src/
-│   ├── main.ts
-│   ├── editor.ts      (Monaco setup)
-│   ├── preview.ts     (Gantt rendering)
-│   ├── examples.ts    (Template projects)
-│   └── share.ts       (URL encoding)
-├── styles/
-│   └── main.css
-├── pkg/               (WASM output, gitignored)
-└── package.json
-```
-
-**Syntax Highlighting (Monaco):**
-```typescript
-// Custom language definition for native DSL
-monaco.languages.register({ id: 'utf8proj' });
-monaco.languages.setMonarchTokensProvider('utf8proj', {
-    keywords: ['project', 'task', 'resource', 'calendar', 'depends', 'assign', 'effort'],
-    tokenizer: {
-        root: [
-            [/"[^"]*"/, 'string'],
-            [/\d{4}-\d{2}-\d{2}/, 'number.date'],
-            [/\d+[dwh]/, 'number.duration'],
-            [/#.*$/, 'comment'],
-            [/[a-z_]\w*/, { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
-        ]
-    }
-});
-```
-
-**Performance Considerations:**
-- WASM binary size: Target < 500KB gzipped
-- Parse + schedule: Target < 100ms for 1000 tasks
-- Use `console_error_panic_hook` for debugging
-- Lazy-load Monaco editor
-
-**Deployment:**
-- GitHub Pages (static hosting)
-- Custom domain: playground.utf8proj.dev (future)
-- CDN for WASM binary
-
-**Estimated Scope:**
-- utf8proj-wasm: ~300 lines Rust
-- Playground UI: ~1000 lines TypeScript + HTML/CSS
-- Build/deploy config: ~100 lines
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Interactive Gantt Chart (HTML/SVG) | **Done** | Zoom, tooltips, dependency arrows, dark theme, now line |
+| WASM Playground | **Done** | https://alanbld.github.io/utf8proj/ |
+| Resource Leveling | **Done** | RFC-0003, RFC-0014 (hybrid BDD) |
+| Progress-Aware Scheduling | **Done** | RFC-0008, complete%, remaining duration |
+| Baseline Management | **Done** | RFC-0013: save, list, compare |
+| Excel Export | **Done** | RFC-0018: progress tracking, visual formatting |
+| Now Line Rendering | **Done** | RFC-0017: status date marker on Gantt |
+| Multiple Render Formats | **Done** | HTML, SVG, MermaidJS, PlantUML, Excel |
+| Focus View | **Done** | RFC-0006: pattern-based filtering |
+| LSP Support | **Done** | Diagnostics, hover, go-to-definition |
 
 ---
 
-## Implementation Priority
+## Next Steps (Prioritized)
 
-| Feature | Complexity | Impact | Status |
-|---------|------------|--------|--------|
-| Resource Leveling | High | High | **Done** |
-| Gantt Chart | Medium | High | **Done** |
-| WASM Playground | Medium | Medium | **Done** |
+### 1. Project Status Dashboard (Recommended Next)
 
-## Dependencies
+**Command:** `utf8proj status project.proj`
+
+**Why This Matters for PMs:**
+- Quick "How are we doing?" answer without parsing full schedule
+- At-a-glance health metrics: overall progress, variance, critical path status
+- Highlights issues: late tasks, blocked resources, at-risk milestones
+
+**Proposed Output:**
+```
+╔══════════════════════════════════════════════════════╗
+║  Project: CRM Migration                              ║
+║  Status Date: 2026-01-30                             ║
+╠══════════════════════════════════════════════════════╣
+║  Overall Progress:  62%  ████████████░░░░░░░░        ║
+║  Schedule Variance: +3 days (ahead)                  ║
+║  Critical Path:     12 tasks, 45 days remaining      ║
+╠══════════════════════════════════════════════════════╣
+║  ⚠ 2 tasks behind schedule                          ║
+║  ✓ 8 tasks completed this week                      ║
+║  → 5 tasks starting next week                        ║
+╚══════════════════════════════════════════════════════╝
+```
+
+**Complexity:** Low (data already computed, just needs formatting)
+**Impact:** High (daily PM workflow)
+
+---
+
+### 2. CLI Progress Update
+
+**Command:** `utf8proj progress --task=api_impl --complete=75`
+
+**Why This Matters:**
+- Update task progress without editing .proj files
+- Batch updates via CSV import
+- Integrates with CI/CD pipelines
+
+**Examples:**
+```bash
+# Single task update
+utf8proj progress project.proj --task=backend_api --complete=75
+
+# With actual dates
+utf8proj progress project.proj --task=frontend --complete=100 \
+    --actual-start=2026-01-15 --actual-finish=2026-01-28
+
+# Batch import
+utf8proj progress project.proj --import=weekly_status.csv
+```
+
+**Complexity:** Medium (requires file modification logic)
+**Impact:** High (reduces manual editing errors)
+
+---
+
+### 3. Extended Task Status
+
+**Current:** `complete: 75%`
+
+**Proposed:**
+```proj
+task api_impl "API Implementation" {
+    duration: 10d
+    status: blocked          # or: on_hold, at_risk, cancelled
+    status_reason: "Waiting for security review"
+    status_since: 2026-01-25
+}
+```
+
+**Status Types:**
+- `not_started` (default)
+- `in_progress` (has actual_start, no actual_finish)
+- `complete` (100% or has actual_finish)
+- `blocked { reason, since }` - External dependency
+- `on_hold { reason }` - Paused intentionally
+- `at_risk { reason }` - May miss deadline
+- `cancelled { reason }` - Removed from scope
+
+**Complexity:** Medium (parser + domain model changes)
+**Impact:** Medium (better project visibility)
+
+---
+
+### 4. Schedule Playback
+
+**Command:** `utf8proj playback project.proj -o evolution.html`
+
+**Why This Matters:**
+- Visualize how the schedule evolved over time
+- Answer "What changed since last week?"
+- Stakeholder communication tool
+
+**Features:**
+- Timeline slider showing schedule at each baseline
+- Highlight changes: tasks added/removed/delayed
+- Impact metrics: duration change, critical path shifts
+
+**Complexity:** High (requires multiple baselines, animation)
+**Impact:** Medium (retrospectives, stakeholder reports)
+
+---
+
+### 5. Forecast Report
+
+**Command:** `utf8proj forecast project.proj --baseline=original`
+
+**Output:**
+```
+Forecast Report (vs baseline: original)
+═══════════════════════════════════════
+
+Projected Completion: 2026-05-15 (was 2026-04-30)
+Schedule Variance:    +15 days
+Cost Variance:        +€12,500
+
+Top Delays:
+  1. backend_api: +8 days (resource conflict)
+  2. security_review: +5 days (external dependency)
+  3. testing: +2 days (scope increase)
+
+Recommendations:
+  • Add resource to backend_api to recover 4 days
+  • Escalate security_review with vendor
+```
+
+**Complexity:** Medium (builds on existing baseline compare)
+**Impact:** High (proactive risk management)
+
+---
+
+## Post-v1.0 Features (Deferred)
+
+| Feature | Notes |
+|---------|-------|
+| VS Code Extension | Syntax highlighting, diagnostics, preview |
+| GitHub Action | CI/CD integration for schedule validation |
+| EVM (Earned Value) | CPI, SPI, EAC, VAC metrics |
+| Plugin System | Custom renderers, importers |
+| Web UI | Browser-based editing with collaboration |
+| AI Forecasting | ML-based completion predictions |
+
+---
+
+## Recommendation for Project Managers
+
+**Start with: `utf8proj status`**
+
+This command provides the highest value for the lowest implementation cost:
+
+1. **Daily standup answer**: "Where are we?" in 2 seconds
+2. **No workflow change**: Works with existing .proj files
+3. **Builds foundation**: Status dashboard reuses schedule analysis already implemented
+4. **Quick win**: Can be implemented and shipped in a few days
+
+The existing `utf8proj schedule` and `utf8proj compare --baseline` commands provide detailed data, but PMs need a quick summary view for daily use. The status command fills this gap.
+
+---
+
+## Implementation Dependencies
 
 ```
-Resource Leveling (no deps)
+utf8proj status (no deps, use existing schedule data)
     ↓
-Gantt Chart (benefits from leveling visualization)
+utf8proj progress (needs status to show result)
     ↓
-WASM Playground (needs Gantt for preview)
+Extended TaskStatus (enhances progress command)
+    ↓
+utf8proj forecast (combines status + baseline)
+    ↓
+utf8proj playback (needs multiple baselines)
 ```
