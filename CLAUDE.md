@@ -86,11 +86,12 @@ docs/                   # Documentation (MS_PROJECT_COMPARISON.md, EDITOR_SETUP.
 - **Multiple render formats**: HTML, SVG, MermaidJS, PlantUML, Excel (XLSX)
 - **Excel progress tracking**: RFC-0018 progress columns, visual formatting, status icons, variance
 - **Now line rendering**: RFC-0017 vertical status date marker on Gantt charts (all formats)
+- **Project status dashboard**: RFC-0019 command-line status dashboard with text/JSON output, WASM integration, Excel sheet option
 - **Browser playground**: WASM-based in-browser scheduler with Monaco editor, Excel options panel
 
 ## Test Coverage
 
-~978 tests (including 60 E2E), ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
+~1018 tests (including 77 E2E), ~86% overall coverage. All core business logic components achieve 90%+ coverage (excluding CLI entry point at 42.5%).
 
 ## Diagnostic System (Compiler-Grade)
 
@@ -196,6 +197,7 @@ All renderers support: `--focus="pattern"`, `--context-depth=N`, `-V` (verbose),
 - `crates/utf8proj-solver/src/optimal.rs` - Optimal leveling solver (experimental)
 - `crates/utf8proj-solver/src/bdd.rs` - BDD-based conflict cluster analysis
 - `crates/utf8proj-solver/tests/complete_task_scheduling.rs` - Complete task scheduling edge cases (v0.15.1 bug fix)
+- `crates/utf8proj-core/src/status.rs` - ProjectStatus struct for status dashboard (RFC-0019)
 - `crates/utf8proj-parser/src/native/grammar.pest` - Native DSL grammar
 - `crates/utf8proj-render/src/gantt.rs` - Interactive HTML Gantt chart renderer
 - `crates/utf8proj-render/src/excel.rs` - Excel costing report with dependencies
@@ -284,6 +286,12 @@ utf8proj baseline show --name original project.proj   # Show baseline details
 utf8proj baseline remove --name old project.proj      # Remove baseline
 utf8proj compare --baseline original project.proj     # Compare vs baseline
 utf8proj compare --baseline original --format json project.proj  # JSON output
+
+# Project status dashboard (RFC-0019)
+utf8proj status project.proj                           # Text dashboard
+utf8proj status project.proj --format json             # JSON output
+utf8proj status project.proj --as-of 2026-02-15        # Custom status date
+utf8proj gantt project.proj -o out.xlsx -f xlsx --include-status  # Excel with status sheet
 
 # Run benchmarks
 utf8proj benchmark -t chain -c 10000 --series

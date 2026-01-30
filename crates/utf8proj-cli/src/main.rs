@@ -14,6 +14,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use utf8proj_core::baseline::{
     compare_schedule_to_baseline, count_containers, extract_leaf_tasks, Baseline, VarianceStatus,
 };
+use utf8proj_core::status::{ProjectStatus, StatusIndicator};
 use utf8proj_core::{CollectingEmitter, Diagnostic, DiagnosticCode, DiagnosticEmitter, Scheduler};
 use utf8proj_parser::baseline::{baselines_path, load_baselines, save_baselines};
 use utf8proj_parser::parse_file;
@@ -187,6 +188,10 @@ enum Commands {
         #[arg(long)]
         include_diagnostics: bool,
 
+        /// Include Status Dashboard sheet in Excel export (RFC-0019)
+        #[arg(long)]
+        include_status: bool,
+
         /// Focus pattern(s) to expand specific task hierarchies (HTML format only).
         /// Matches task IDs by prefix, name by contains, or glob patterns.
         /// Multiple patterns can be comma-separated (e.g., "6.3.2,8.6").
@@ -321,6 +326,21 @@ enum Commands {
         /// Minimum variance in days to show
         #[arg(long)]
         threshold: Option<i32>,
+    },
+
+    /// Show project status dashboard (RFC-0019)
+    Status {
+        /// Input file path
+        #[arg(value_name = "FILE")]
+        file: std::path::PathBuf,
+
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+
+        /// Status date for calculations (YYYY-MM-DD). Defaults to project.status_date or today.
+        #[arg(long, value_name = "DATE")]
+        as_of: Option<String>,
     },
 }
 
@@ -469,6 +489,7 @@ fn main() -> Result<()> {
             weeks,
             include_calendar,
             include_diagnostics,
+            include_status,
             focus,
             context_depth,
             daily,
@@ -488,6 +509,7 @@ fn main() -> Result<()> {
             weeks,
             include_calendar,
             include_diagnostics,
+            include_status,
             focus.as_deref(),
             context_depth,
             daily,
@@ -537,6 +559,7 @@ fn main() -> Result<()> {
             show_unchanged,
             threshold,
         }) => cmd_compare(&file, &baseline, &format, show_unchanged, threshold),
+        Some(Commands::Status { file, format, as_of }) => cmd_status(&file, &format, as_of.as_deref()),
         None => {
             println!("utf8proj - Project Scheduling Engine");
             println!();
@@ -547,6 +570,7 @@ fn main() -> Result<()> {
             println!("  check      Parse and validate a project file");
             println!("  schedule   Schedule a project and output results");
             println!("  gantt      Generate a Gantt chart (SVG)");
+            println!("  status     Show project status dashboard");
             println!("  baseline   Manage project baselines (RFC-0013)");
             println!("  compare    Compare schedule against a baseline");
             println!("  classify   Classify tasks by categories (RFC-0011)");
@@ -1062,6 +1086,7 @@ fn cmd_gantt(
     weeks: u32,
     include_calendar: bool,
     include_diagnostics: bool,
+    include_status: bool,
     focus: Option<&str>,
     context_depth: usize,
     daily: bool,
@@ -1168,6 +1193,11 @@ fn cmd_gantt(
             renderer = renderer.with_diagnostics(diagnostics);
         }
 
+        // Add status dashboard sheet if requested (RFC-0019)
+        if include_status {
+            renderer = renderer.with_status_dashboard();
+        }
+
         // Apply progress mode (RFC-0018)
         {
             use utf8proj_render::ProgressMode;
@@ -1201,6 +1231,9 @@ fn cmd_gantt(
         }
         if include_diagnostics {
             features.push("Diagnostics");
+        }
+        if include_status {
+            features.push("Status Dashboard");
         }
         let feature_str = if features.is_empty() {
             String::new()
@@ -2910,4 +2943,183 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     } else {
         s[..max_len].to_string()
     }
+}
+
+// =============================================================================
+// Status Command (RFC-0019)
+// =============================================================================
+
+/// Status command: show project status dashboard
+///
+/// Displays a comprehensive dashboard view of project health including:
+/// - Overall progress and status indicator
+/// - Schedule metrics (start, baseline finish, forecast finish, variance)
+/// - Earned value metrics (PV, EV, SPI)
+/// - Task breakdown by status
+fn cmd_status(file: &std::path::Path, format: &str, as_of: Option<&str>) -> Result<()> {
+    use chrono::{Local, NaiveDate};
+
+    // Parse and schedule the project
+    let project =
+        parse_file(file).with_context(|| format!("Failed to parse '{}'", file.display()))?;
+    let schedule = CpmSolver::new()
+        .schedule(&project)
+        .with_context(|| "Failed to schedule project")?;
+
+    // Determine status date
+    let status_date = if let Some(date_str) = as_of {
+        NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            .with_context(|| format!("Invalid date format: '{}'", date_str))?
+    } else if let Some(date) = project.status_date {
+        date
+    } else {
+        Local::now().date_naive()
+    };
+
+    // Build status
+    let status = ProjectStatus::from_schedule(&project, &schedule, status_date);
+
+    match format.to_lowercase().as_str() {
+        "json" => output_status_json(&status)?,
+        "text" | _ => output_status_text(&status)?,
+    }
+
+    Ok(())
+}
+
+fn output_status_text(status: &ProjectStatus) -> Result<()> {
+    // ASCII box drawing for status dashboard
+    let box_width = 67;
+
+    // Header
+    println!("{}", "=".repeat(box_width));
+    println!("  {}", status.project_name);
+    println!("{}", "=".repeat(box_width));
+    println!();
+
+    // Progress bar
+    let filled = (status.overall_progress as usize * 20 / 100).min(20);
+    let empty = 20 - filled;
+    let progress_bar = format!(
+        "{}{}",
+        "\u{2588}".repeat(filled),
+        "\u{2591}".repeat(empty)
+    );
+    println!(
+        "  Progress: {}  {}%",
+        progress_bar, status.overall_progress
+    );
+
+    // Status indicator with variance
+    let indicator_str = match status.status_indicator() {
+        StatusIndicator::OnTrack => "ON TRACK",
+        StatusIndicator::AtRisk => "AT RISK",
+        StatusIndicator::Behind => "BEHIND",
+    };
+    println!("  Status:   {} ({})", indicator_str, status.variance_string());
+    println!();
+    println!("{}", "-".repeat(box_width));
+
+    // Two-column layout: Schedule | Earned Value
+    println!(
+        "  {:<32} | {:<28}",
+        "Schedule", "Earned Value"
+    );
+    println!(
+        "  {:<32} | {:<28}",
+        format!("Start:     {}", status.start_date),
+        format!("PV:  {}%", status.planned_value)
+    );
+    println!(
+        "  {:<32} | {:<28}",
+        format!("Baseline:  {}", status.baseline_finish),
+        format!("EV:  {}%", status.earned_value)
+    );
+    println!(
+        "  {:<32} | {:<28}",
+        format!("Forecast:  {}", status.forecast_finish),
+        format!("SPI: {:.2}", status.spi)
+    );
+    println!(
+        "  {:<32} |",
+        format!("Variance:  {}", status.variance_string())
+    );
+    println!();
+    println!("{}", "-".repeat(box_width));
+
+    // Task breakdown
+    println!(
+        "  {:<32} | {:<28}",
+        format!("Tasks: {} total", status.total_tasks),
+        format!("Critical Path: {} tasks", status.critical_path_length)
+    );
+    println!(
+        "  {:<32} |",
+        format!("  \u{2713} Complete:     {}", status.completed_tasks)
+    );
+    println!(
+        "  {:<32} |",
+        format!("  \u{25CF} In Progress:   {}", status.in_progress_tasks)
+    );
+    println!(
+        "  {:<32} |",
+        format!("  \u{25CB} Not Started:   {}", status.not_started_tasks)
+    );
+    if status.behind_tasks > 0 {
+        println!(
+            "  {:<32} |",
+            format!("  \u{26A0} Behind:        {}", status.behind_tasks)
+        );
+    }
+    println!();
+    println!("{}", "=".repeat(box_width));
+
+    // Days remaining
+    if status.days_remaining > 0 {
+        println!("  {} days remaining until forecast completion", status.days_remaining);
+    } else if status.days_remaining == 0 {
+        println!("  Project completes today (forecast)");
+    } else {
+        println!("  Project is {} days past forecast completion", status.days_remaining.abs());
+    }
+    println!();
+
+    Ok(())
+}
+
+fn output_status_json(status: &ProjectStatus) -> Result<()> {
+    use serde_json::json;
+
+    let output = json!({
+        "project_name": status.project_name,
+        "status_date": status.status_date.to_string(),
+        "progress": {
+            "percent": status.overall_progress,
+            "status": status.status_indicator().as_str(),
+            "variance_days": status.variance_days
+        },
+        "schedule": {
+            "start": status.start_date.to_string(),
+            "baseline_finish": status.baseline_finish.to_string(),
+            "forecast_finish": status.forecast_finish.to_string(),
+            "days_remaining": status.days_remaining
+        },
+        "earned_value": {
+            "pv": status.planned_value,
+            "ev": status.earned_value,
+            "spi": status.spi
+        },
+        "tasks": {
+            "total": status.total_tasks,
+            "completed": status.completed_tasks,
+            "in_progress": status.in_progress_tasks,
+            "not_started": status.not_started_tasks,
+            "behind": status.behind_tasks,
+            "critical_path_length": status.critical_path_length
+        }
+    });
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
+
+    Ok(())
 }

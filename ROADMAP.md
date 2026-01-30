@@ -21,42 +21,13 @@ All original v1.0 roadmap items have been implemented:
 | Multiple Render Formats | **Done** | HTML, SVG, MermaidJS, PlantUML, Excel |
 | Focus View | **Done** | RFC-0006: pattern-based filtering |
 | LSP Support | **Done** | Diagnostics, hover, go-to-definition |
+| Project Status Dashboard | **Done** | RFC-0019: text/JSON output, WASM, Excel sheet |
 
 ---
 
 ## Next Steps (Prioritized)
 
-### 1. Project Status Dashboard (Recommended Next)
-
-**Command:** `utf8proj status project.proj`
-
-**Why This Matters for PMs:**
-- Quick "How are we doing?" answer without parsing full schedule
-- At-a-glance health metrics: overall progress, variance, critical path status
-- Highlights issues: late tasks, blocked resources, at-risk milestones
-
-**Proposed Output:**
-```
-╔══════════════════════════════════════════════════════╗
-║  Project: CRM Migration                              ║
-║  Status Date: 2026-01-30                             ║
-╠══════════════════════════════════════════════════════╣
-║  Overall Progress:  62%  ████████████░░░░░░░░        ║
-║  Schedule Variance: +3 days (ahead)                  ║
-║  Critical Path:     12 tasks, 45 days remaining      ║
-╠══════════════════════════════════════════════════════╣
-║  ⚠ 2 tasks behind schedule                          ║
-║  ✓ 8 tasks completed this week                      ║
-║  → 5 tasks starting next week                        ║
-╚══════════════════════════════════════════════════════╝
-```
-
-**Complexity:** Low (data already computed, just needs formatting)
-**Impact:** High (daily PM workflow)
-
----
-
-### 2. CLI Progress Update
+### 1. CLI Progress Update
 
 **Command:** `utf8proj progress --task=api_impl --complete=75`
 
@@ -83,7 +54,7 @@ utf8proj progress project.proj --import=weekly_status.csv
 
 ---
 
-### 3. Extended Task Status
+### 2. Extended Task Status
 
 **Current:** `complete: 75%`
 
@@ -111,7 +82,7 @@ task api_impl "API Implementation" {
 
 ---
 
-### 4. Schedule Playback
+### 3. Schedule Playback
 
 **Command:** `utf8proj playback project.proj -o evolution.html`
 
@@ -130,7 +101,7 @@ task api_impl "API Implementation" {
 
 ---
 
-### 5. Forecast Report
+### 4. Forecast Report
 
 **Command:** `utf8proj forecast project.proj --baseline=original`
 
@@ -173,23 +144,31 @@ Recommendations:
 
 ## Recommendation for Project Managers
 
-**Start with: `utf8proj status`**
+**Use `utf8proj status` for daily standups:**
 
-This command provides the highest value for the lowest implementation cost:
+```bash
+utf8proj status project.proj                 # Text dashboard
+utf8proj status project.proj --format json   # JSON for automation
+utf8proj status project.proj --as-of DATE    # Historical view
+```
 
+The status command provides:
 1. **Daily standup answer**: "Where are we?" in 2 seconds
-2. **No workflow change**: Works with existing .proj files
-3. **Builds foundation**: Status dashboard reuses schedule analysis already implemented
-4. **Quick win**: Can be implemented and shipped in a few days
+2. **Progress metrics**: Overall %, variance, earned value (SPI)
+3. **Task breakdown**: Complete, in-progress, not-started, behind counts
+4. **Critical path**: Number of tasks and days remaining
 
-The existing `utf8proj schedule` and `utf8proj compare --baseline` commands provide detailed data, but PMs need a quick summary view for daily use. The status command fills this gap.
+For Excel reports with status dashboard, use:
+```bash
+utf8proj gantt project.proj -o report.xlsx -f xlsx --include-status
+```
 
 ---
 
 ## Implementation Dependencies
 
 ```
-utf8proj status (no deps, use existing schedule data)
+utf8proj status ✓ DONE (RFC-0019)
     ↓
 utf8proj progress (needs status to show result)
     ↓

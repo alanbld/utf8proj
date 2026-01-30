@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+use utf8proj_core::status::ProjectStatus;
 use utf8proj_core::{CollectingEmitter, LevelingMode, Renderer, Scheduler, Severity};
 use utf8proj_parser::parse_project as parse_proj;
 use utf8proj_render::{
@@ -254,6 +255,44 @@ pub fn get_project_info(project_source: &str) -> Result<String, JsValue> {
     };
 
     serde_json::to_string(&info).map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
+}
+
+/// Get project status dashboard (RFC-0019)
+///
+/// Parses, schedules, and returns a comprehensive status summary including:
+/// - Overall progress and status indicator (On Track, At Risk, Behind)
+/// - Schedule metrics (start, baseline, forecast, variance)
+/// - Earned value metrics (PV, EV, SPI)
+/// - Task breakdown by status
+///
+/// # Arguments
+/// * `project_source` - The project definition string (native DSL format)
+///
+/// # Returns
+/// JSON string with status data, or error
+#[wasm_bindgen]
+pub fn get_project_status(project_source: &str) -> Result<String, JsValue> {
+    // Parse the project
+    let project = parse_proj(project_source)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+
+    // Schedule the project
+    let solver = CpmSolver::new();
+    let schedule = solver
+        .schedule(&project)
+        .map_err(|e| JsValue::from_str(&format!("Scheduling error: {}", e)))?;
+
+    // Determine status date
+    let status_date = project
+        .status_date
+        .unwrap_or_else(|| chrono::Local::now().date_naive());
+
+    // Build status
+    let status = ProjectStatus::from_schedule(&project, &schedule, status_date);
+    let info = ProjectStatusInfo::from(status);
+
+    serde_json::to_string_pretty(&info)
+        .map_err(|e| JsValue::from_str(&format!("JSON error: {}", e)))
 }
 
 fn count_tasks(tasks: &[utf8proj_core::Task]) -> usize {
@@ -579,6 +618,31 @@ impl Playground {
         match (&self.project, &self.schedule) {
             (Some(_), Some(schedule)) => serde_json::to_string_pretty(schedule).unwrap_or_default(),
             _ => String::new(),
+        }
+    }
+
+    /// Get project status dashboard as JSON (RFC-0019)
+    ///
+    /// Returns a comprehensive status summary including:
+    /// - Overall progress and status indicator (On Track, At Risk, Behind)
+    /// - Schedule metrics (start, baseline, forecast, variance)
+    /// - Earned value metrics (PV, EV, SPI)
+    /// - Task breakdown by status
+    ///
+    /// # Returns
+    /// JSON string with status data, or empty object if no schedule
+    pub fn get_status(&self) -> String {
+        match (&self.project, &self.schedule) {
+            (Some(project), Some(schedule)) => {
+                let status_date = project
+                    .status_date
+                    .unwrap_or_else(|| chrono::Local::now().date_naive());
+                let status = ProjectStatus::from_schedule(project, schedule, status_date);
+
+                serde_json::to_string_pretty(&ProjectStatusInfo::from(status))
+                    .unwrap_or_else(|_| "{}".to_string())
+            }
+            _ => "{}".to_string(),
         }
     }
 
@@ -1541,6 +1605,85 @@ struct ProjectParseResult {
     resource_count: usize,
 }
 
+/// Project status dashboard info for JSON output (RFC-0019)
+#[derive(Serialize, Deserialize)]
+struct ProjectStatusInfo {
+    project_name: String,
+    status_date: String,
+    progress: ProgressInfo,
+    schedule: ScheduleInfo,
+    earned_value: EarnedValueInfo,
+    tasks: TaskBreakdownInfo,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ProgressInfo {
+    percent: u8,
+    status: String,
+    variance_days: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ScheduleInfo {
+    start: String,
+    baseline_finish: String,
+    forecast_finish: String,
+    days_remaining: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EarnedValueInfo {
+    pv: u8,
+    ev: u8,
+    spi: f64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TaskBreakdownInfo {
+    total: usize,
+    completed: usize,
+    in_progress: usize,
+    not_started: usize,
+    behind: usize,
+    critical_path_length: usize,
+}
+
+impl From<ProjectStatus> for ProjectStatusInfo {
+    fn from(status: ProjectStatus) -> Self {
+        // Compute status indicator before moving fields
+        let status_indicator = status.status_indicator().as_str().to_string();
+
+        Self {
+            project_name: status.project_name,
+            status_date: status.status_date.to_string(),
+            progress: ProgressInfo {
+                percent: status.overall_progress,
+                status: status_indicator,
+                variance_days: status.variance_days,
+            },
+            schedule: ScheduleInfo {
+                start: status.start_date.to_string(),
+                baseline_finish: status.baseline_finish.to_string(),
+                forecast_finish: status.forecast_finish.to_string(),
+                days_remaining: status.days_remaining,
+            },
+            earned_value: EarnedValueInfo {
+                pv: status.planned_value,
+                ev: status.earned_value,
+                spi: status.spi,
+            },
+            tasks: TaskBreakdownInfo {
+                total: status.total_tasks,
+                completed: status.completed_tasks,
+                in_progress: status.in_progress_tasks,
+                not_started: status.not_started_tasks,
+                behind: status.behind_tasks,
+                critical_path_length: status.critical_path_length,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2238,5 +2381,136 @@ task b "Task B" { duration: 5d depends: a }
             html.contains("2026-01-10"),
             "Gantt should contain status date label"
         );
+    }
+
+    // =========================================================================
+    // RFC-0019: Project Status Dashboard Tests (TDD)
+    // =========================================================================
+
+    const STATUS_TEST_PROJECT: &str = r#"
+project "Status Test" {
+    start: 2026-01-05
+    status_date: 2026-01-15
+}
+
+resource dev "Developer" { capacity: 1.0 }
+
+task completed "Completed Task" {
+    duration: 5d
+    complete: 100%
+    assign: dev
+}
+
+task in_progress "In Progress Task" {
+    duration: 5d
+    complete: 50%
+    depends: completed
+    assign: dev
+}
+
+task not_started "Not Started Task" {
+    duration: 5d
+    complete: 0%
+    depends: in_progress
+    assign: dev
+}
+"#;
+
+    #[test]
+    fn test_get_project_status_returns_valid_json() {
+        // RFC-0019: get_project_status should return valid JSON
+        let result = get_project_status(STATUS_TEST_PROJECT);
+        assert!(result.is_ok(), "get_project_status should succeed");
+
+        let json = result.unwrap();
+        let parsed: Result<ProjectStatusInfo, _> = serde_json::from_str(&json);
+        assert!(
+            parsed.is_ok(),
+            "Result should be valid JSON: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_get_project_status_has_all_fields() {
+        // RFC-0019: Status should contain all required fields
+        let json = get_project_status(STATUS_TEST_PROJECT).unwrap();
+        let status: ProjectStatusInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(status.project_name, "Status Test");
+        assert_eq!(status.status_date, "2026-01-15");
+
+        // Progress fields
+        assert!(status.progress.percent <= 100);
+        assert!(
+            status.progress.status == "On Track" ||
+            status.progress.status == "At Risk" ||
+            status.progress.status == "Behind"
+        );
+
+        // Task breakdown
+        assert_eq!(status.tasks.total, 3);
+    }
+
+    #[test]
+    fn test_playground_get_status_returns_json() {
+        // RFC-0019: Playground.get_status() should return valid JSON
+        let mut pg = Playground::new();
+        let _ = pg.schedule_internal(STATUS_TEST_PROJECT, "native");
+        assert!(pg.has_schedule(), "Schedule should succeed");
+
+        let status_json = pg.get_status();
+        assert!(!status_json.is_empty(), "Status should not be empty");
+        assert!(status_json != "{}", "Status should have content");
+
+        let parsed: Result<ProjectStatusInfo, _> = serde_json::from_str(&status_json);
+        assert!(
+            parsed.is_ok(),
+            "Playground status should be valid JSON: {}",
+            status_json
+        );
+    }
+
+    #[test]
+    fn test_playground_get_status_without_schedule() {
+        // RFC-0019: get_status without schedule should return empty object
+        let pg = Playground::new();
+        let status = pg.get_status();
+        assert_eq!(status, "{}", "Status without schedule should be empty object");
+    }
+
+    #[test]
+    fn test_status_uses_project_status_date() {
+        // RFC-0019: Status should use project.status_date
+        let json = get_project_status(STATUS_TEST_PROJECT).unwrap();
+        let status: ProjectStatusInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(status.status_date, "2026-01-15", "Should use project status_date");
+    }
+
+    #[test]
+    fn test_status_task_breakdown() {
+        // RFC-0019: Task breakdown should count correctly
+        let json = get_project_status(STATUS_TEST_PROJECT).unwrap();
+        let status: ProjectStatusInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(status.tasks.total, 3, "Should have 3 tasks total");
+        assert_eq!(status.tasks.completed, 1, "Should have 1 completed task");
+        assert_eq!(status.tasks.in_progress, 1, "Should have 1 in-progress task");
+        assert_eq!(status.tasks.not_started, 1, "Should have 1 not-started task");
+    }
+
+    #[test]
+    fn test_status_earned_value_fields() {
+        // RFC-0019: Status should contain earned value metrics
+        let json = get_project_status(STATUS_TEST_PROJECT).unwrap();
+        let status: ProjectStatusInfo = serde_json::from_str(&json).unwrap();
+
+        // PV and EV should be percentages (0-100)
+        assert!(status.earned_value.pv <= 100, "PV should be <= 100");
+        assert!(status.earned_value.ev <= 100, "EV should be <= 100");
+        // SPI should be a reasonable ratio
+        assert!(status.earned_value.spi >= 0.0, "SPI should be >= 0");
+        assert!(status.earned_value.spi <= 3.0, "SPI should be <= 3.0");
     }
 }

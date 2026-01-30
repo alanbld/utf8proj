@@ -64,8 +64,8 @@ use rust_xlsxwriter::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use utf8proj_core::{
-    Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer, Schedule, ScheduledTask,
-    Severity,
+    status::ProjectStatus, Calendar, Diagnostic, DiagnosticCode, Project, RenderError, Renderer,
+    Schedule, ScheduledTask, Severity,
 };
 
 /// Schedule time granularity for Excel export
@@ -208,6 +208,10 @@ pub struct ExcelConfig {
     /// Status date for progress calculations (optional, defaults to project.status_date)
     #[serde(default)]
     pub status_date: Option<NaiveDate>,
+
+    /// Include Status Dashboard sheet (RFC-0019)
+    #[serde(default)]
+    pub include_status_dashboard: bool,
 }
 
 fn default_scale() -> String {
@@ -239,6 +243,7 @@ impl Default for ExcelConfig {
             show_dependencies: true,
             progress_mode: ProgressMode::None,
             status_date: None,
+            include_status_dashboard: false,
         }
     }
 }
@@ -284,6 +289,11 @@ impl ExcelConfig {
             renderer = renderer.with_status_date(date);
         }
 
+        // Apply status dashboard setting (RFC-0019)
+        if self.include_status_dashboard {
+            renderer = renderer.with_status_dashboard();
+        }
+
         renderer
     }
 }
@@ -327,6 +337,8 @@ pub struct ExcelRenderer {
     pub progress_mode: ProgressMode,
     /// Status date for progress calculations
     pub status_date: Option<NaiveDate>,
+    /// Whether to include Status Dashboard sheet (RFC-0019)
+    pub include_status_dashboard: bool,
 }
 
 impl Default for ExcelRenderer {
@@ -350,6 +362,7 @@ impl Default for ExcelRenderer {
             auto_fit: true, // Auto-fit to project duration by default
             progress_mode: ProgressMode::None,
             status_date: None,
+            include_status_dashboard: false,
         }
     }
 }
@@ -474,6 +487,18 @@ impl ExcelRenderer {
     /// but not complete). If not set, defaults to project.status_date or today.
     pub fn with_status_date(mut self, date: NaiveDate) -> Self {
         self.status_date = Some(date);
+        self
+    }
+
+    /// Include Status Dashboard sheet (RFC-0019)
+    ///
+    /// Adds a sheet with a project status summary including:
+    /// - Overall progress with visual progress bar
+    /// - Schedule metrics (start, baseline, forecast, variance)
+    /// - Earned value metrics (PV, EV, SPI)
+    /// - Task breakdown by status
+    pub fn with_status_dashboard(mut self) -> Self {
+        self.include_status_dashboard = true;
         self
     }
 
@@ -607,6 +632,11 @@ impl ExcelRenderer {
         // Add Diagnostics sheet if enabled
         if self.include_diagnostics {
             self.add_diagnostics_sheet(&mut workbook, project, &formats)?;
+        }
+
+        // Add Status Dashboard sheet if enabled (RFC-0019)
+        if self.include_status_dashboard {
+            self.add_status_dashboard_sheet(&mut workbook, project, schedule, &formats)?;
         }
 
         // Save to buffer
@@ -3370,6 +3400,297 @@ impl ExcelRenderer {
             }
         }
         result
+    }
+
+    /// Add Status Dashboard sheet (RFC-0019)
+    ///
+    /// Creates a project status summary sheet with:
+    /// - Header with project name and status indicator
+    /// - Progress bar visualization
+    /// - Schedule metrics table
+    /// - Earned value metrics
+    /// - Task breakdown by status
+    fn add_status_dashboard_sheet(
+        &self,
+        workbook: &mut Workbook,
+        project: &Project,
+        schedule: &Schedule,
+        formats: &ExcelFormats,
+    ) -> Result<(), RenderError> {
+        let sheet = workbook.add_worksheet();
+        sheet
+            .set_name("Status Dashboard")
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        // Determine status date
+        let status_date = self
+            .status_date
+            .or(project.status_date)
+            .unwrap_or_else(|| chrono::Local::now().date_naive());
+
+        // Build ProjectStatus
+        let status = ProjectStatus::from_schedule(project, schedule, status_date);
+
+        // Create formats specific to this sheet
+        let title_format = Format::new()
+            .set_bold()
+            .set_font_size(16.0)
+            .set_align(FormatAlign::Left);
+
+        let section_header = Format::new()
+            .set_bold()
+            .set_font_size(12.0)
+            .set_background_color(0xDDDDDD)
+            .set_border(FormatBorder::Thin);
+
+        let label_format = Format::new()
+            .set_align(FormatAlign::Left)
+            .set_border(FormatBorder::Thin);
+
+        let value_format = Format::new()
+            .set_align(FormatAlign::Right)
+            .set_border(FormatBorder::Thin);
+
+        let progress_green = Format::new()
+            .set_background_color(0x90EE90)
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin);
+
+        let progress_empty = Format::new()
+            .set_background_color(0xEEEEEE)
+            .set_align(FormatAlign::Center)
+            .set_border(FormatBorder::Thin);
+
+        let status_on_track = Format::new()
+            .set_bold()
+            .set_font_color(0x008800)
+            .set_align(FormatAlign::Left);
+
+        let status_at_risk = Format::new()
+            .set_bold()
+            .set_font_color(0xCC8800)
+            .set_align(FormatAlign::Left);
+
+        let status_behind = Format::new()
+            .set_bold()
+            .set_font_color(0xCC0000)
+            .set_align(FormatAlign::Left);
+
+        // Set column widths
+        sheet.set_column_width(0, 20).ok(); // Label column
+        sheet.set_column_width(1, 20).ok(); // Value column
+        sheet.set_column_width(2, 5).ok();  // Spacer
+        sheet.set_column_width(3, 20).ok(); // Label column 2
+        sheet.set_column_width(4, 20).ok(); // Value column 2
+
+        let mut row: u32 = 0;
+
+        // =====================================================================
+        // Project Title and Status
+        // =====================================================================
+        sheet
+            .write_with_format(row, 0, &status.project_name, &title_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        // Status indicator
+        let indicator_text = match status.status_indicator() {
+            utf8proj_core::status::StatusIndicator::OnTrack => "ON TRACK",
+            utf8proj_core::status::StatusIndicator::AtRisk => "AT RISK",
+            utf8proj_core::status::StatusIndicator::Behind => "BEHIND",
+        };
+        let indicator_format = match status.status_indicator() {
+            utf8proj_core::status::StatusIndicator::OnTrack => &status_on_track,
+            utf8proj_core::status::StatusIndicator::AtRisk => &status_at_risk,
+            utf8proj_core::status::StatusIndicator::Behind => &status_behind,
+        };
+        sheet
+            .write_with_format(row, 0, format!("Status: {}", indicator_text), indicator_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.variance_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 2;
+
+        // =====================================================================
+        // Progress Bar
+        // =====================================================================
+        sheet
+            .write_with_format(row, 0, "Overall Progress", &section_header)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .merge_range(row, 0, row, 4, "Overall Progress", &section_header)
+            .ok();
+        row += 1;
+
+        // Draw progress bar (20 cells)
+        let filled_cells = (status.overall_progress as usize * 20 / 100).min(20);
+        for i in 0..20 {
+            let col = i as u16;
+            let fmt = if i < filled_cells {
+                &progress_green
+            } else {
+                &progress_empty
+            };
+            sheet.write_with_format(row, col, "", fmt).ok();
+        }
+        // Write percentage at the end
+        sheet
+            .write_with_format(
+                row,
+                20,
+                format!("{}%", status.overall_progress),
+                &value_format,
+            )
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 2;
+
+        // =====================================================================
+        // Schedule Metrics
+        // =====================================================================
+        sheet
+            .write_with_format(row, 0, "Schedule", &section_header)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 3, "Earned Value", &section_header)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        // Schedule column
+        sheet
+            .write_with_format(row, 0, "Start", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.start_date.to_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        // Earned Value column
+        sheet
+            .write_with_format(row, 3, "Planned Value (PV)", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 4, format!("{}%", status.planned_value), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "Baseline Finish", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.baseline_finish.to_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 3, "Earned Value (EV)", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 4, format!("{}%", status.earned_value), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "Forecast Finish", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.forecast_finish.to_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 3, "SPI", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 4, format!("{:.2}", status.spi), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "Variance", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.variance_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "Status Date", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.status_date.to_string(), &value_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 2;
+
+        // =====================================================================
+        // Task Breakdown
+        // =====================================================================
+        sheet
+            .write_with_format(row, 0, "Task Breakdown", &section_header)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet.merge_range(row, 0, row, 1, "Task Breakdown", &section_header).ok();
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "Total Tasks", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.total_tasks as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "✓ Complete", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.completed_tasks as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "● In Progress", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.in_progress_tasks as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        sheet
+            .write_with_format(row, 0, "○ Not Started", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.not_started_tasks as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 1;
+
+        if status.behind_tasks > 0 {
+            sheet
+                .write_with_format(row, 0, "⚠ Behind Schedule", &label_format)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            sheet
+                .write_with_format(row, 1, status.behind_tasks as f64, &formats.integer)
+                .map_err(|e| RenderError::Format(e.to_string()))?;
+            row += 1;
+        }
+
+        sheet
+            .write_with_format(row, 0, "Critical Path Tasks", &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        sheet
+            .write_with_format(row, 1, status.critical_path_length as f64, &formats.integer)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+        row += 2;
+
+        // Days remaining
+        let days_text = if status.days_remaining > 0 {
+            format!("{} days remaining until forecast completion", status.days_remaining)
+        } else if status.days_remaining == 0 {
+            "Project completes today (forecast)".to_string()
+        } else {
+            format!(
+                "{} days past forecast completion",
+                status.days_remaining.abs()
+            )
+        };
+        sheet
+            .write_with_format(row, 0, &days_text, &label_format)
+            .map_err(|e| RenderError::Format(e.to_string()))?;
+
+        Ok(())
     }
 }
 
