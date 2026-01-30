@@ -1,7 +1,7 @@
 # utf8proj Roadmap
 
 **Last Updated:** 2026-01-30
-**Current Version:** 0.15.1
+**Current Version:** 0.16.0
 
 ---
 

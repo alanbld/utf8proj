@@ -2318,7 +2318,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utf8proj-cli"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-core"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "num-bigint",
@@ -2349,7 +2349,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-lsp"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-parser"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "insta",
@@ -2384,7 +2384,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-render"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "pretty_assertions",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-solver"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "biodivine-lib-bdd",
  "chrono",
@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "utf8proj-wasm"
-version = "0.15.1"
+version = "0.16.0"
 dependencies = [
  "chrono",
  "console_error_panic_hook",
