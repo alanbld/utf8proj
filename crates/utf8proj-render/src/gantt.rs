@@ -36,6 +36,8 @@ pub struct HtmlGanttRenderer {
     pub focus: Option<FocusConfig>,
     /// Now line configuration (RFC-0017)
     pub now_line: NowLineConfig,
+    /// Highlight critical path tasks in red (default: true)
+    pub highlight_critical: bool,
 }
 
 /// Configuration for now line rendering (RFC-0017)
@@ -256,6 +258,7 @@ impl Default for HtmlGanttRenderer {
             interactive: true,
             focus: None,
             now_line: NowLineConfig::default(),
+            highlight_critical: true,
         }
     }
 }
@@ -292,6 +295,12 @@ impl HtmlGanttRenderer {
     /// Disable interactivity
     pub fn static_chart(mut self) -> Self {
         self.interactive = false;
+        self
+    }
+
+    /// Disable critical path highlighting (all tasks use normal color)
+    pub fn hide_critical_path(mut self) -> Self {
+        self.highlight_critical = false;
         self
     }
 
@@ -348,6 +357,44 @@ impl HtmlGanttRenderer {
     pub fn with_now_line(mut self, config: NowLineConfig) -> Self {
         self.now_line = config;
         self
+    }
+
+    /// Compute tight date range from rendered task bars
+    ///
+    /// Instead of using `project.start` to `schedule.project_end`, this iterates over
+    /// the visible tasks and returns their actual min start / max finish with 1-day padding.
+    /// Falls back to project metadata if no tasks have schedule data.
+    fn compute_visible_date_range(
+        &self,
+        project: &Project,
+        schedule: &Schedule,
+        tasks: &[TaskDisplay],
+    ) -> (NaiveDate, NaiveDate) {
+        let mut min_start: Option<NaiveDate> = None;
+        let mut max_finish: Option<NaiveDate> = None;
+
+        for td in tasks {
+            if let Some(scheduled) = td.scheduled {
+                min_start = Some(match min_start {
+                    Some(current) => current.min(scheduled.start),
+                    None => scheduled.start,
+                });
+                max_finish = Some(match max_finish {
+                    Some(current) => current.max(scheduled.finish),
+                    None => scheduled.finish,
+                });
+            }
+        }
+
+        match (min_start, max_finish) {
+            (Some(start), Some(end)) => {
+                // 1-day padding on each side
+                let padded_start = start - chrono::Duration::days(1);
+                let padded_end = end + chrono::Duration::days(1);
+                (padded_start, padded_end)
+            }
+            _ => (project.start, schedule.project_end),
+        }
     }
 
     /// Calculate pixels per day based on date range
@@ -490,8 +537,7 @@ impl HtmlGanttRenderer {
         schedule: &Schedule,
         tasks: &[TaskDisplay],
     ) -> String {
-        let project_start = project.start;
-        let project_end = schedule.project_end;
+        let (project_start, project_end) = self.compute_visible_date_range(project, schedule, tasks);
         let px_per_day = self.pixels_per_day(project_start, project_end);
 
         let total_width = self.padding * 2 + self.label_width + self.chart_width;
@@ -870,7 +916,7 @@ impl HtmlGanttRenderer {
                 svg.push('\n');
             } else {
                 // Regular task bar
-                let color = if scheduled.is_critical {
+                let color = if self.highlight_critical && scheduled.is_critical {
                     &self.theme.critical_color
                 } else {
                     &self.theme.normal_color
@@ -1273,7 +1319,7 @@ impl HtmlGanttRenderer {
             font-size: 10px;
             fill: #E53935;
         }}"#,
-            critical = self.theme.critical_color,
+            critical = if self.highlight_critical { &self.theme.critical_color } else { &self.theme.normal_color },
             normal = self.theme.normal_color,
             milestone = self.theme.milestone_color,
             container = self.theme.container_color,

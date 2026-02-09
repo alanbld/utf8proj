@@ -396,6 +396,8 @@ pub struct Playground {
     diagnostics: Vec<utf8proj_core::Diagnostic>,
     /// RFC-0017: Show now line on Gantt chart (default: true)
     show_now_line: bool,
+    /// Highlight critical path tasks in red (default: true)
+    highlight_critical: bool,
 }
 
 #[wasm_bindgen]
@@ -416,6 +418,7 @@ impl Playground {
             context_depth: 1,
             diagnostics: vec![],
             show_now_line: true, // RFC-0017: enabled by default
+            highlight_critical: true,
         }
     }
 
@@ -513,6 +516,9 @@ impl Playground {
                     renderer = renderer.with_now_line(NowLineConfig::with_status_date(status_date));
                 } else {
                     renderer = renderer.with_now_line(NowLineConfig::disabled());
+                }
+                if !self.highlight_critical {
+                    renderer = renderer.hide_critical_path();
                 }
                 renderer.render(project, schedule).unwrap_or_default()
             }
@@ -773,6 +779,14 @@ impl Playground {
     /// Get current now line setting (RFC-0017)
     pub fn get_show_now_line(&self) -> bool {
         self.show_now_line
+    }
+
+    /// Enable or disable critical path highlighting on Gantt chart
+    ///
+    /// When enabled (default), critical path tasks are shown in red.
+    /// When disabled, all tasks use the normal color.
+    pub fn set_highlight_critical(&mut self, enabled: bool) {
+        self.highlight_critical = enabled;
     }
 
     /// Set focus patterns for focus view (RFC-0006)
