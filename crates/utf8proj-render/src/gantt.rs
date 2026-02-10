@@ -9,9 +9,33 @@
 //! - Collapsible hierarchical tasks
 //! - Responsive zoom controls
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use std::collections::HashMap;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask, Task};
+
+/// Format a date range as a human-readable header label.
+///
+/// - Same month: "February 2026"
+/// - Different months, same year: "Feb \u{2013} Mar 2026"
+/// - Different years: "Dec 2025 \u{2013} Jan 2026"
+fn format_date_range_label(start: NaiveDate, end: NaiveDate) -> String {
+    if start.year() == end.year() && start.month() == end.month() {
+        start.format("%B %Y").to_string()
+    } else if start.year() == end.year() {
+        format!(
+            "{} \u{2013} {} {}",
+            start.format("%b"),
+            end.format("%b"),
+            start.format("%Y")
+        )
+    } else {
+        format!(
+            "{} \u{2013} {}",
+            start.format("%b %Y"),
+            end.format("%b %Y")
+        )
+    }
+}
 
 /// HTML Gantt chart renderer configuration
 #[derive(Clone, Debug)]
@@ -740,7 +764,7 @@ impl HtmlGanttRenderer {
         }
 
         // Month/year label
-        let month_label = project_start.format("%B %Y").to_string();
+        let month_label = format_date_range_label(project_start, project_end);
         svg.push_str(&format!(
             r#"                <text x="{x}" y="{y}" font-size="14" font-weight="bold" fill="{color}" text-anchor="middle">{label}</text>"#,
             x = self.padding + self.label_width + self.chart_width / 2,
@@ -2314,5 +2338,32 @@ mod tests {
             HtmlGanttRenderer::new().with_now_line(NowLineConfig::with_status_date(date));
 
         assert_eq!(renderer.now_line.status_date, Some(date));
+    }
+
+    #[test]
+    fn format_date_range_label_single_month() {
+        let start = NaiveDate::from_ymd_opt(2026, 2, 2).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 2, 27).unwrap();
+        assert_eq!(format_date_range_label(start, end), "February 2026");
+    }
+
+    #[test]
+    fn format_date_range_label_multi_month_same_year() {
+        let start = NaiveDate::from_ymd_opt(2026, 2, 2).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 3, 15).unwrap();
+        assert_eq!(
+            format_date_range_label(start, end),
+            "Feb \u{2013} Mar 2026"
+        );
+    }
+
+    #[test]
+    fn format_date_range_label_cross_year() {
+        let start = NaiveDate::from_ymd_opt(2025, 11, 10).unwrap();
+        let end = NaiveDate::from_ymd_opt(2026, 2, 15).unwrap();
+        assert_eq!(
+            format_date_range_label(start, end),
+            "Nov 2025 \u{2013} Feb 2026"
+        );
     }
 }

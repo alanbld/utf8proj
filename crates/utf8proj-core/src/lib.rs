@@ -1866,6 +1866,8 @@ pub enum DiagnosticCode {
     E002ProfileWithoutRate,
     /// Task constraint cannot be satisfied (ES > LS)
     E003InfeasibleConstraint,
+    /// Duplicate task ID among sibling tasks
+    E004DuplicateTaskId,
     /// Rate range is inverted (min > max) - RFC-0004 R102
     R102InvertedRateRange,
     /// Unknown profile referenced in specialization - RFC-0004 R104
@@ -1997,6 +1999,7 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => "E001",
             DiagnosticCode::E002ProfileWithoutRate => "E002",
             DiagnosticCode::E003InfeasibleConstraint => "E003",
+            DiagnosticCode::E004DuplicateTaskId => "E004",
             DiagnosticCode::R102InvertedRateRange => "R102",
             DiagnosticCode::R104UnknownProfile => "R104",
             DiagnosticCode::C001ZeroWorkingHours => "C001",
@@ -2058,6 +2061,7 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => Severity::Error,
             DiagnosticCode::E002ProfileWithoutRate => Severity::Warning, // Error in strict mode
             DiagnosticCode::E003InfeasibleConstraint => Severity::Error,
+            DiagnosticCode::E004DuplicateTaskId => Severity::Error,
             DiagnosticCode::R102InvertedRateRange => Severity::Error,
             DiagnosticCode::R104UnknownProfile => Severity::Error,
             DiagnosticCode::C001ZeroWorkingHours => Severity::Error,
@@ -2125,11 +2129,12 @@ impl DiagnosticCode {
             DiagnosticCode::E001CircularSpecialization => 0,
             DiagnosticCode::E002ProfileWithoutRate => 1,
             DiagnosticCode::E003InfeasibleConstraint => 2,
-            DiagnosticCode::R102InvertedRateRange => 3,
-            DiagnosticCode::R104UnknownProfile => 4,
+            DiagnosticCode::E004DuplicateTaskId => 3,
+            DiagnosticCode::R102InvertedRateRange => 4,
+            DiagnosticCode::R104UnknownProfile => 5,
             // Calendar errors
-            DiagnosticCode::C001ZeroWorkingHours => 5,
-            DiagnosticCode::C002NoWorkingDays => 6,
+            DiagnosticCode::C001ZeroWorkingHours => 6,
+            DiagnosticCode::C002NoWorkingDays => 7,
             // Cost-related warnings
             DiagnosticCode::W002WideCostRange => 10,
             DiagnosticCode::R012TraitMultiplierStack => 11,
@@ -2184,13 +2189,13 @@ impl DiagnosticCode {
             // Baseline diagnostics (B001-B009) - RFC-0013
             DiagnosticCode::B001BaselineSaved => 45, // Info level, after cost summary
             DiagnosticCode::B002TaskLacksId => 22,   // Warning level, with other warnings
-            DiagnosticCode::B003BaselineExists => 7, // Error level
-            DiagnosticCode::B004BaselineNotFound => 8, // Error level
+            DiagnosticCode::B003BaselineExists => 8, // Error level
+            DiagnosticCode::B004BaselineNotFound => 9, // Error level
             DiagnosticCode::B005TaskRemoved => 46,   // Info level
             DiagnosticCode::B006TaskAdded => 47,     // Info level
             DiagnosticCode::B007NoBaselinesFile => 23, // Warning level
             DiagnosticCode::B008ContainerExcluded => 24, // Warning level
-            DiagnosticCode::B009NoTaskIds => 9,      // Error level
+            DiagnosticCode::B009NoTaskIds => 10,     // Error level
         }
     }
 
@@ -2208,6 +2213,9 @@ impl DiagnosticCode {
             DiagnosticCode::E003InfeasibleConstraint =>
                 "The task's constraint cannot be satisfied given its dependencies. \
                  Early start (ES) > Late start (LS) indicates scheduling conflict.",
+            DiagnosticCode::E004DuplicateTaskId =>
+                "Two or more sibling tasks share the same ID. Task IDs must be unique \
+                 within the same container. Rename one of the duplicates.",
 
             // Rate/Profile errors
             DiagnosticCode::R102InvertedRateRange =>
@@ -3858,6 +3866,7 @@ mod tests {
         // Errors have lowest priority (emitted first)
         assert!(DiagnosticCode::E002ProfileWithoutRate.ordering_priority() < 10);
         assert!(DiagnosticCode::E003InfeasibleConstraint.ordering_priority() < 10);
+        assert!(DiagnosticCode::E004DuplicateTaskId.ordering_priority() < 10);
         assert!(DiagnosticCode::R102InvertedRateRange.ordering_priority() < 10);
         assert!(DiagnosticCode::R104UnknownProfile.ordering_priority() < 10);
         // Cost warnings

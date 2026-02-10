@@ -1043,6 +1043,9 @@ pub fn analyze_project(
     // E001: Circular specialization
     check_circular_specialization(project, config, emitter);
 
+    // E004: Duplicate task IDs among siblings
+    check_duplicate_task_ids(project, config, emitter);
+
     // R102: Inverted rate ranges (min > max)
     check_inverted_rate_ranges(project, config, emitter);
 
@@ -1442,6 +1445,41 @@ fn check_calendars(
                     .with_hint("adjust task constraints or calendar"),
                 );
             }
+        }
+    }
+}
+
+/// E004: Check for duplicate task IDs among sibling tasks
+fn check_duplicate_task_ids(
+    project: &Project,
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    check_duplicate_ids_recursive(&project.tasks, config, emitter);
+}
+
+fn check_duplicate_ids_recursive(
+    tasks: &[Task],
+    config: &AnalysisConfig,
+    emitter: &mut dyn DiagnosticEmitter,
+) {
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    for task in tasks {
+        let count = seen.entry(task.id.as_str()).or_insert(0);
+        *count += 1;
+        if *count == 2 {
+            emitter.emit(
+                Diagnostic::error(
+                    DiagnosticCode::E004DuplicateTaskId,
+                    format!("duplicate task ID '{}' among sibling tasks", task.id),
+                )
+                .with_file(config.file.clone().unwrap_or_default())
+                .with_hint("rename one of the duplicates to a unique ID"),
+            );
+        }
+        // Recurse into children
+        if !task.children.is_empty() {
+            check_duplicate_ids_recursive(&task.children, config, emitter);
         }
     }
 }

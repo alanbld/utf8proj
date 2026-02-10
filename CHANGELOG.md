@@ -5,6 +5,12 @@ All notable changes to utf8proj are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-02-09
+
+### Added
+- **Duplicate task ID validation (E004)** — Sibling tasks sharing the same ID now emit an `E004` error diagnostic, preventing undefined scheduling behavior
+- **Gantt header date range label** — Header now shows the actual date range (e.g. "Feb – Mar 2026") instead of only the start month; applies to both HTML and SVG renderers
+
 ## [0.16.1] - 2026-02-09
 
 ### Added

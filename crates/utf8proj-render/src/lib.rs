@@ -51,10 +51,34 @@ pub use gantt::{FocusConfig, GanttTheme, HtmlGanttRenderer, NowLineConfig, TaskV
 pub use mermaid::MermaidRenderer;
 pub use plantuml::PlantUmlRenderer;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use svg::node::element::{Group, Line, Rectangle, Text};
 use svg::Document;
 use utf8proj_core::{Project, RenderError, Renderer, Schedule, ScheduledTask};
+
+/// Format a date range as a human-readable header label.
+///
+/// - Same month: "February 2026"
+/// - Different months, same year: "Feb \u{2013} Mar 2026"
+/// - Different years: "Dec 2025 \u{2013} Jan 2026"
+fn format_date_range_label(start: NaiveDate, end: NaiveDate) -> String {
+    if start.year() == end.year() && start.month() == end.month() {
+        start.format("%B %Y").to_string()
+    } else if start.year() == end.year() {
+        format!(
+            "{} \u{2013} {} {}",
+            start.format("%b"),
+            end.format("%b"),
+            start.format("%Y")
+        )
+    } else {
+        format!(
+            "{} \u{2013} {}",
+            start.format("%b %Y"),
+            end.format("%b %Y")
+        )
+    }
+}
 
 /// Display mode for task labels in charts
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -129,6 +153,8 @@ pub struct SvgRenderer {
     pub font_size: u32,
     /// Display mode for task labels
     pub display_mode: DisplayMode,
+    /// Highlight critical path tasks in red (default: true)
+    pub highlight_critical: bool,
 }
 
 impl Default for SvgRenderer {
@@ -148,6 +174,7 @@ impl Default for SvgRenderer {
             font_family: "system-ui, -apple-system, sans-serif".into(),
             font_size: 12,
             display_mode: DisplayMode::Name,
+            highlight_critical: true,
         }
     }
 }
@@ -155,6 +182,12 @@ impl Default for SvgRenderer {
 impl SvgRenderer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Disable critical path highlighting (all tasks use normal color)
+    pub fn hide_critical_path(mut self) -> Self {
+        self.highlight_critical = false;
+        self
     }
 
     /// Configure chart width
@@ -270,7 +303,7 @@ impl SvgRenderer {
         }
 
         // Month/Year label at the top
-        let month_label = project_start.format("%B %Y").to_string();
+        let month_label = format_date_range_label(project_start, project_end);
         let month_text = Text::new(month_label)
             .set("x", self.padding + self.label_width + self.chart_width / 2)
             .set("y", self.padding + 18)
@@ -388,7 +421,7 @@ impl SvgRenderer {
             group = group.add(diamond);
         } else {
             // Draw bar for regular task
-            let color = if task.is_critical {
+            let color = if self.highlight_critical && task.is_critical {
                 self.critical_color.as_str()
             } else {
                 self.normal_color.as_str()
@@ -428,13 +461,18 @@ impl SvgRenderer {
         let spacing = 120.0;
 
         // Critical path
+        let legend_critical_color = if self.highlight_critical {
+            self.critical_color.as_str()
+        } else {
+            self.normal_color.as_str()
+        };
         let critical_box = Rectangle::new()
             .set("x", x_start)
             .set("y", y - box_size + 2.0)
             .set("width", box_size)
             .set("height", box_size)
             .set("rx", 2)
-            .set("fill", self.critical_color.as_str());
+            .set("fill", legend_critical_color);
         group = group.add(critical_box);
 
         let critical_label = Text::new("Critical Path")
@@ -744,6 +782,50 @@ mod tests {
 
         let svg = renderer.render(&project, &schedule).unwrap();
         assert!(svg.contains(&renderer.critical_color));
+    }
+
+    #[test]
+    fn svg_hide_critical_path_uses_normal_color() {
+        let renderer = SvgRenderer::new().hide_critical_path();
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let svg = renderer.render(&project, &schedule).unwrap();
+        // Critical color should NOT appear in task bars when hidden
+        // The normal_color should be used for all tasks
+        assert!(
+            !svg.contains("#e74c3c"),
+            "critical color should not appear when highlight_critical is false"
+        );
+        assert!(
+            svg.contains("#3498db"),
+            "normal color should appear for all tasks"
+        );
+    }
+
+    #[test]
+    fn svg_hide_critical_path_legend_uses_normal_color() {
+        let renderer = SvgRenderer::new().hide_critical_path();
+        let project = create_test_project();
+        let schedule = create_test_schedule();
+
+        let svg = renderer.render(&project, &schedule).unwrap();
+        // Legend "Critical Path" box should use normal color when highlighting is off
+        // Count how many times the critical red appears — should be zero
+        let critical_count = svg.matches("#e74c3c").count();
+        assert_eq!(
+            critical_count, 0,
+            "no red should appear anywhere when critical path highlighting is off"
+        );
+    }
+
+    #[test]
+    fn svg_highlight_critical_defaults_to_true() {
+        let renderer = SvgRenderer::new();
+        assert!(
+            renderer.highlight_critical,
+            "highlight_critical should default to true"
+        );
     }
 
     #[test]
