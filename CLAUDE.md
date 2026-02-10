@@ -117,6 +117,7 @@ The CLI implements rustc-style diagnostics for project analysis with structured 
 | E001 | Error | Circular specialization in profiles |
 | E002 | Warning | Profile without rate assigned to tasks |
 | E003 | Error | Infeasible constraint (cannot be satisfied) |
+| E004 | Error | Duplicate task ID among sibling tasks |
 | W001 | Warning | Task assigned to abstract profile |
 | W002 | Warning | Wide cost range (>100% spread) |
 | W003 | Warning | Unknown trait on profile |
