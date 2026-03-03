@@ -194,6 +194,17 @@ class UTF8ProjWriter:
             if dep_strs:
                 self.add_line(f'depends: {", ".join(dep_strs)}', indent + 1)
         
+        # Completion percentage (prefer PhysicalPercentComplete, fall back to PercentComplete)
+        if not is_container:
+            pct = task.getPhysicalPercentComplete()
+            if pct is None:
+                pct = task.getPercentageComplete()
+            if pct is not None:
+                pct_val = float(str(pct).replace('%', ''))
+                if pct_val > 0:
+                    pct_int = int(pct_val)
+                    self.add_line(f'complete: {pct_int}%', indent + 1)
+
         assignments = task.getResourceAssignments()
         if assignments:
             res_ids = [self.resource_map[a.getResource().getUniqueID()] 

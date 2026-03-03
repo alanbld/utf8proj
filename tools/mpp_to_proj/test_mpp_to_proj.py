@@ -119,7 +119,7 @@ class TestUTF8ProjWriter:
         task.getWBS.return_value = "1.1"
         task.getChildTasks.return_value = None
         task.getMilestone.return_value = False
-        
+
         duration = MagicMock()
         duration.getDuration.return_value = 5.0
         task.getDuration.return_value = duration
@@ -127,6 +127,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = "Some\nnotes with \"quotes\""
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
         
         writer.write_task_recursive(task, 0)
         
@@ -141,7 +143,7 @@ class TestUTF8ProjWriter:
         parent.getUniqueID.return_value = 1
         parent.getName.return_value = "Parent"
         parent.getWBS.return_value = "1"
-        
+
         child = MagicMock()
         child.getUniqueID.return_value = 2
         child.getName.return_value = "Child"
@@ -152,12 +154,14 @@ class TestUTF8ProjWriter:
         child.getResourceAssignments.return_value = []
         child.getConstraintType.return_value = None
         child.getNotes.return_value = None
-        
+        child.getPhysicalPercentComplete.return_value = None
+        child.getPercentageComplete.return_value = None
+
         mock_children = MagicMock()
         mock_children.isEmpty.return_value = False
         mock_children.__iter__.return_value = [child]
         parent.getChildTasks.return_value = mock_children
-        
+
         parent.getPredecessors.return_value = []
         parent.getResourceAssignments.return_value = []
         parent.getConstraintType.return_value = None
@@ -177,6 +181,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         writer.write_task_recursive(task, 0)
         assert any('milestone: true' in line for line in writer.lines)
@@ -193,6 +199,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # Mock duration
         duration = MagicMock()
@@ -221,6 +229,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # Mock duration
         duration = MagicMock()
@@ -250,6 +260,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # Mock duration
         duration = MagicMock()
@@ -276,6 +288,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # Mock duration = 10 days
         duration = MagicMock()
@@ -305,6 +319,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # No duration
         task.getDuration.return_value = None
@@ -331,6 +347,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # Duration = 2 days
         duration = MagicMock()
@@ -360,6 +378,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         task.getDuration.return_value = None
 
@@ -385,6 +405,8 @@ class TestUTF8ProjWriter:
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         task.getDuration.return_value = None
 
@@ -402,23 +424,25 @@ class TestUTF8ProjWriter:
         task = MagicMock()
         task.getUniqueID.return_value = 30
         task.getChildTasks.return_value = None
-        
+
         pred_task = MagicMock()
         pred_task.getUniqueID.return_value = 5
         pred_task.getID.return_value = 5
         pred_task.getParentTask.return_value = None
-        
+
         rel = MagicMock()
         rel.getPredecessorTask.return_value = pred_task
         rel.getType.return_value = "SS"  # MPXJ returns "SS" not "START_START"
         lag = MagicMock()
         lag.getDuration.return_value = 2.0
         rel.getLag.return_value = lag
-        
+
         task.getPredecessors.return_value = [rel]
         task.getResourceAssignments.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
         
         writer.write_task_recursive(task, 0)
         output = "\n".join(writer.lines)
@@ -428,17 +452,19 @@ class TestUTF8ProjWriter:
         task = MagicMock()
         task.getUniqueID.return_value = 40
         task.getChildTasks.return_value = None
-        
+
         res = MagicMock()
         res.getUniqueID.return_value = 100
         writer.resource_map[100] = "bob"
-        
+
         assign = MagicMock()
         assign.getResource.return_value = res
         task.getResourceAssignments.return_value = [assign]
         task.getPredecessors.return_value = []
         task.getConstraintType.return_value = None
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
         
         writer.write_task_recursive(task, 0)
         assert any('assign: bob' in line for line in writer.lines)
@@ -454,6 +480,8 @@ class TestUTF8ProjWriter:
         task.getPredecessors.return_value = []
         task.getResourceAssignments.return_value = []
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         # No explicit constraint
         task.getConstraintType.return_value = MagicMock(getValue=lambda: 0)
@@ -482,6 +510,8 @@ class TestUTF8ProjWriter:
         task.getPredecessors.return_value = []
         task.getResourceAssignments.return_value = []
         task.getNotes.return_value = None
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = None
 
         duration = MagicMock()
         duration.getDuration.return_value = 5.0
@@ -519,7 +549,9 @@ class TestUTF8ProjWriter:
             task.getNotes.return_value = None
             task.getPredecessors.return_value = []
             task.getResourceAssignments.return_value = []
-            
+            task.getPhysicalPercentComplete.return_value = None
+            task.getPercentageComplete.return_value = None
+
             c_type = MagicMock()
             c_type.getValue.return_value = cv
             task.getConstraintType.return_value = c_type
@@ -542,6 +574,143 @@ class TestUTF8ProjWriter:
                 assert any(f'{expected_keyword}: 2025-01-01' in line for line in writer.lines)
             else:
                 assert any(f'{expected_keyword}: 2025-12-31' in line for line in writer.lines)
+
+    def test_write_task_recursive_complete_physical(self, writer):
+        """Test that PhysicalPercentComplete is emitted as complete: field."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 80
+        task.getName.return_value = "Task 60% Done"
+        task.getWBS.return_value = "4.1"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        duration = MagicMock()
+        duration.getDuration.return_value = 10.0
+        task.getDuration.return_value = duration
+        task.getWork.return_value = None
+
+        task.getPhysicalPercentComplete.return_value = "60"
+        task.getPercentageComplete.return_value = "50"
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'complete: 60%' in output
+        # Physical takes priority over regular
+        assert 'complete: 50%' not in output
+
+    def test_write_task_recursive_complete_fallback(self, writer):
+        """Test fallback to PercentageComplete when Physical is None."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 81
+        task.getName.return_value = "Task Fallback"
+        task.getWBS.return_value = "4.2"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        duration = MagicMock()
+        duration.getDuration.return_value = 5.0
+        task.getDuration.return_value = duration
+        task.getWork.return_value = None
+
+        task.getPhysicalPercentComplete.return_value = None
+        task.getPercentageComplete.return_value = "85"
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'complete: 85%' in output
+
+    def test_write_task_recursive_complete_zero(self, writer):
+        """Test that 0% completion does not produce complete: line."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 82
+        task.getName.return_value = "Task Not Started"
+        task.getWBS.return_value = "4.3"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        duration = MagicMock()
+        duration.getDuration.return_value = 5.0
+        task.getDuration.return_value = duration
+        task.getWork.return_value = None
+
+        task.getPhysicalPercentComplete.return_value = "0"
+        task.getPercentageComplete.return_value = "0"
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'complete:' not in output
+
+    def test_write_task_recursive_complete_100(self, writer):
+        """Test that 100% completion is emitted correctly."""
+        task = MagicMock()
+        task.getUniqueID.return_value = 83
+        task.getName.return_value = "Task Done"
+        task.getWBS.return_value = "4.4"
+        task.getChildTasks.return_value = None
+        task.getMilestone.return_value = False
+        task.getPredecessors.return_value = []
+        task.getResourceAssignments.return_value = []
+        task.getConstraintType.return_value = None
+        task.getNotes.return_value = None
+
+        duration = MagicMock()
+        duration.getDuration.return_value = 3.0
+        task.getDuration.return_value = duration
+        task.getWork.return_value = None
+
+        task.getPhysicalPercentComplete.return_value = "100"
+        task.getPercentageComplete.return_value = None
+
+        writer.write_task_recursive(task, 0)
+        output = "\n".join(writer.lines)
+        assert 'complete: 100%' in output
+
+    def test_write_task_recursive_complete_not_on_container(self, writer):
+        """Test that containers don't get complete: field (auto-calculated)."""
+        parent = MagicMock()
+        parent.getUniqueID.return_value = 84
+        parent.getName.return_value = "Container"
+        parent.getWBS.return_value = "5"
+        parent.getPredecessors.return_value = []
+        parent.getResourceAssignments.return_value = []
+        parent.getConstraintType.return_value = None
+        parent.getNotes.return_value = None
+        parent.getPhysicalPercentComplete.return_value = "50"
+        parent.getPercentageComplete.return_value = "50"
+
+        child = MagicMock()
+        child.getUniqueID.return_value = 85
+        child.getName.return_value = "Child"
+        child.getWBS.return_value = "5.1"
+        child.getChildTasks.return_value = None
+        child.getMilestone.return_value = True
+        child.getPredecessors.return_value = []
+        child.getResourceAssignments.return_value = []
+        child.getConstraintType.return_value = None
+        child.getNotes.return_value = None
+        child.getPhysicalPercentComplete.return_value = None
+        child.getPercentageComplete.return_value = None
+
+        mock_children = MagicMock()
+        mock_children.isEmpty.return_value = False
+        mock_children.__iter__.return_value = [child]
+        parent.getChildTasks.return_value = mock_children
+
+        writer.write_task_recursive(parent, 0)
+        output = "\n".join(writer.lines)
+        assert 'complete:' not in output
 
     def test_get_reader(self):
         with patch.dict(sys.modules, {'org': MagicMock(), 'org.mpxj': MagicMock(), 'org.mpxj.reader': MagicMock()}):
